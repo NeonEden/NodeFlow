@@ -1,0 +1,6 @@
+{
+  "name": "NeuralMind - Mapa de Nodos Interactivo",
+  "description": "Mapa mental interactivo con nodos arrastrables, conexiones personalizables, asistencia con IA de Gemini, guardado y exportación en JSON, historial deshacer/rehacer y autenticación básica.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
