@@ -36,6 +36,8 @@ import {
   Brain,
   Zap,
   Network,
+  X,
+  Link2,
 } from 'lucide-react';
 import { IdeaNode } from './components/IdeaNode';
 import { Toolbar } from './components/Toolbar';
@@ -54,7 +56,12 @@ import { postAiAction } from './services/aiApi';
 import { autoLayoutNodes } from './utils/layout';
 import { useUndoRedo } from './hooks/useUndoRedo';
 import { getInitialUser, saveCurrentUser } from './services/auth';
-import { INITIAL_TEMPLATES } from './data/templates';
+import {
+  INITIAL_TEMPLATES,
+  TemplateDefinition,
+  getNextFreshTemplates,
+  formatAiGeneratedTemplates,
+} from './data/templates';
 import { fetchHitlProfile, recordHitlFeedback, DEFAULT_FRONTEND_PROFILE } from './services/hitlService';
 import {
   CustomNode,
@@ -128,6 +135,17 @@ export default function App() {
   const [isStatesModalOpen, setIsStatesModalOpen] = useState(false);
   const [statesModalTab, setStatesModalTab] = useState<'saved' | 'obsidian' | 'export' | 'import'>('saved');
   const [isTemplatesModalOpen, setIsTemplatesModalOpen] = useState(false);
+  const [templates, setTemplates] = useState<TemplateDefinition[]>(() => {
+    try {
+      const saved = localStorage.getItem('nodeflow_active_templates');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return INITIAL_TEMPLATES;
+  });
+  const [isRefreshingTemplates, setIsRefreshingTemplates] = useState(false);
   const [isClearModalOpen, setIsClearModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'info' | 'error' } | null>(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
@@ -194,6 +212,8 @@ export default function App() {
   const handleAddChildNodeRef = useRef<(node: CustomNode) => void>(() => {});
   const handleAddSiblingNodeRef = useRef<(node: CustomNode) => void>(() => {});
   const handleAIActionRef = useRef<any>(null);
+  const handleConnectSelectedNodesRef = useRef<() => void>(() => {});
+  const handleHybridizeRef = useRef<() => void>(() => {});
 
   // 5. Undo / Redo Hook
   const {
@@ -393,9 +413,34 @@ export default function App() {
         }
       }
 
-      // Atajos directos para nodo seleccionado en lienzo (C: Crítica, S: Inyector Socrático, M / 1-4: Calificador de Madurez)
+      // Atajos para Multi-Selección (2 o más nodos: U para unir directamente, H para hibridar con IA)
+      if (selectedNodes.length >= 2 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        const key = e.key.toLowerCase();
+        if (key === 'u' && selectedNodes.length === 2) {
+          e.preventDefault();
+          handleConnectSelectedNodesRef.current?.();
+          return;
+        }
+        if (key === 'h') {
+          e.preventDefault();
+          handleHybridizeRef.current?.();
+          return;
+        }
+      }
+
+      // Atajos directos para 1 nodo seleccionado en lienzo (B: Ramificar, E: Explorar, C: Crítica, S: Inyector Socrático, M / 1-4: Calificador de Madurez)
       if (selectedNodes.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
         const key = e.key.toLowerCase();
+        if (key === 'b') {
+          e.preventDefault();
+          handleAIActionRef.current?.('branch', selectedNodes[0].id, selectedNodes[0].data);
+          return;
+        }
+        if (key === 'e') {
+          e.preventDefault();
+          handleAIActionRef.current?.('explore', selectedNodes[0].id, selectedNodes[0].data);
+          return;
+        }
         if (key === 'c') {
           e.preventDefault();
           handleAIActionRef.current?.('critique', selectedNodes[0].id, selectedNodes[0].data);
@@ -1351,6 +1396,50 @@ export default function App() {
     }
   }, [selectedNodes, nodes, edges, edgeAppearance.type, takeSnapshot, showToast, hitlProfile.learnedProfile]);
 
+  // Conexión rápida y directa entre 2 nodos seleccionados (sin tener que arrastrar cables con el ratón)
+  const handleConnectSelectedNodes = useCallback(() => {
+    if (selectedNodes.length !== 2) {
+      showToast('Selecciona exactamente 2 nodos para unirlos con una conexión.', 'info');
+      return;
+    }
+    const [source, target] = selectedNodes;
+
+    // Verificar si ya existe arista previa entre ambos en cualquier dirección
+    const alreadyConnected = edges.some(
+      (e) =>
+        (e.source === source.id && e.target === target.id) ||
+        (e.source === target.id && e.target === source.id)
+    );
+    if (alreadyConnected) {
+      showToast('Los 2 nodos seleccionados ya están conectados entre sí.', 'info');
+      return;
+    }
+
+    takeSnapshot(nodes, edges);
+    const newEdge: Edge = {
+      id: `edge-${source.id}-${target.id}-${Date.now()}`,
+      source: source.id,
+      sourceHandle: 'right',
+      target: target.id,
+      targetHandle: 'left',
+      type: edgeAppearance.type,
+      animated: edgeAppearance.animated,
+      style: {
+        stroke: edgeAppearance.color,
+        strokeWidth: edgeAppearance.strokeWidth,
+      },
+    };
+
+    setEdges((eds) => [...eds, newEdge]);
+    showToast(`Conexión creada: "${source.data.title || 'Nodo 1'}" ↔ "${target.data.title || 'Nodo 2'}"`, 'success');
+  }, [selectedNodes, edges, nodes, edgeAppearance, takeSnapshot, showToast]);
+
+  // Mantener actualizados los refs de atajos para el listener global
+  useEffect(() => {
+    handleConnectSelectedNodesRef.current = handleConnectSelectedNodes;
+    handleHybridizeRef.current = handleHybridize;
+  }, [handleConnectSelectedNodes, handleHybridize]);
+
   // Search matching node IDs
   const searchMatchingNodeIds = useMemo(() => {
     if (!searchQuery.trim()) return new Set<string>();
@@ -1470,23 +1559,88 @@ export default function App() {
     }
   }, [nodes, showToast]);
 
-  // Manejador de Descarga Mental (Brain Dump Rápido)
+  // Función de descomposición instantánea local (0 latencia / sin depender de red)
+  const parseTextToLocalStructure = (rawText: string) => {
+    const cleanText = rawText.trim();
+    // Dividir por saltos de línea, viñetas (- * •) o líneas numeradas
+    let lines = cleanText
+      .split(/\r?\n+/)
+      .map((l) => l.replace(/^[-*•\d.]+\s*/, '').trim())
+      .filter((l) => l.length > 0);
+
+    if (lines.length === 0) {
+      lines = [cleanText.slice(0, 60)];
+    }
+
+    const rootTitle = lines[0].slice(0, 45) || 'Idea Central';
+    let childLines = lines.slice(1);
+
+    // Si el usuario introdujo solo 1 frase, inferir 3 dimensiones operativas de arranque
+    if (childLines.length === 0) {
+      childLines = [
+        'Propuesta de Valor y Adopción',
+        'Arquitectura y Funcionalidad Clave',
+        'Métricas de Éxito y Viabilidad',
+      ];
+    }
+
+    const categories = ['ARQUITECTURA', 'ESTRATEGIA', 'EJECUCIÓN', 'MÉTRICAS', 'VALIDACIÓN'];
+
+    return {
+      root: {
+        title: rootTitle,
+        description: cleanText.length > 50 ? cleanText.slice(0, 160) : 'Núcleo conceptual principal',
+        category: 'NÚCLEO',
+        tags: ['BrainDump', 'Núcleo'],
+      },
+      nodes: childLines.slice(0, 10).map((line, idx) => ({
+        tempId: `node-${idx + 1}`,
+        connectsTo: 'root',
+        title: line.slice(0, 42),
+        description: line.length > 42 ? line : 'Concepto derivado de la descarga mental',
+        category: categories[idx % categories.length],
+        tags: ['Idea', 'Estructura'],
+      })),
+    };
+  };
+
+  // Manejador de Descarga Mental (Brain Dump Rápido con soporte dual: IA o Instantáneo)
   const handleBrainDumpSubmit = useCallback(
-    async (rawText: string) => {
+    async (rawText: string, mode: 'ai' | 'instant' = 'ai') => {
       setIsBrainDumpLoading(true);
       try {
-        showToast('Gemini está procesando y estructurando tu descarga mental...', 'info');
-        const res = await postAiAction({
-          type: 'braindump',
-          rawText,
-          hitlProfileOverride: hitlProfile.learnedProfile,
-        });
-        const data = await res.json();
+        let structure: any = null;
+        let usedLocalFallback = false;
 
-        if (data.success && data.structure?.root && Array.isArray(data.structure?.nodes)) {
+        if (mode === 'instant') {
+          // Modo 100% instantáneo (0ms)
+          structure = parseTextToLocalStructure(rawText);
+        } else {
+          showToast('Gemini está procesando y estructurando tu descarga mental...', 'info');
+          try {
+            const res = await postAiAction({
+              type: 'braindump',
+              rawText,
+              hitlProfileOverride: hitlProfile.learnedProfile,
+            });
+            const data = await res.json();
+            if (data.success && data.structure?.root && Array.isArray(data.structure?.nodes)) {
+              structure = data.structure;
+            }
+          } catch (netErr) {
+            console.warn('AI braindump request failed, using instant engine fallback:', netErr);
+          }
+
+          if (!structure) {
+            structure = parseTextToLocalStructure(rawText);
+            usedLocalFallback = true;
+          }
+        }
+
+        if (structure?.root && Array.isArray(structure?.nodes)) {
           takeSnapshot(nodes, edges);
 
-          const { root, nodes: childNodes } = data.structure;
+          const { root, nodes: childNodes } = structure;
 
           // Posición base del nuevo núcleo
           let rootX = 350;
@@ -1585,7 +1739,13 @@ export default function App() {
           setNodes(organizedNodes);
           setEdges(combinedEdges);
           setIsBrainDumpOpen(false);
-          showToast(`Descarga mental estructurada: ${newCreatedNodes.length} nodos integrados con éxito`, 'success');
+
+          const successMsg = usedLocalFallback
+            ? `Estructurado con motor instantáneo: ${newCreatedNodes.length} nodos integrados`
+            : mode === 'instant'
+            ? `Volcado instantáneo listo: ${newCreatedNodes.length} nodos creados en el lienzo`
+            : `Descarga mental estructurada con Gemini: ${newCreatedNodes.length} nodos integrados`;
+          showToast(successMsg, 'success');
 
           // Centrar el viewport en el nuevo núcleo
           if (rfInstanceRef.current) {
@@ -1598,7 +1758,7 @@ export default function App() {
             }
           }
         } else {
-          throw new Error(data.error || 'Estructura no válida');
+          throw new Error('Estructura no válida');
         }
       } catch (err) {
         console.error('Error in brain dump action:', err);
@@ -1848,10 +2008,52 @@ export default function App() {
     [nodes, edges, takeSnapshot, showToast]
   );
 
+  // Refresh Idea Cores keeping key topics (Tecnología, Negocios, Diseño, Investigación, Esencial)
+  const handleRefreshTemplates = useCallback(async () => {
+    setIsRefreshingTemplates(true);
+    try {
+      showToast('Generando nuevos núcleos de ideas frescas con IA...', 'info');
+      let newTemplates: TemplateDefinition[] = [];
+
+      try {
+        const res = await postAiAction({
+          type: 'refresh_templates',
+          hitlProfileOverride: hitlProfile.learnedProfile,
+        });
+        const data = await res.json();
+        if (data.success && Array.isArray(data.templates) && data.templates.length > 0) {
+          newTemplates = formatAiGeneratedTemplates(data.templates);
+        }
+      } catch (apiErr) {
+        console.warn('AI generation not responding, rotating fresh pack:', apiErr);
+      }
+
+      // Si la IA no generó o tardó, rotamos inmediatamente al siguiente pack fresco
+      if (newTemplates.length === 0) {
+        const pack = getNextFreshTemplates();
+        newTemplates = pack.templates;
+      }
+
+      setTemplates(newTemplates);
+      try {
+        localStorage.setItem('nodeflow_active_templates', JSON.stringify(newTemplates));
+      } catch {}
+
+      showToast('✨ Núcleos de ideas renovados con conceptos frescos e innovadores', 'success');
+    } catch (err) {
+      console.error('Error refreshing templates:', err);
+      const pack = getNextFreshTemplates();
+      setTemplates(pack.templates);
+      showToast('Núcleos de ideas renovados con nuevos conceptos', 'success');
+    } finally {
+      setIsRefreshingTemplates(false);
+    }
+  }, [hitlProfile.learnedProfile, showToast]);
+
   // Switch template
   const handleSelectTemplate = useCallback(
     (templateId: string) => {
-      const template = INITIAL_TEMPLATES.find((t) => t.id === templateId);
+      const template = templates.find((t) => t.id === templateId) || INITIAL_TEMPLATES.find((t) => t.id === templateId);
       if (!template) return;
       takeSnapshot(nodes, edges);
       setNodes(template.nodes);
@@ -1866,7 +2068,7 @@ export default function App() {
       }
       showToast(`Plantilla "${template.title}" cargada exitosamente`, 'success');
     },
-    [nodes, edges, takeSnapshot, resetHistory, showToast]
+    [templates, nodes, edges, takeSnapshot, resetHistory, showToast]
   );
 
   // Clear all nodes completely
@@ -1983,6 +2185,9 @@ export default function App() {
         onResetCanvas={handleResetCanvas}
         onOpenTemplatesModal={() => setIsTemplatesModalOpen(true)}
         onOpenClearModal={() => setIsClearModalOpen(true)}
+        templates={templates}
+        onRefreshTemplates={handleRefreshTemplates}
+        isRefreshingTemplates={isRefreshingTemplates}
         saveStatus={saveStatus}
         isAiProcessing={isAiLoading}
         isSidebarOpen={isSidebarOpen}
@@ -2365,21 +2570,103 @@ export default function App() {
             </button>
           </div>
 
-          {/* Floating AI Helper Badge */}
-          <div className="absolute bottom-6 right-6 w-80 bg-slate-900/90 border border-indigo-500/30 p-3.5 rounded-2xl backdrop-blur-md shadow-2xl z-20 pointer-events-auto">
-            <div className="flex gap-2.5 items-start text-xs leading-relaxed text-slate-300">
-              <div className="w-8 h-8 rounded-xl bg-indigo-950/80 border border-indigo-700/50 flex items-center justify-center shrink-0 text-indigo-400">
-                <BrainCircuit size={18} />
+          {/* Floating Multi-Selection Quick Bar (Unir, Hibridar, Puentes) */}
+          {selectedNodes.length >= 2 && (
+            <div
+              id="floating-multi-selection-bar"
+              className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-3.5 py-2 bg-slate-900/95 border border-indigo-500/50 rounded-2xl shadow-2xl backdrop-blur-md animate-in fade-in slide-in-from-bottom-2 duration-200 pointer-events-auto"
+            >
+              <div className="flex items-center gap-1.5 px-2.5 py-1 bg-indigo-950/80 border border-indigo-700/50 rounded-xl text-indigo-300 text-xs font-semibold">
+                <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" />
+                <span>{selectedNodes.length} Nodos</span>
               </div>
-              <div>
-                <div className="font-semibold text-white text-[13px] flex items-center gap-1.5 mb-0.5">
-                  <span>Co-creación con Gemini AI</span>
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+
+              {selectedNodes.length === 2 && (
+                <button
+                  type="button"
+                  id="btn-quick-connect-nodes"
+                  onClick={handleConnectSelectedNodes}
+                  title="Crear conexión directa entre ambos nodos (Atajo: U)"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-100 hover:text-white rounded-xl text-xs font-medium border border-slate-700/80 transition-colors cursor-pointer"
+                >
+                  <Network size={14} className="text-emerald-400" />
+                  <span>Unir Conexión</span>
+                  <kbd className="text-[10px] px-1 py-0.5 bg-slate-900 text-slate-400 rounded font-mono">U</kbd>
+                </button>
+              )}
+
+              <button
+                type="button"
+                id="btn-quick-hybrid-nodes"
+                onClick={handleHybridize}
+                disabled={isAiLoading}
+                title="Sintetizar un nuevo nodo conceptual que cruce las ideas (Atajo: H)"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-xl text-xs font-semibold shadow-md transition-all cursor-pointer disabled:opacity-50"
+              >
+                <Sparkles size={14} />
+                <span>Hibridar IA</span>
+                <kbd className="text-[10px] px-1 py-0.5 bg-purple-900/60 text-purple-200 rounded font-mono">H</kbd>
+              </button>
+
+              <button
+                type="button"
+                id="btn-quick-bridges-scan"
+                onClick={handleOpenBridgesModal}
+                title="Escanear puentes semánticos y relaciones ocultas"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-xl text-xs font-medium border border-slate-700/80 transition-colors cursor-pointer"
+              >
+                <Compass size={14} className="text-cyan-400" />
+                <span className="hidden sm:inline">Puentes Ocultos</span>
+              </button>
+
+              <button
+                type="button"
+                id="btn-quick-deselect"
+                onClick={() => setSelectedNodes([])}
+                className="p-1.5 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+                title="Deseleccionar (Esc)"
+              >
+                <X size={15} />
+              </button>
+            </div>
+          )}
+
+          {/* Floating AI Helper Badge - Disappears when not hovered to keep canvas completely clear */}
+          <div
+            id="ai-helper-hover-zone"
+            className="absolute bottom-6 right-6 z-20 pointer-events-auto group flex flex-col items-end"
+          >
+            {/* Expanded Full Card - Hidden by default; appears smoothly only on cursor hover */}
+            <div
+              id="ai-helper-card"
+              className="mb-2 w-80 bg-slate-900/95 border border-indigo-500/40 p-3.5 rounded-2xl backdrop-blur-md shadow-2xl transition-all duration-300 ease-out opacity-0 pointer-events-none scale-95 translate-y-2 group-hover:opacity-100 group-hover:pointer-events-auto group-hover:scale-100 group-hover:translate-y-0"
+            >
+              <div className="flex gap-2.5 items-start text-xs leading-relaxed text-slate-300">
+                <div className="w-8 h-8 rounded-xl bg-indigo-950/80 border border-indigo-700/50 flex items-center justify-center shrink-0 text-indigo-400">
+                  <BrainCircuit size={18} />
                 </div>
-                <p className="text-[11px] text-slate-400">
-                  Selecciona 2 o más nodos y pulsa <strong className="text-indigo-300">Hibridador IA</strong> para descubrir sinergias conceptuales, o pulsa <strong className="text-emerald-300">Ramificar</strong> en cualquier nodo.
-                </p>
+                <div>
+                  <div className="font-semibold text-white text-[13px] flex items-center justify-between mb-0.5">
+                    <span className="flex items-center gap-1.5">
+                      <span>Co-creación con Gemini AI</span>
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400">
+                    Selecciona 2 o más nodos y pulsa <strong className="text-indigo-300 font-medium">Hibridador IA</strong> para descubrir sinergias conceptuales, o pulsa <strong className="text-emerald-300 font-medium">Ramificar</strong> en cualquier nodo.
+                  </p>
+                </div>
               </div>
+            </div>
+
+            {/* Subtle indicator pill when idle: minimal footprint, translucent, zero obstruction */}
+            <div
+              id="ai-helper-pill"
+              className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900/70 hover:bg-slate-900 border border-slate-800 hover:border-indigo-500/40 text-slate-400 hover:text-indigo-300 text-xs backdrop-blur-md shadow-lg transition-all duration-200 cursor-pointer opacity-30 hover:opacity-100 group-hover:opacity-100 group-hover:border-indigo-500/60"
+            >
+              <BrainCircuit size={14} className="text-indigo-400" />
+              <span className="text-[11px] font-medium tracking-tight">Co-creación Gemini IA</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
             </div>
           </div>
 
@@ -2464,6 +2751,9 @@ export default function App() {
         onSelectTemplate={handleSelectTemplate}
         currentTemplateId={currentTemplateId}
         currentNodeCount={nodes.length}
+        templates={templates}
+        onRefreshTemplates={handleRefreshTemplates}
+        isRefreshingTemplates={isRefreshingTemplates}
       />
 
       {/* Clear Canvas / Delete All Nodes Confirmation Modal */}

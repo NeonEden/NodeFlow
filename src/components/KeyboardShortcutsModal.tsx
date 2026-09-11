@@ -125,38 +125,44 @@ const SHORTCUTS: ShortcutItem[] = [
 
   // IA y Pensamiento Estratégico
   {
-    keys: ['Ramificar (Nodo)'],
-    description: 'Genera 3 ramas conceptuales lógicas con Gemini IA conectadas al nodo',
+    keys: ['U'],
+    description: 'Unir directamente los 2 nodos seleccionados con una nueva conexión sin arrastrar cables',
+    category: 'canvas',
+    badge: 'Conexión Rápida',
+  },
+  {
+    keys: ['H', 'Hibridador IA'],
+    description: 'Cruza 2 o más ideas seleccionadas para sintetizar conceptos emergentes con Gemini IA',
+    category: 'ai',
+    badge: 'Sinergia',
+  },
+  {
+    keys: ['B', 'Ramificar'],
+    description: 'Genera 3 ramas conceptuales lógicas con Gemini IA conectadas al nodo seleccionado',
     category: 'ai',
     badge: 'Expansión',
   },
   {
-    keys: ['Explorar (Nodo)'],
-    description: 'Analiza viabilidad, riesgos, estrategia y derivaciones operativas',
+    keys: ['E', 'Explorar'],
+    description: 'Analiza viabilidad, riesgos, estrategia y derivaciones operativas del nodo',
     category: 'ai',
     badge: 'Análisis',
   },
   {
-    keys: ['Crítica', 'C'],
+    keys: ['C', 'Crítica'],
     description: 'Abogado del Diablo: detecta puntos ciegos, antítesis y supuestos débiles del nodo',
     category: 'ai',
     badge: 'Auditoría',
   },
   {
-    keys: ['Socrático', 'S'],
+    keys: ['S', 'Socrático'],
     description: 'Inyector Socrático: formula 3 preguntas profundas y catalizadoras para destrabar la idea',
     category: 'ai',
     badge: 'Reflexión',
   },
   {
-    keys: ['Hibridador IA'],
-    description: 'Cruza 2 o más ideas seleccionadas para sintetizar conceptos emergentes',
-    category: 'ai',
-    badge: 'Sinergia',
-  },
-  {
     keys: ['Ctrl + B', '⌘ + B'],
-    description: 'Abrir Descarga Mental (Brain Dump) para estructurar notas rápidas en nodos',
+    description: 'Abrir Descarga Mental (Brain Dump) para volcar ideas simples o complejas en nodos',
     category: 'ai',
     badge: 'Cero Fricción',
   },

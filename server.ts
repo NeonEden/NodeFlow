@@ -31,9 +31,10 @@ function getGeminiClient(customApiKey?: string): GoogleGenAI | null {
 
 // Resilient model cascade to handle transient 503/429 spikes smoothly
 const CANDIDATE_MODELS = [
-  "gemini-3.8-flash",
+  "gemini-3.6-flash",
   "gemini-3.1-flash-lite",
   "gemini-flash-latest",
+  "gemini-3.8-flash",
 ];
 
 async function callGeminiWithResilience(
@@ -48,40 +49,32 @@ async function callGeminiWithResilience(
   let lastError: any = null;
 
   for (const model of CANDIDATE_MODELS) {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const response = await client.models.generateContent({
-          model,
-          contents: prompt,
-          config: {
-            responseMimeType: "application/json",
-            responseSchema: schema,
-            systemInstruction,
-          },
-        });
+    try {
+      const response = await client.models.generateContent({
+        model,
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: schema,
+          systemInstruction,
+        },
+      });
 
-        const rawText = response.text?.trim() || "";
-        // Strip code fence if present
-        const cleaned = rawText.replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
-        const parsed = JSON.parse(cleaned);
-        return { parsed, modelUsed: model };
-      } catch (err: any) {
-        lastError = err;
-        const statusCode =
-          err?.status ||
-          err?.code ||
-          (typeof err?.message === "string" && err.message.includes("503") ? 503 : 0);
+      const rawText = response.text?.trim() || "";
+      // Strip code fence if present
+      const cleaned = rawText.replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
+      const parsed = JSON.parse(cleaned);
+      return { parsed, modelUsed: model };
+    } catch (err: any) {
+      lastError = err;
+      const statusCode =
+        err?.status ||
+        err?.code ||
+        (typeof err?.message === "string" && err.message.includes("503") ? 503 : 0);
 
-        // On 503 (model busy/high demand) or 429 (rate limit), pause briefly and retry or cascade
-        if (statusCode === 503 || statusCode === 429) {
-          if (attempt === 0) {
-            await new Promise((resolve) => setTimeout(resolve, 350));
-            continue;
-          }
-        }
-        // If not transient retryable or second attempt failed, switch to next model immediately
-        break;
-      }
+      // On 503 (model busy), 429 (rate limit) or 404, immediately cascade to next model
+      console.warn(`Model ${model} failed (${statusCode}):`, err?.message || err);
+      continue;
     }
   }
 
@@ -896,21 +889,22 @@ Responde exclusivamente en este formato JSON:
         return res.status(400).json({ error: "El texto de descarga mental no puede estar vacío." });
       }
 
-      const prompt = `Analiza este texto desestructurado o lluvia de ideas del usuario:
+      const prompt = `Actúa como un arquitecto de mapas mentales y estructurador cognitivo de alto rendimiento.
+Analiza la siguiente entrada del usuario, que puede ser desde una idea simple (una frase o concepto breve) hasta notas desordenadas o una especificación compleja con múltiples párrafos:
 """
 ${rawText}
 """
 
-Descompón y organiza este contenido en una estructura lógica para un mapa mental:
-1. Identifica un "root" (concepto nuclear central que agrupa todo).
-2. Genera de 3 a 5 "nodes" secundarios derivados, categorizados y titulados con precisión.
-3. Para cada nodo secundario, define a cuál se conecta (puede ser "root" u otro nodo secundario si es sub-rama).
+INSTRUCCIONES DE PROCESAMIENTO:
+1. Si la entrada es SIMPLE (una frase o pocas palabras): Extrae la idea nuclear en "root" y deriva proactivamente entre 3 y 5 sub-nodos lógicos esenciales (ej: Propuesta Central, Implementación Técnica, Adopción/Usuarios, Métricas de Éxito).
+2. Si la entrada es COMPLEJA o EXTENSA: Sintetiza el propósito global en "root" y descompón los diferentes aspectos en 4 a 8 sub-nodos categorizados con precisión. Si algún aspecto depende de otro nodo secundario en vez del núcleo, indica en "connectsTo" el tempId correspondiente; de lo contrario, "connectsTo": "root".
+3. Cada nodo debe tener un título conciso (máx. 5 palabras), una descripción breve y accionable (1-2 oraciones), una categoría en mayúsculas (ej: ARQUITECTURA, PRODUCTO, ESTRATEGIA, RIESGO, INVESTIGACIÓN, MÉTRICAS) y 2 tags clave.
 
 Formato JSON esperado:
 {
   "root": {
     "title": "Idea Central Concisa",
-    "description": "Síntesis del propósito global",
+    "description": "Síntesis clara del propósito global",
     "category": "NÚCLEO",
     "tags": ["Tag1", "Tag2"]
   },
@@ -974,32 +968,130 @@ Formato JSON esperado:
         });
       }
 
-      // Fallback braindump
-      const lines = rawText.split("\n").map((l: string) => l.trim()).filter((l: string) => l.length > 0);
-      const rootTitle = lines[0] ? lines[0].replace(/^[-*•\d.]+\s*/, "").slice(0, 40) : "Visión Principal";
-      const childLines = lines.slice(1, 5);
+      // Robust fallback heuristic: handles both bulleted lists, multi-line, or continuous paragraphs
+      const cleanText = rawText.trim();
+      let rawSegments = cleanText
+        .split(/\r?\n+|[•\-*]\s+|;\s+|\.\s+(?=[A-Z0-9ÁÉÍÓÚ])/)
+        .map((s: string) => s.replace(/^[-*•\d.]+\s*/, "").trim())
+        .filter((s: string) => s.length > 0);
+
+      if (rawSegments.length === 0) {
+        rawSegments = [cleanText.slice(0, 50)];
+      }
+
+      const rootTitle = rawSegments[0].slice(0, 40) || "Idea Central";
+      let childSegments = rawSegments.slice(1);
+
+      // If user provided a single idea or sentence, extrapolate default functional pillars
+      if (childSegments.length === 0) {
+        childSegments = [
+          `Implementación y Arquitectura de ${rootTitle.slice(0, 25)}`,
+          "Validación con Usuarios y Casos de Uso",
+          "Métricas Clave y Escalabilidad",
+        ];
+      }
 
       const fallbackStructure = {
         root: {
           title: rootTitle,
-          description: "Idea nuclear sintetizada a partir del volcado de pensamiento.",
+          description: cleanText.length > 80 ? `${cleanText.slice(0, 160)}...` : "Idea nuclear sintetizada a partir del volcado de pensamiento.",
           category: "NÚCLEO",
           tags: ["BrainDump", "Visión"],
         },
-        nodes: childLines.map((line: string, idx: number) => ({
-          tempId: `node-${idx + 1}`,
-          connectsTo: "root",
-          title: line.replace(/^[-*•\d.]+\s*/, "").slice(0, 35) || `Componente ${idx + 1}`,
-          description: "Derivación estructurada a partir de las notas ingresadas.",
-          category: idx % 2 === 0 ? "ESTRATEGIA" : "EJECUCIÓN",
-          tags: ["Idea", "Estructura"],
-        })),
+        nodes: childSegments.slice(0, 8).map((seg: string, idx: number) => {
+          const categories = ["ESTRATEGIA", "ARQUITECTURA", "EJECUCIÓN", "VALIDACIÓN", "MÉTRICAS"];
+          return {
+            tempId: `node-${idx + 1}`,
+            connectsTo: "root",
+            title: seg.slice(0, 38) || `Componente ${idx + 1}`,
+            description: seg.length > 38 ? seg : "Derivación estructurada a partir de la descarga conceptual.",
+            category: categories[idx % categories.length],
+            tags: ["Idea", "Estructura"],
+          };
+        }),
       };
 
       return res.json({
         success: true,
         structure: fallbackStructure,
         hitlActive: true,
+      });
+    }
+
+    if (type === "refresh_templates") {
+      const prompt = `Actúa como arquitecto de innovación conceptual de vanguardia.
+Genera 5 nuevos núcleos de ideas conceptuales (plantillas de inicio de proyectos) manteniendo exactamente estos 5 tópicos/categorías:
+1. "Tecnología" (ej: Inteligencia de Agentes, Neurotecnología, Edge AI, Computación Cuántica, Biología Sintética)
+2. "Negocios" (ej: Modelos Circulares, Micro-SaaS B2B, Plataformas Algorítmicas, Finanzas Autónomas)
+3. "Diseño" (ej: Computación Espacial, Interfaces Generativas, Diseño Biomimético, Arquitectura de Sistemas)
+4. "Investigación" (ej: Modelos Cognitivos, Transición Energética, Epistemología de Redes Complejas)
+5. "Esencial" (ej: Primeros Principios, Deep Work, Reducción de Ruido)
+
+Para cada una de las 5 categorías, genera una estructura JSON con:
+- "category": Una de "Tecnología", "Negocios", "Diseño", "Investigación", "Esencial"
+- "title": Título atractivo e inspirador (máx. 6 palabras)
+- "description": Resumen de 1-2 oraciones explicando la propuesta y visión
+- "iconName": Uno de "Bot", "Rocket", "Compass", "BookOpen", "PlusCircle"
+- "colorAccent": Color hex (#6366f1, #10b981, #f59e0b, #8b5cf6, #06b6d4)
+- "root": { "title": string, "description": string, "tags": string[] }
+- "nodes": Array de 3 a 4 sub-nodos derivados que ramifican la idea, cada uno con:
+    - "title": Título conciso del concepto derivado
+    - "description": Breve detalle explicativo
+    - "category": Nombre de la sub-etiqueta (ej: "OPTIMIZACIÓN", "ARQUITECTURA", "VALIDACIÓN")
+    - "tags": Array de 2 o 3 tags clave
+    - "connectionLabel": Etiqueta de la relación con el núcleo`;
+
+      const templatesSchema = {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            category: { type: Type.STRING },
+            title: { type: Type.STRING },
+            description: { type: Type.STRING },
+            iconName: { type: Type.STRING },
+            colorAccent: { type: Type.STRING },
+            root: {
+              type: Type.OBJECT,
+              properties: {
+                title: { type: Type.STRING },
+                description: { type: Type.STRING },
+                tags: { type: Type.ARRAY, items: { type: Type.STRING } },
+              },
+              required: ["title", "description", "tags"],
+            },
+            nodes: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  title: { type: Type.STRING },
+                  description: { type: Type.STRING },
+                  category: { type: Type.STRING },
+                  tags: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  connectionLabel: { type: Type.STRING },
+                },
+                required: ["title", "description", "category", "tags"],
+              },
+            },
+          },
+          required: ["category", "title", "description", "root", "nodes"],
+        },
+      };
+
+      const result = await callGeminiWithResilience(prompt, templatesSchema, systemInstruction, customApiKey);
+      if (result && Array.isArray(result.parsed) && result.parsed.length > 0) {
+        return res.json({
+          success: true,
+          templates: result.parsed,
+          source: "gemini",
+          modelUsed: result.modelUsed,
+        });
+      }
+
+      return res.json({
+        success: true,
+        source: "fallback_rotation",
       });
     }
 

@@ -21,9 +21,11 @@ import {
   Keyboard,
   Key,
   Zap,
+  RefreshCw,
 } from 'lucide-react';
 import { ColorPickerMenu } from './ColorPickerMenu';
 import { EdgeAppearance, UserProfile } from '../types';
+import { TemplateDefinition } from '../data/templates';
 
 interface ToolbarProps {
   canUndo: boolean;
@@ -46,6 +48,9 @@ interface ToolbarProps {
   onResetCanvas: () => void;
   onOpenTemplatesModal?: () => void;
   onOpenClearModal?: () => void;
+  templates?: TemplateDefinition[];
+  onRefreshTemplates?: () => void;
+  isRefreshingTemplates?: boolean;
   saveStatus?: 'saved' | 'saving' | 'unsaved';
   isAiProcessing?: boolean;
   isSidebarOpen?: boolean;
@@ -83,6 +88,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onResetCanvas,
   onOpenTemplatesModal,
   onOpenClearModal,
+  templates,
+  onRefreshTemplates,
+  isRefreshingTemplates = false,
   saveStatus = 'saved',
   isAiProcessing = false,
   isSidebarOpen = true,
@@ -360,66 +368,60 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             <LayoutTemplate size={14} className="text-indigo-400" />
             <span className="hidden md:inline">Plantillas</span>
           </button>
-          <div className="absolute right-0 top-full mt-1.5 w-60 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl p-1.5 hidden group-hover:block z-50 text-xs text-slate-200">
-            <div className="px-2 py-1 text-[10px] uppercase font-bold text-slate-500 tracking-wider">
-              Núcleos de Ideas
+          <div className="absolute right-0 top-full mt-1.5 w-64 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl p-1.5 hidden group-hover:block z-50 text-xs text-slate-200 max-h-96 overflow-y-auto">
+            <div className="px-2 py-1 text-[10px] uppercase font-bold text-slate-500 tracking-wider flex items-center justify-between">
+              <span>Núcleos de Ideas</span>
+              {templates && <span className="text-indigo-400 font-mono text-[9px]">{templates.length} disponibles</span>}
             </div>
-            <button
-              type="button"
-              onClick={() => onSelectTemplate('ai-startup')}
-              className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-slate-800 transition-colors text-slate-300 hover:text-white flex items-center justify-between"
-            >
-              <span>🤖 Ecosistema IA</span>
-              <span className="text-[10px] text-slate-500">5 nodos</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onSelectTemplate('saas-launch')}
-              className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-slate-800 transition-colors text-slate-300 hover:text-white flex items-center justify-between"
-            >
-              <span>🚀 Startup SaaS B2B</span>
-              <span className="text-[10px] text-slate-500">5 nodos</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onSelectTemplate('design-thinking')}
-              className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-slate-800 transition-colors text-slate-300 hover:text-white flex items-center justify-between"
-            >
-              <span>💡 Design Thinking</span>
-              <span className="text-[10px] text-slate-500">5 nodos</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onSelectTemplate('microservices')}
-              className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-slate-800 transition-colors text-slate-300 hover:text-white flex items-center justify-between"
-            >
-              <span>⚡ Microservicios Cloud</span>
-              <span className="text-[10px] text-slate-500">5 nodos</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onSelectTemplate('research-thesis')}
-              className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-slate-800 transition-colors text-slate-300 hover:text-white flex items-center justify-between"
-            >
-              <span>📚 Tesis / Investigación</span>
-              <span className="text-[10px] text-slate-500">5 nodos</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onSelectTemplate('growth-marketing')}
-              className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-slate-800 transition-colors text-slate-300 hover:text-white flex items-center justify-between"
-            >
-              <span>📈 Growth & Marketing</span>
-              <span className="text-[10px] text-slate-500">5 nodos</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onSelectTemplate('blank')}
-              className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-slate-800 transition-colors text-slate-300 hover:text-white flex items-center justify-between"
-            >
-              <span>🌱 Núcleo Minimalista</span>
-              <span className="text-[10px] text-slate-500">1 nodo</span>
-            </button>
+
+            {onRefreshTemplates && (
+              <button
+                type="button"
+                id="btn-toolbar-refresh-templates"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRefreshTemplates();
+                }}
+                disabled={isRefreshingTemplates}
+                className="w-full text-left px-2.5 py-1.5 mb-1 rounded-lg bg-indigo-950/60 hover:bg-indigo-900/90 text-indigo-300 hover:text-white border border-indigo-500/30 transition-all font-medium flex items-center justify-between cursor-pointer disabled:opacity-50 group/ref"
+                title="Generar nuevos núcleos de ideas frescas manteniendo los tópicos"
+              >
+                <span className="flex items-center gap-1.5">
+                  <RefreshCw
+                    size={12}
+                    className={`text-indigo-400 ${
+                      isRefreshingTemplates ? 'animate-spin' : 'group-hover/ref:rotate-180 duration-500'
+                    }`}
+                  />
+                  <span>{isRefreshingTemplates ? 'Generando...' : 'Refrescar Núcleos'}</span>
+                </span>
+                <Sparkles size={11} className="text-amber-400 animate-pulse" />
+              </button>
+            )}
+
+            {(templates && templates.length > 0
+              ? templates
+              : [
+                  { id: 'ai-startup', title: '🤖 Ecosistema IA', nodeCount: 5 },
+                  { id: 'saas-launch', title: '🚀 Startup SaaS B2B', nodeCount: 5 },
+                  { id: 'design-thinking', title: '💡 Design Thinking', nodeCount: 5 },
+                  { id: 'microservices', title: '⚡ Microservicios Cloud', nodeCount: 5 },
+                  { id: 'research-thesis', title: '📚 Tesis / Investigación', nodeCount: 5 },
+                  { id: 'growth-marketing', title: '📈 Growth & Marketing', nodeCount: 5 },
+                  { id: 'blank', title: '🌱 Núcleo Minimalista', nodeCount: 1 },
+                ]
+            ).map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => onSelectTemplate(t.id)}
+                className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-slate-800 transition-colors text-slate-300 hover:text-white flex items-center justify-between"
+              >
+                <span className="truncate pr-2">{t.title}</span>
+                <span className="text-[10px] text-slate-500 shrink-0">{t.nodeCount} {t.nodeCount === 1 ? 'nodo' : 'nodos'}</span>
+              </button>
+            ))}
+
             {onOpenTemplatesModal && (
               <>
                 <div className="my-1 border-t border-slate-800" />

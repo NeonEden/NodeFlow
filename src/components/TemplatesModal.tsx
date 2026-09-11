@@ -12,6 +12,7 @@ import {
   ArrowRight,
   Layers,
   Check,
+  RefreshCw,
 } from 'lucide-react';
 import { INITIAL_TEMPLATES, TemplateDefinition } from '../data/templates';
 
@@ -21,6 +22,9 @@ interface TemplatesModalProps {
   onSelectTemplate: (templateId: string) => void;
   currentTemplateId?: string;
   currentNodeCount?: number;
+  templates?: TemplateDefinition[];
+  onRefreshTemplates?: () => Promise<void> | void;
+  isRefreshingTemplates?: boolean;
 }
 
 export const TemplatesModal: React.FC<TemplatesModalProps> = ({
@@ -29,6 +33,9 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({
   onSelectTemplate,
   currentTemplateId,
   currentNodeCount = 0,
+  templates = INITIAL_TEMPLATES,
+  onRefreshTemplates,
+  isRefreshingTemplates = false,
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<string>('Todos');
 
@@ -36,7 +43,7 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({
 
   const categories = ['Todos', 'Tecnología', 'Negocios', 'Diseño', 'Investigación', 'Esencial'];
 
-  const filteredTemplates = INITIAL_TEMPLATES.filter((tmpl) => {
+  const filteredTemplates = (templates || INITIAL_TEMPLATES).filter((tmpl) => {
     if (selectedCategory === 'Todos') return true;
     return tmpl.category === selectedCategory;
   });
@@ -91,22 +98,46 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({
           </button>
         </div>
 
-        {/* Category Filter Pills */}
-        <div className="px-5 py-3 border-b border-slate-800/80 bg-slate-900/50 flex items-center gap-2 overflow-x-auto shrink-0 scrollbar-none">
-          {categories.map((cat) => (
+        {/* Category Filter Pills & Refresh Action */}
+        <div className="px-5 py-3 border-b border-slate-800/80 bg-slate-900/50 flex items-center justify-between gap-3 overflow-x-auto shrink-0 scrollbar-none">
+          <div className="flex items-center gap-2">
+            {categories.map((cat) => (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => setSelectedCategory(cat)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap transition-colors cursor-pointer ${
+                  selectedCategory === cat
+                    ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
+                    : 'bg-slate-800/70 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-700/60'
+                }`}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+
+          {onRefreshTemplates && (
             <button
-              key={cat}
               type="button"
-              onClick={() => setSelectedCategory(cat)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap transition-colors cursor-pointer ${
-                selectedCategory === cat
-                  ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
-                  : 'bg-slate-800/70 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-700/60'
-              }`}
+              id="btn-refresh-idea-cores"
+              onClick={() => onRefreshTemplates()}
+              disabled={isRefreshingTemplates}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-indigo-950/60 hover:bg-indigo-900 border border-indigo-500/40 hover:border-indigo-400 text-indigo-300 hover:text-white transition-all shadow-sm shadow-indigo-950 cursor-pointer disabled:opacity-50 shrink-0 group ml-auto"
+              title="Generar nuevos núcleos de ideas manteniendo los 5 tópicos (Tecnología, Negocios, Diseño, Investigación, Esencial)"
             >
-              {cat}
+              <RefreshCw
+                size={13}
+                className={`text-indigo-400 group-hover:text-indigo-200 transition-transform ${
+                  isRefreshingTemplates ? 'animate-spin' : 'group-hover:rotate-180 duration-500'
+                }`}
+              />
+              <span className="whitespace-nowrap">
+                {isRefreshingTemplates ? 'Generando Ideas...' : 'Refrescar Núcleos (Ideas Frescas)'}
+              </span>
+              <Sparkles size={12} className="text-amber-400 animate-pulse shrink-0" />
             </button>
-          ))}
+          )}
         </div>
 
         {/* Templates Grid */}

@@ -855,3 +855,1084 @@ export const INITIAL_TEMPLATES: TemplateDefinition[] = [
     edges: [],
   },
 ];
+
+// =========================================================================
+// PACKS ROTATIVOS DE NÚCLEOS DE IDEAS FRESCOS (MANTENIENDO LOS 5 TÓPICOS)
+// =========================================================================
+
+export const FRESH_TEMPLATE_PACKS: TemplateDefinition[][] = [
+  // Pack 1: Innovación Profunda & Frontera
+  [
+    {
+      id: 'tech-edge-ai',
+      title: 'Sistemas Ciber-Físicos & Edge AI',
+      description: 'Inferencia neuronal en dispositivos locales sin dependencia de nube, sensores en tiempo real y telemetría ultrarrápida.',
+      category: 'Tecnología',
+      iconName: 'Bot',
+      nodeCount: 5,
+      appearance: { color: '#6366f1', strokeWidth: 2, animated: true, type: 'smoothstep' },
+      nodes: [
+        {
+          id: 'node-edge-root',
+          type: 'ideaNode',
+          position: { x: 440, y: 150 },
+          data: {
+            id: 'node-edge-root',
+            category: 'NÚCLEO',
+            label: 'NÚCLEO',
+            title: 'Motor de Inferencia Neuronal en Edge',
+            description: 'Modelos comprimidos SLM ejecutados en hardware embebido para decisiones autónomas en menos de 10ms.',
+            tags: ['EdgeAI', 'SLM', 'BajaLatencia'],
+            colorAccent: '#6366f1',
+            isRoot: true,
+            maturity: 3,
+          },
+        },
+        {
+          id: 'node-edge-quantization',
+          type: 'ideaNode',
+          position: { x: 120, y: 370 },
+          data: {
+            id: 'node-edge-quantization',
+            category: 'OPTIMIZACIÓN',
+            label: 'OPTIMIZACIÓN',
+            title: 'Cuantización de Pesos (INT4/FP8)',
+            description: 'Poda y destilación del conocimiento para reducir consumo de memoria sin degradar precisión semántica.',
+            tags: ['Cuantización', 'Destilación', 'Eficiencia'],
+            colorAccent: '#10b981',
+            maturity: 2,
+          },
+        },
+        {
+          id: 'node-edge-privacy',
+          type: 'ideaNode',
+          position: { x: 440, y: 410 },
+          data: {
+            id: 'node-edge-privacy',
+            category: 'PRIVACIDAD',
+            label: 'PRIVACIDAD',
+            title: 'Procesamiento Local Sin Telemetría',
+            description: 'Los datos biométricos y operacionales nunca abandonan el enclave seguro del dispositivo.',
+            tags: ['ZeroDataLeak', 'EnclaveSeguro', 'Soberanía'],
+            colorAccent: '#f43f5e',
+            maturity: 2,
+          },
+        },
+        {
+          id: 'node-edge-sync',
+          type: 'ideaNode',
+          position: { x: 760, y: 370 },
+          data: {
+            id: 'node-edge-sync',
+            category: 'SINCRONIZACIÓN',
+            label: 'SINCRONIZACIÓN',
+            title: 'Malla P2P & Consenso Local',
+            description: 'Red mallada entre nodos cercanos que comparten inferencias sin necesidad de conectividad a internet.',
+            tags: ['MeshNetwork', 'P2P', 'ToleranciaFallos'],
+            colorAccent: '#f59e0b',
+            maturity: 1,
+          },
+        },
+        {
+          id: 'node-edge-autonomy',
+          type: 'ideaNode',
+          position: { x: 440, y: 680 },
+          data: {
+            id: 'node-edge-autonomy',
+            category: 'IMPACTO',
+            label: 'IMPACTO',
+            title: 'Robótica & Automatización de Campo',
+            description: 'Control de drones agrícolas, vehículos autónomos y equipamiento médico crítico con cero latencia.',
+            tags: ['Robótica', 'MisiónCrítica', 'Resiliencia'],
+            colorAccent: '#06b6d4',
+            maturity: 2,
+          },
+        },
+      ],
+      edges: [
+        { id: 'e-edge-1', source: 'node-edge-root', target: 'node-edge-quantization', animated: true, style: { stroke: '#6366f1', strokeWidth: 2 }, type: 'smoothstep', label: 'Compresión' },
+        { id: 'e-edge-2', source: 'node-edge-root', target: 'node-edge-privacy', animated: true, style: { stroke: '#6366f1', strokeWidth: 2 }, type: 'smoothstep', label: 'Gobernanza' },
+        { id: 'e-edge-3', source: 'node-edge-root', target: 'node-edge-sync', animated: true, style: { stroke: '#6366f1', strokeWidth: 2 }, type: 'smoothstep', label: 'Topología' },
+        { id: 'e-edge-4', source: 'node-edge-privacy', target: 'node-edge-autonomy', animated: true, style: { stroke: '#06b6d4', strokeWidth: 2 }, type: 'smoothstep', label: 'Despliegue' },
+      ],
+    },
+    {
+      id: 'biz-circular',
+      title: 'Marketplace Algorítmico & Economía Circular',
+      description: 'Monetización y reasignación automatizada de excedentes industriales y materias primas secundarias.',
+      category: 'Negocios',
+      iconName: 'Rocket',
+      nodeCount: 5,
+      appearance: { color: '#10b981', strokeWidth: 2, animated: true, type: 'smoothstep' },
+      nodes: [
+        {
+          id: 'node-circ-root',
+          type: 'ideaNode',
+          position: { x: 440, y: 150 },
+          data: {
+            id: 'node-circ-root',
+            category: 'NÚCLEO',
+            label: 'NÚCLEO',
+            title: 'Plataforma B2B de Residuos Valiosos',
+            description: 'Motor de emparejamiento predictivo que conecta descartes de manufactura con compradores que los usan como insumos.',
+            tags: ['EconomíaCircular', 'B2B', 'Sostenibilidad'],
+            colorAccent: '#10b981',
+            isRoot: true,
+            maturity: 3,
+          },
+        },
+        {
+          id: 'node-circ-pricing',
+          type: 'ideaNode',
+          position: { x: 120, y: 370 },
+          data: {
+            id: 'node-circ-pricing',
+            category: 'MONETIZACIÓN',
+            label: 'MONETIZACIÓN',
+            title: 'Precios Dinámicos por Demanda Spot',
+            description: 'Algoritmo de cotización automática basado en pureza de material, costos logísticos y precios de materias primas vírgenes.',
+            tags: ['DynamicPricing', 'Commodities', 'Arbitraje'],
+            colorAccent: '#f59e0b',
+            maturity: 2,
+          },
+        },
+        {
+          id: 'node-circ-logistics',
+          type: 'ideaNode',
+          position: { x: 440, y: 410 },
+          data: {
+            id: 'node-circ-logistics',
+            category: 'OPERACIONES',
+            label: 'OPERACIONES',
+            title: 'Logística Inversa Consolidada',
+            description: 'Aprovechamiento de rutas de retorno vacías en flotas de transporte existentes para abaratar fletes un 60%.',
+            tags: ['LogísticaInversa', 'Backhaul', 'HuellaCarbono'],
+            colorAccent: '#06b6d4',
+            maturity: 2,
+          },
+        },
+        {
+          id: 'node-circ-esg',
+          type: 'ideaNode',
+          position: { x: 760, y: 370 },
+          data: {
+            id: 'node-circ-esg',
+            category: 'VALIDACIÓN',
+            label: 'VALIDACIÓN',
+            title: 'Trazabilidad & Certificados ESG',
+            description: 'Emisión automática de reportes de reducción de huella de carbono y cumplimiento con directivas de sostenibilidad.',
+            tags: ['ESG', 'AuditoríaVerde', 'Compliance'],
+            colorAccent: '#8b5cf6',
+            maturity: 2,
+          },
+        },
+        {
+          id: 'node-circ-revenue',
+          type: 'ideaNode',
+          position: { x: 440, y: 680 },
+          data: {
+            id: 'node-circ-revenue',
+            category: 'FINANZAS',
+            label: 'FINANZAS',
+            title: 'Take-Rate de Transacción + Suscripción',
+            description: 'Comisión del 4% sobre volumen transaccionado más cuota mensual por analítica predictiva de inventario para fábricas.',
+            tags: ['TakeRate', 'SaaS', 'Escalabilidad'],
+            colorAccent: '#ec4899',
+            maturity: 3,
+          },
+        },
+      ],
+      edges: [
+        { id: 'e-circ-1', source: 'node-circ-root', target: 'node-circ-pricing', animated: true, style: { stroke: '#10b981', strokeWidth: 2 }, type: 'smoothstep', label: 'Valorización' },
+        { id: 'e-circ-2', source: 'node-circ-root', target: 'node-circ-logistics', animated: true, style: { stroke: '#10b981', strokeWidth: 2 }, type: 'smoothstep', label: 'Distribución' },
+        { id: 'e-circ-3', source: 'node-circ-root', target: 'node-circ-esg', animated: true, style: { stroke: '#10b981', strokeWidth: 2 }, type: 'smoothstep', label: 'Certificación' },
+        { id: 'e-circ-4', source: 'node-circ-pricing', target: 'node-circ-revenue', animated: true, style: { stroke: '#f59e0b', strokeWidth: 2 }, type: 'smoothstep', label: 'Flujo de Caja' },
+      ],
+    },
+    {
+      id: 'design-spatial',
+      title: 'UX Espacial & Computación Ambiental',
+      description: 'Interfaces gestuales y contextuales que se funden de manera invisible con el entorno del usuario.',
+      category: 'Diseño',
+      iconName: 'Compass',
+      nodeCount: 5,
+      appearance: { color: '#f59e0b', strokeWidth: 2, animated: true, type: 'smoothstep' },
+      nodes: [
+        {
+          id: 'node-spat-root',
+          type: 'ideaNode',
+          position: { x: 440, y: 150 },
+          data: {
+            id: 'node-spat-root',
+            category: 'NÚCLEO',
+            label: 'NÚCLEO',
+            title: 'Diseño de Interacción Zero-UI',
+            description: 'Sistemas que anticipan la intención humana mediante micro-gestos, mirada y contexto físico sin saturar la pantalla.',
+            tags: ['ZeroUI', 'ComputaciónEspacial', 'MicroGestos'],
+            colorAccent: '#f59e0b',
+            isRoot: true,
+            maturity: 3,
+          },
+        },
+        {
+          id: 'node-spat-haptics',
+          type: 'ideaNode',
+          position: { x: 120, y: 370 },
+          data: {
+            id: 'node-spat-haptics',
+            category: 'SENSORIAL',
+            label: 'SENSORIAL',
+            title: 'Feedback Háptico & Acústico 3D',
+            description: 'Respuestas físicas sutiles que confirman acciones sin necesidad de comprobación visual constante.',
+            tags: ['Háptica', 'AudioEspacial', 'Accesibilidad'],
+            colorAccent: '#ec4899',
+            maturity: 2,
+          },
+        },
+        {
+          id: 'node-spat-cognitive',
+          type: 'ideaNode',
+          position: { x: 440, y: 410 },
+          data: {
+            id: 'node-spat-cognitive',
+            category: 'ERGONOMÍA',
+            label: 'ERGONOMÍA',
+            title: 'Minimización de Carga Cognitiva',
+            description: 'Filtrado semántico de alertas: solo lo urgente interrumpe el campo visual periférico del usuario.',
+            tags: ['Foco', 'CalmTech', 'PsicologíaUX'],
+            colorAccent: '#8b5cf6',
+            maturity: 2,
+          },
+        },
+        {
+          id: 'node-spat-typography',
+          type: 'ideaNode',
+          position: { x: 760, y: 370 },
+          data: {
+            id: 'node-spat-typography',
+            category: 'SISTEMA VISUAL',
+            label: 'SISTEMA VISUAL',
+            title: 'Tipografía Adaptativa a la Distancia',
+            description: 'Escalas de peso y tracking calculadas ópticamente según el ángulo de visión y la luminosidad ambiente.',
+            tags: ['TipografíaVariable', 'ContrasteDinámico', 'DiseñoÓptico'],
+            colorAccent: '#06b6d4',
+            maturity: 1,
+          },
+        },
+        {
+          id: 'node-spat-testing',
+          type: 'ideaNode',
+          position: { x: 440, y: 680 },
+          data: {
+            id: 'node-spat-testing',
+            category: 'VALIDACIÓN',
+            label: 'VALIDACIÓN',
+            title: 'Testeo de Fatiga Biomecánica',
+            description: 'Monitoreo de movimientos de cuello y muñeca durante sesiones prolongadas para certificar confort postural.',
+            tags: ['ErgonomíaFísica', 'Biometría', 'Validación'],
+            colorAccent: '#10b981',
+            maturity: 2,
+          },
+        },
+      ],
+      edges: [
+        { id: 'e-spat-1', source: 'node-spat-root', target: 'node-spat-haptics', animated: true, style: { stroke: '#f59e0b', strokeWidth: 2 }, type: 'smoothstep', label: 'Sensación' },
+        { id: 'e-spat-2', source: 'node-spat-root', target: 'node-spat-cognitive', animated: true, style: { stroke: '#f59e0b', strokeWidth: 2 }, type: 'smoothstep', label: 'Atención' },
+        { id: 'e-spat-3', source: 'node-spat-root', target: 'node-spat-typography', animated: true, style: { stroke: '#f59e0b', strokeWidth: 2 }, type: 'smoothstep', label: 'Legibilidad' },
+        { id: 'e-spat-4', source: 'node-spat-cognitive', target: 'node-spat-testing', animated: true, style: { stroke: '#8b5cf6', strokeWidth: 2 }, type: 'smoothstep', label: 'Salud del Usuario' },
+      ],
+    },
+    {
+      id: 'res-augmented-intel',
+      title: 'Inteligencia Aumentada & Pensamiento en Red',
+      description: 'Estudio de co-evolución cognitiva: cómo las herramientas de visualización aceleran la síntesis científica.',
+      category: 'Investigación',
+      iconName: 'BookOpen',
+      nodeCount: 5,
+      appearance: { color: '#8b5cf6', strokeWidth: 2, animated: true, type: 'smoothstep' },
+      nodes: [
+        {
+          id: 'node-aug-root',
+          type: 'ideaNode',
+          position: { x: 440, y: 150 },
+          data: {
+            id: 'node-aug-root',
+            category: 'NÚCLEO',
+            label: 'NÚCLEO',
+            title: 'Andamiaje Cognitivo Asistido por IA',
+            description: 'Hipótesis: representar ideas como grafos activos reduce el sesgo de confirmación y duplica la generación de soluciones viables.',
+            tags: ['HipótesisCientífica', 'Grafos', 'Metacognición'],
+            colorAccent: '#8b5cf6',
+            isRoot: true,
+            maturity: 3,
+          },
+        },
+        {
+          id: 'node-aug-method',
+          type: 'ideaNode',
+          position: { x: 120, y: 370 },
+          data: {
+            id: 'node-aug-method',
+            category: 'METODOLOGÍA',
+            label: 'METODOLOGÍA',
+            title: 'Diseño Experimental de Doble Ciego',
+            description: 'Comparación cuantitativa de resolución de problemas complejos entre grupos con texto lineal vs mapas relacionales asistidos.',
+            tags: ['EnsayoClínico', 'MétricasA/B', 'Rigor'],
+            colorAccent: '#06b6d4',
+            maturity: 2,
+          },
+        },
+        {
+          id: 'node-aug-metrics',
+          type: 'ideaNode',
+          position: { x: 440, y: 410 },
+          data: {
+            id: 'node-aug-metrics',
+            category: 'MÉTRICAS',
+            label: 'MÉTRICAS',
+            title: 'Velocidad de Convergencia Conceptual',
+            description: 'Medición de tiempo hasta alcanzar consenso de diseño y porcentaje de supuestos falsos descartados a tiempo.',
+            tags: ['TiempoDeCiclo', 'CalidadDecisión', 'DatosDuros'],
+            colorAccent: '#10b981',
+            maturity: 2,
+          },
+        },
+        {
+          id: 'node-aug-ethics',
+          type: 'ideaNode',
+          position: { x: 760, y: 370 },
+          data: {
+            id: 'node-aug-ethics',
+            category: 'EPISTEMOLOGÍA',
+            label: 'EPISTEMOLOGÍA',
+            title: 'Preservación de Agencia & Juicio Crítico',
+            description: 'Garantizar que la IA actúe como espejo catalizador socrático y no como sustituto de la deliberación ética humana.',
+            tags: ['HITL', 'AgenciaHumana', 'Filosofía'],
+            colorAccent: '#f43f5e',
+            maturity: 2,
+          },
+        },
+        {
+          id: 'node-aug-publication',
+          type: 'ideaNode',
+          position: { x: 440, y: 680 },
+          data: {
+            id: 'node-aug-publication',
+            category: 'DIVULGACIÓN',
+            label: 'DIVULGACIÓN',
+            title: 'Paper Peer-Reviewed & Código Abierto',
+            description: 'Publicación de los datasets anonimizados y réplica interactiva en línea para validación por la comunidad académica.',
+            tags: ['OpenScience', 'PeerReview', 'Reproducibilidad'],
+            colorAccent: '#f59e0b',
+            maturity: 1,
+          },
+        },
+      ],
+      edges: [
+        { id: 'e-aug-1', source: 'node-aug-root', target: 'node-aug-method', animated: true, style: { stroke: '#8b5cf6', strokeWidth: 2 }, type: 'smoothstep', label: 'Protocolo' },
+        { id: 'e-aug-2', source: 'node-aug-root', target: 'node-aug-metrics', animated: true, style: { stroke: '#8b5cf6', strokeWidth: 2 }, type: 'smoothstep', label: 'Medición' },
+        { id: 'e-aug-3', source: 'node-aug-root', target: 'node-aug-ethics', animated: true, style: { stroke: '#8b5cf6', strokeWidth: 2 }, type: 'smoothstep', label: 'Límites' },
+        { id: 'e-aug-4', source: 'node-aug-metrics', target: 'node-aug-publication', animated: true, style: { stroke: '#10b981', strokeWidth: 2 }, type: 'smoothstep', label: 'Conclusiones' },
+      ],
+    },
+    {
+      id: 'essential-first-principles',
+      title: 'Primeros Principios & Reducción de Ruido',
+      description: 'Marco mental de razonamiento desde cero: deconstruye cualquier problema complejo hasta su verdad física más básica.',
+      category: 'Esencial',
+      iconName: 'PlusCircle',
+      nodeCount: 5,
+      appearance: { color: '#6366f1', strokeWidth: 2, animated: true, type: 'smoothstep' },
+      nodes: [
+        {
+          id: 'node-fp-root',
+          type: 'ideaNode',
+          position: { x: 440, y: 150 },
+          data: {
+            id: 'node-fp-root',
+            category: 'NÚCLEO',
+            label: 'NÚCLEO',
+            title: 'La Pregunta Irreductible',
+            description: '¿Qué es lo que sabemos que es 100% indiscutiblemente cierto sobre este desafío, sin asumir analogías previas?',
+            tags: ['PrimerosPrincipios', 'Claridad', 'Deconstrucción'],
+            colorAccent: '#6366f1',
+            isRoot: true,
+            maturity: 3,
+          },
+        },
+        {
+          id: 'node-fp-physics',
+          type: 'ideaNode',
+          position: { x: 120, y: 370 },
+          data: {
+            id: 'node-fp-physics',
+            category: 'LIMITES REALES',
+            label: 'LIMITES REALES',
+            title: 'Leyes de la Física & Restricciones Duras',
+            description: 'Separar lo que es físicamente imposible de lo que simplemente es costoso o no convencional en la industria hoy.',
+            tags: ['Termodinámica', 'Matemáticas', 'VerdadBase'],
+            colorAccent: '#06b6d4',
+            maturity: 2,
+          },
+        },
+        {
+          id: 'node-fp-assumptions',
+          type: 'ideaNode',
+          position: { x: 440, y: 410 },
+          data: {
+            id: 'node-fp-assumptions',
+            category: 'AUDITORÍA',
+            label: 'AUDITORÍA',
+            title: 'Destrucción de Supuestos Heredados',
+            description: 'Identificar qué partes del proceso actual solo existen porque "siempre se ha hecho así" y eliminarlas sin piedad.',
+            tags: ['Inversión', 'Desaprendizaje', 'Eficiencia'],
+            colorAccent: '#f43f5e',
+            maturity: 2,
+          },
+        },
+        {
+          id: 'node-fp-synthesis',
+          type: 'ideaNode',
+          position: { x: 760, y: 370 },
+          data: {
+            id: 'node-fp-synthesis',
+            category: 'RECONSTRUCCIÓN',
+            label: 'RECONSTRUCCIÓN',
+            title: 'Reconstrucción Radical Hacia Arriba',
+            description: 'Ensamblar la solución óptima partiendo únicamente de los bloques elementales validados, buscando una ventaja de 10x.',
+            tags: ['Ventaja10x', 'InnovaciónRadical', 'Síntesis'],
+            colorAccent: '#10b981',
+            maturity: 2,
+          },
+        },
+        {
+          id: 'node-fp-action',
+          type: 'ideaNode',
+          position: { x: 440, y: 680 },
+          data: {
+            id: 'node-fp-action',
+            category: 'EJECUCIÓN',
+            label: 'EJECUCIÓN',
+            title: 'Experimento Rápido de Validación Cero',
+            description: 'La prueba más barata y rápida posible para demostrar si la nueva ruta construida desde primeros principios funciona.',
+            tags: ['ExperimentoMínimo', 'Velocidad', 'Realidad'],
+            colorAccent: '#f59e0b',
+            maturity: 2,
+          },
+        },
+      ],
+      edges: [
+        { id: 'e-fp-1', source: 'node-fp-root', target: 'node-fp-physics', animated: true, style: { stroke: '#6366f1', strokeWidth: 2 }, type: 'smoothstep', label: 'Constricciones' },
+        { id: 'e-fp-2', source: 'node-fp-root', target: 'node-fp-assumptions', animated: true, style: { stroke: '#6366f1', strokeWidth: 2 }, type: 'smoothstep', label: 'Purga' },
+        { id: 'e-fp-3', source: 'node-fp-root', target: 'node-fp-synthesis', animated: true, style: { stroke: '#6366f1', strokeWidth: 2 }, type: 'smoothstep', label: 'Creación' },
+        { id: 'e-fp-4', source: 'node-fp-synthesis', target: 'node-fp-action', animated: true, style: { stroke: '#10b981', strokeWidth: 2 }, type: 'smoothstep', label: 'Prueba de Fuego' },
+      ],
+    },
+  ],
+
+  // Pack 2: Estrategias del Futuro Próximo
+  [
+    {
+      id: 'tech-autonomous-agents',
+      title: 'Orquestación de Agentes con Memoria Jerárquica',
+      description: 'Ecosistema de agentes de software especializados con planificador central, memoria episódica y validación de esquemas.',
+      category: 'Tecnología',
+      iconName: 'Bot',
+      nodeCount: 5,
+      appearance: { color: '#6366f1', strokeWidth: 2, animated: true, type: 'smoothstep' },
+      nodes: [
+        {
+          id: 'node-agent-root',
+          type: 'ideaNode',
+          position: { x: 440, y: 150 },
+          data: {
+            id: 'node-agent-root',
+            category: 'NÚCLEO',
+            label: 'NÚCLEO',
+            title: 'Metaplanificador Autónomo',
+            description: 'Agente supervisor que descompone metas macro en grafos de tareas ejecutables por sub-agentes especializados.',
+            tags: ['Orquestación', 'TaskGraph', 'Agentes'],
+            colorAccent: '#6366f1',
+            isRoot: true,
+            maturity: 3,
+          },
+        },
+        {
+          id: 'node-agent-memory',
+          type: 'ideaNode',
+          position: { x: 120, y: 370 },
+          data: {
+            id: 'node-agent-memory',
+            category: 'MEMORIA',
+            label: 'MEMORIA',
+            title: 'Memoria Episódica & Semántica',
+            description: 'Retención de contexto a largo plazo con grafos de conocimiento personales y recuperación contextual priorizada.',
+            tags: ['MemoriaEpisódica', 'Embeddings', 'Contexto'],
+            colorAccent: '#10b981',
+            maturity: 2,
+          },
+        },
+        {
+          id: 'node-agent-guardrails',
+          type: 'ideaNode',
+          position: { x: 440, y: 410 },
+          data: {
+            id: 'node-agent-guardrails',
+            category: 'CONTROL',
+            label: 'CONTROL',
+            title: 'Valla de Seguridad & HITL Approval',
+            description: 'Puntos de control donde acciones críticas (financieras, de datos o de despliegue) exigen firma humana explícita.',
+            tags: ['HITL', 'SafetyBoundary', 'Permisos'],
+            colorAccent: '#f43f5e',
+            maturity: 2,
+          },
+        },
+        {
+          id: 'node-agent-tools',
+          type: 'ideaNode',
+          position: { x: 760, y: 370 },
+          data: {
+            id: 'node-agent-tools',
+            category: 'HERRAMIENTAS',
+            label: 'HERRAMIENTAS',
+            title: 'Registro Dinámico de APIs & RPC',
+            description: 'Descubrimiento y autodescripción de herramientas con contratos OpenAPI y validación estricta en tiempo de ejecución.',
+            tags: ['ToolUse', 'OpenAPI', 'Interoperabilidad'],
+            colorAccent: '#f59e0b',
+            maturity: 2,
+          },
+        },
+        {
+          id: 'node-agent-eval',
+          type: 'ideaNode',
+          position: { x: 440, y: 680 },
+          data: {
+            id: 'node-agent-eval',
+            category: 'EVALUACIÓN',
+            label: 'EVALUACIÓN',
+            title: 'Benchmarking de Precisión & Alucinaciones',
+            description: 'Medición continua de tasas de error en razonamiento, loops infinitos y deriva de objetivos en producción.',
+            tags: ['Evals', 'Observabilidad', 'Calidad'],
+            colorAccent: '#06b6d4',
+            maturity: 2,
+          },
+        },
+      ],
+      edges: [
+        { id: 'e-ag-1', source: 'node-agent-root', target: 'node-agent-memory', animated: true, style: { stroke: '#6366f1', strokeWidth: 2 }, type: 'smoothstep', label: 'Contexto' },
+        { id: 'e-ag-2', source: 'node-agent-root', target: 'node-agent-guardrails', animated: true, style: { stroke: '#6366f1', strokeWidth: 2 }, type: 'smoothstep', label: 'Seguridad' },
+        { id: 'e-ag-3', source: 'node-agent-root', target: 'node-agent-tools', animated: true, style: { stroke: '#6366f1', strokeWidth: 2 }, type: 'smoothstep', label: 'Acción' },
+        { id: 'e-ag-4', source: 'node-agent-guardrails', target: 'node-agent-eval', animated: true, style: { stroke: '#f43f5e', strokeWidth: 2 }, type: 'smoothstep', label: 'Auditoría' },
+      ],
+    },
+    {
+      id: 'biz-micro-saas',
+      title: 'Micro-SaaS Vertical & Operación Unipersonal',
+      description: 'Construcción de productos de software enfocados a nichos desatendidos con rentabilidad rápida y costos operativos mínimos.',
+      category: 'Negocios',
+      iconName: 'Rocket',
+      nodeCount: 5,
+      appearance: { color: '#10b981', strokeWidth: 2, animated: true, type: 'smoothstep' },
+      nodes: [
+        {
+          id: 'node-msaas-root',
+          type: 'ideaNode',
+          position: { x: 440, y: 150 },
+          data: {
+            id: 'node-msaas-root',
+            category: 'NÚCLEO',
+            label: 'NÚCLEO',
+            title: 'Solución Específica a un Dolor de $1,000/mes',
+            description: 'Enfocarse en automatizar una sola tarea crítica para un sector profesional específico dispuesto a pagar por ahorro de tiempo.',
+            tags: ['MicroSaaS', 'NicheMarket', 'Rentabilidad'],
+            colorAccent: '#10b981',
+            isRoot: true,
+            maturity: 3,
+          },
+        },
+        {
+          id: 'node-msaas-icp',
+          type: 'ideaNode',
+          position: { x: 120, y: 370 },
+          data: {
+            id: 'node-msaas-icp',
+            category: 'CLIENTE',
+            label: 'CLIENTE',
+            title: 'Acceso Directo a los Primeros 20 Compradores',
+            description: 'Validar mediante conversaciones 1 a 1 en comunidades activas antes de escribir una sola línea de código.',
+            tags: ['PreVenta', 'Validación', 'Comunidades'],
+            colorAccent: '#f59e0b',
+            maturity: 2,
+          },
+        },
+        {
+          id: 'node-msaas-stack',
+          type: 'ideaNode',
+          position: { x: 440, y: 410 },
+          data: {
+            id: 'node-msaas-stack',
+            category: 'TECNOLOGÍA',
+            label: 'TECNOLOGÍA',
+            title: 'Arquitectura Serverless Sin Mantenimiento',
+            description: 'Hosting estático, base de datos administrada y pasarela de pagos integrada para $0 de costo fijo inicial.',
+            tags: ['Serverless', 'ZeroOps', 'Eficiencia'],
+            colorAccent: '#06b6d4',
+            maturity: 2,
+          },
+        },
+        {
+          id: 'node-msaas-distribution',
+          type: 'ideaNode',
+          position: { x: 760, y: 370 },
+          data: {
+            id: 'node-msaas-distribution',
+            category: 'DISTRIBUCIÓN',
+            label: 'DISTRIBUCIÓN',
+            title: 'Distribución Orgánica Integrada (SEO Programático)',
+            description: 'Creación automatizada de recursos útiles, plantillas y calculadoras que atraen tráfico intencional sin gastar en anuncios.',
+            tags: ['SEOProgramático', 'Inbound', 'FreeTools'],
+            colorAccent: '#8b5cf6',
+            maturity: 2,
+          },
+        },
+        {
+          id: 'node-msaas-retention',
+          type: 'ideaNode',
+          position: { x: 440, y: 680 },
+          data: {
+            id: 'node-msaas-retention',
+            category: 'MÉTRICAS',
+            label: 'MÉTRICAS',
+            title: 'Retención Neta > 100% & Expansión de Asientos',
+            description: 'Construir ganchos de flujo de trabajo que hagan al producto indispensable para la operativa diaria del cliente.',
+            tags: ['Stickiness', 'Retención', 'SaaSMetrics'],
+            colorAccent: '#ec4899',
+            maturity: 2,
+          },
+        },
+      ],
+      edges: [
+        { id: 'e-ms-1', source: 'node-msaas-root', target: 'node-msaas-icp', animated: true, style: { stroke: '#10b981', strokeWidth: 2 }, type: 'smoothstep', label: 'Validación' },
+        { id: 'e-ms-2', source: 'node-msaas-root', target: 'node-msaas-stack', animated: true, style: { stroke: '#10b981', strokeWidth: 2 }, type: 'smoothstep', label: 'Construcción' },
+        { id: 'e-ms-3', source: 'node-msaas-root', target: 'node-msaas-distribution', animated: true, style: { stroke: '#10b981', strokeWidth: 2 }, type: 'smoothstep', label: 'Atracción' },
+        { id: 'e-ms-4', source: 'node-msaas-stack', target: 'node-msaas-retention', animated: true, style: { stroke: '#06b6d4', strokeWidth: 2 }, type: 'smoothstep', label: 'Crecimiento' },
+      ],
+    },
+    {
+      id: 'design-biomimetic',
+      title: 'Diseño Biomimético & Sistemas Resilientes',
+      description: 'Modelos de diseño inspirados en estructuras biológicas: colonias de hormigas, micelio y redes de tensión muscular.',
+      category: 'Diseño',
+      iconName: 'Compass',
+      nodeCount: 5,
+      appearance: { color: '#f59e0b', strokeWidth: 2, animated: true, type: 'smoothstep' },
+      nodes: [
+        {
+          id: 'node-bio-root',
+          type: 'ideaNode',
+          position: { x: 440, y: 150 },
+          data: {
+            id: 'node-bio-root',
+            category: 'NÚCLEO',
+            label: 'NÚCLEO',
+            title: 'Arquitectura de Red Inspirada en Micelio',
+            description: 'Redistribución descentralizada de recursos según demanda instantánea sin un punto único de fallo.',
+            tags: ['Biomimética', 'RedesOrgánicas', 'Resiliencia'],
+            colorAccent: '#f59e0b',
+            isRoot: true,
+            maturity: 3,
+          },
+        },
+        {
+          id: 'node-bio-fractals',
+          type: 'ideaNode',
+          position: { x: 120, y: 370 },
+          data: {
+            id: 'node-bio-fractals',
+            category: 'ESTRUCTURA',
+            label: 'ESTRUCTURA',
+            title: 'Escalabilidad Fractal & Modular',
+            description: 'Las mismas reglas de conexión operan a nivel de componente individual, módulo y sistema global.',
+            tags: ['Fractales', 'Autosimilitud', 'Escala'],
+            colorAccent: '#10b981',
+            maturity: 2,
+          },
+        },
+        {
+          id: 'node-bio-adaptation',
+          type: 'ideaNode',
+          position: { x: 440, y: 410 },
+          data: {
+            id: 'node-bio-adaptation',
+            category: 'ADAPTACIÓN',
+            label: 'ADAPTACIÓN',
+            title: 'Respuesta Dinámica a la Sobrecarga',
+            description: 'Degradación elegante: el sistema sacrifica funciones accesorias para proteger los núcleos vitales bajo presión.',
+            tags: ['DegradaciónElegante', 'Homeostasis', 'Robustez'],
+            colorAccent: '#ec4899',
+            maturity: 2,
+          },
+        },
+        {
+          id: 'node-bio-symbiosis',
+          type: 'ideaNode',
+          position: { x: 760, y: 370 },
+          data: {
+            id: 'node-bio-symbiosis',
+            category: 'RELACIONES',
+            label: 'RELACIONES',
+            title: 'Simbiosis & Alianzas Inter-Módulos',
+            description: 'El output residual de un subsistema alimenta automáticamente la necesidad operativa del subsistema adyacente.',
+            tags: ['Simbiosis', 'CeroDesperdicio', 'Integración'],
+            colorAccent: '#06b6d4',
+            maturity: 2,
+          },
+        },
+        {
+          id: 'node-bio-evolution',
+          type: 'ideaNode',
+          position: { x: 440, y: 680 },
+          data: {
+            id: 'node-bio-evolution',
+            category: 'MUTACIÓN',
+            label: 'MUTACIÓN',
+            title: 'Iteración Evolutiva Continua',
+            description: 'Pruebas constantes de pequeñas variaciones de diseño seleccionando automáticamente las de mejor rendimiento.',
+            tags: ['AlgoritmosGenéticos', 'SelecciónNatural', 'Optimización'],
+            colorAccent: '#8b5cf6',
+            maturity: 1,
+          },
+        },
+      ],
+      edges: [
+        { id: 'e-bio-1', source: 'node-bio-root', target: 'node-bio-fractals', animated: true, style: { stroke: '#f59e0b', strokeWidth: 2 }, type: 'smoothstep', label: 'Patrón' },
+        { id: 'e-bio-2', source: 'node-bio-root', target: 'node-bio-adaptation', animated: true, style: { stroke: '#f59e0b', strokeWidth: 2 }, type: 'smoothstep', label: 'Estabilidad' },
+        { id: 'e-bio-3', source: 'node-bio-root', target: 'node-bio-symbiosis', animated: true, style: { stroke: '#f59e0b', strokeWidth: 2 }, type: 'smoothstep', label: 'Cooperación' },
+        { id: 'e-bio-4', source: 'node-bio-adaptation', target: 'node-bio-evolution', animated: true, style: { stroke: '#8b5cf6', strokeWidth: 2 }, type: 'smoothstep', label: 'Mejora Continua' },
+      ],
+    },
+    {
+      id: 'res-neuro-learning',
+      title: 'Neuro-Aprendizaje & Mapas de Retención Activa',
+      description: 'Investigación en ciencias cognitivas aplicada a interfaces: curvas de olvido de Ebbinghaus y repetición espaciada en grafos.',
+      category: 'Investigación',
+      iconName: 'BookOpen',
+      nodeCount: 5,
+      appearance: { color: '#8b5cf6', strokeWidth: 2, animated: true, type: 'smoothstep' },
+      nodes: [
+        {
+          id: 'node-neuro-root',
+          type: 'ideaNode',
+          position: { x: 440, y: 150 },
+          data: {
+            id: 'node-neuro-root',
+            category: 'NÚCLEO',
+            label: 'NÚCLEO',
+            title: 'Memoria Visual Relacional',
+            description: 'Los conceptos conectados bidireccionalmente se recuerdan un 340% mejor que las listas de texto plano tras 30 días.',
+            tags: ['Neurociencia', 'CurvaOlvido', 'MemoriaEspacial'],
+            colorAccent: '#8b5cf6',
+            isRoot: true,
+            maturity: 3,
+          },
+        },
+        {
+          id: 'node-neuro-spaced',
+          type: 'ideaNode',
+          position: { x: 120, y: 370 },
+          data: {
+            id: 'node-neuro-spaced',
+            category: 'CRONOLOGÍA',
+            label: 'CRONOLOGÍA',
+            title: 'Repetición Espaciada Dinámica (FSRS)',
+            description: 'Algoritmo que reactiva conceptos en el momento matemático exacto antes de que se desvanezca su rastro en memoria.',
+            tags: ['FSRS', 'Intervalos', 'Consolidación'],
+            colorAccent: '#10b981',
+            maturity: 2,
+          },
+        },
+        {
+          id: 'node-neuro-chunking',
+          type: 'ideaNode',
+          position: { x: 440, y: 410 },
+          data: {
+            id: 'node-neuro-chunking',
+            category: 'ESTRUCTURA',
+            label: 'ESTRUCTURA',
+            title: 'Fragmentación Óptima (Chunking de 4)',
+            description: 'Límite de Miller modernizado: agrupar los nodos en clusters de 3 a 5 ideas para prevenir sobrecarga de atención.',
+            tags: ['Chunking', 'MemoriaTrabajo', 'Miller'],
+            colorAccent: '#06b6d4',
+            maturity: 2,
+          },
+        },
+        {
+          id: 'node-neuro-interleaving',
+          type: 'ideaNode',
+          position: { x: 760, y: 370 },
+          data: {
+            id: 'node-neuro-interleaving',
+            category: 'APRENDIZAJE',
+            label: 'APRENDIZAJE',
+            title: 'Entrelazado de Dominios (Interleaving)',
+            description: 'Cruzar conceptos de tecnología con filosofía y negocios genera conexiones neuronales más robustas y creativas.',
+            tags: ['Interleaving', 'CreatividadCruzada', 'Plasticidad'],
+            colorAccent: '#f59e0b',
+            maturity: 2,
+          },
+        },
+        {
+          id: 'node-neuro-evidence',
+          type: 'ideaNode',
+          position: { x: 440, y: 680 },
+          data: {
+            id: 'node-neuro-evidence',
+            category: 'VALIDACIÓN',
+            label: 'VALIDACIÓN',
+            title: 'Métricas de EEG & Respuestas Evocadas',
+            description: 'Monitoreo de ondas theta y potencia gamma durante la sesión de mapeo conceptual para cuantificar el estado de Flow.',
+            tags: ['EEG', 'Neurofeedback', 'EstadoDeFlow'],
+            colorAccent: '#ec4899',
+            maturity: 1,
+          },
+        },
+      ],
+      edges: [
+        { id: 'e-nr-1', source: 'node-neuro-root', target: 'node-neuro-spaced', animated: true, style: { stroke: '#8b5cf6', strokeWidth: 2 }, type: 'smoothstep', label: 'Tiempo' },
+        { id: 'e-nr-2', source: 'node-neuro-root', target: 'node-neuro-chunking', animated: true, style: { stroke: '#8b5cf6', strokeWidth: 2 }, type: 'smoothstep', label: 'Capacidad' },
+        { id: 'e-nr-3', source: 'node-neuro-root', target: 'node-neuro-interleaving', animated: true, style: { stroke: '#8b5cf6', strokeWidth: 2 }, type: 'smoothstep', label: 'Sinergia' },
+        { id: 'e-nr-4', source: 'node-neuro-chunking', target: 'node-neuro-evidence', animated: true, style: { stroke: '#06b6d4', strokeWidth: 2 }, type: 'smoothstep', label: 'Validación Fisiológica' },
+      ],
+    },
+    {
+      id: 'essential-deep-focus',
+      title: 'Arquitectura de Enfoque Profundo (Deep Work)',
+      description: 'Sistema integral de gestión de la atención: elimina la dispersión digital y crea ciclos de concentración ininterrumpida.',
+      category: 'Esencial',
+      iconName: 'PlusCircle',
+      nodeCount: 5,
+      appearance: { color: '#6366f1', strokeWidth: 2, animated: true, type: 'smoothstep' },
+      nodes: [
+        {
+          id: 'node-df-root',
+          type: 'ideaNode',
+          position: { x: 440, y: 150 },
+          data: {
+            id: 'node-df-root',
+            category: 'NÚCLEO',
+            label: 'NÚCLEO',
+            title: 'El Bloque Sagrado de 90 Minutos',
+            description: 'Una sesión matutina diaria dedicada con exclusividad absoluta a la tarea que mueve la aguja de tu proyecto.',
+            tags: ['DeepWork', 'Ritual', 'Enfoque'],
+            colorAccent: '#6366f1',
+            isRoot: true,
+            maturity: 3,
+          },
+        },
+        {
+          id: 'node-df-friction',
+          type: 'ideaNode',
+          position: { x: 120, y: 370 },
+          data: {
+            id: 'node-df-friction',
+            category: 'DEFENSA',
+            label: 'DEFENSA',
+            title: 'Fricción Deliberada a las Distracciones',
+            description: 'Bloqueadores de sitios a nivel DNS, teléfono en otra habitación y cero notificaciones push activas.',
+            tags: ['Fricción', 'MinimalismoDigital', 'Blindaje'],
+            colorAccent: '#f43f5e',
+            maturity: 2,
+          },
+        },
+        {
+          id: 'node-df-output',
+          type: 'ideaNode',
+          position: { x: 440, y: 410 },
+          data: {
+            id: 'node-df-output',
+            category: 'MÉTRICAS',
+            label: 'MÉTRICAS',
+            title: 'Entregables Tangibles por Sesión',
+            description: 'Medir el día no por horas sentado frente al monitor, sino por el artefacto final producido (código, documento, diseño).',
+            tags: ['OutputReal', 'Artefactos', 'Productividad'],
+            colorAccent: '#10b981',
+            maturity: 2,
+          },
+        },
+        {
+          id: 'node-df-rest',
+          type: 'ideaNode',
+          position: { x: 760, y: 370 },
+          data: {
+            id: 'node-df-rest',
+            category: 'RECUPERACIÓN',
+            label: 'RECUPERACIÓN',
+            title: 'Descanso de Alta Calidad Sin Pantallas',
+            description: 'Caminar al aire libre, respiración profunda y desconexión total para permitir la incubación inconsciente de ideas.',
+            tags: ['Incubación', 'Recuperación', 'Paseo'],
+            colorAccent: '#06b6d4',
+            maturity: 2,
+          },
+        },
+        {
+          id: 'node-df-review',
+          type: 'ideaNode',
+          position: { x: 440, y: 680 },
+          data: {
+            id: 'node-df-review',
+            category: 'AUDITORÍA',
+            label: 'AUDITORÍA',
+            title: 'Auditoría Semanal de Atención',
+            description: 'Evaluar los viernes qué porcentaje del tiempo se dedicó a trabajo superficial vs trabajo sustantivo de alto apalancamiento.',
+            tags: ['RevisiónSemanal', 'Apalancamiento', 'Calibración'],
+            colorAccent: '#f59e0b',
+            maturity: 2,
+          },
+        },
+      ],
+      edges: [
+        { id: 'e-df-1', source: 'node-df-root', target: 'node-df-friction', animated: true, style: { stroke: '#6366f1', strokeWidth: 2 }, type: 'smoothstep', label: 'Protección' },
+        { id: 'e-df-2', source: 'node-df-root', target: 'node-df-output', animated: true, style: { stroke: '#6366f1', strokeWidth: 2 }, type: 'smoothstep', label: 'Resultado' },
+        { id: 'e-df-3', source: 'node-df-root', target: 'node-df-rest', animated: true, style: { stroke: '#6366f1', strokeWidth: 2 }, type: 'smoothstep', label: 'Recarga' },
+        { id: 'e-df-4', source: 'node-df-output', target: 'node-df-review', animated: true, style: { stroke: '#10b981', strokeWidth: 2 }, type: 'smoothstep', label: 'Evaluación' },
+      ],
+    },
+  ],
+];
+
+export const ACTIVE_TEMPLATES_STORAGE_KEY = 'ideaflow_custom_templates_v1';
+export const ACTIVE_PACK_INDEX_KEY = 'ideaflow_pack_index_v1';
+
+/**
+ * Obtiene el pack actual de plantillas o rota al siguiente pack asegurando variedad constante.
+ */
+export function getNextFreshTemplates(currentPackIndex?: number): {
+  templates: TemplateDefinition[];
+  nextIndex: number;
+} {
+  const packsCount = FRESH_TEMPLATE_PACKS.length;
+  let nextIdx = 0;
+
+  if (typeof currentPackIndex === 'number') {
+    nextIdx = (currentPackIndex + 1) % packsCount;
+  } else {
+    try {
+      const stored = localStorage.getItem(ACTIVE_PACK_INDEX_KEY);
+      const parsed = stored !== null ? parseInt(stored, 10) : -1;
+      nextIdx = (parsed + 1) % packsCount;
+    } catch {
+      nextIdx = 0;
+    }
+  }
+
+  try {
+    localStorage.setItem(ACTIVE_PACK_INDEX_KEY, nextIdx.toString());
+  } catch {}
+
+  const chosenPack = FRESH_TEMPLATE_PACKS[nextIdx] || FRESH_TEMPLATE_PACKS[0];
+  return {
+    templates: chosenPack,
+    nextIndex: nextIdx,
+  };
+}
+
+/**
+ * Convierte plantillas crudas generadas por Gemini IA en TemplateDefinition completas y robustas
+ */
+export function formatAiGeneratedTemplates(rawItems: any[]): TemplateDefinition[] {
+  if (!Array.isArray(rawItems) || rawItems.length === 0) return [];
+
+  return rawItems.map((item, idx) => {
+    const tmplId = `ai-gen-${Date.now()}-${idx}`;
+    const category = (['Tecnología', 'Negocios', 'Diseño', 'Investigación', 'Esencial'].includes(item.category)
+      ? item.category
+      : 'Tecnología') as TemplateDefinition['category'];
+
+    const colorMap: Record<string, string> = {
+      Tecnología: '#6366f1',
+      Negocios: '#10b981',
+      Diseño: '#f59e0b',
+      Investigación: '#8b5cf6',
+      Esencial: '#06b6d4',
+    };
+
+    const colorAccent = item.colorAccent || colorMap[category] || '#6366f1';
+    const rootId = `node-ai-${idx}-root`;
+
+    const rootNode: CustomNode = {
+      id: rootId,
+      type: 'ideaNode',
+      position: { x: 440, y: 150 },
+      data: {
+        id: rootId,
+        category: 'NÚCLEO',
+        label: 'NÚCLEO',
+        title: item.title || item.root?.title || 'Nuevo Núcleo de Idea',
+        description: item.description || item.root?.description || 'Idea central fresca generada con IA.',
+        tags: Array.isArray(item.root?.tags) ? item.root.tags : ['IdeaRaíz', category],
+        colorAccent,
+        isRoot: true,
+        maturity: 3,
+      },
+    };
+
+    const childNodesData = Array.isArray(item.nodes) ? item.nodes.slice(0, 4) : [];
+    const createdNodes: CustomNode[] = [rootNode];
+    const createdEdges: Edge[] = [];
+
+    const positions = [
+      { x: 120, y: 370 },
+      { x: 440, y: 410 },
+      { x: 760, y: 370 },
+      { x: 440, y: 680 },
+    ];
+
+    childNodesData.forEach((c: any, cIdx: number) => {
+      const childId = `node-ai-${idx}-c${cIdx + 1}`;
+      const pos = positions[cIdx] || { x: 440 + (cIdx - 1) * 300, y: 400 + cIdx * 60 };
+
+      createdNodes.push({
+        id: childId,
+        type: 'ideaNode',
+        position: pos,
+        data: {
+          id: childId,
+          category: c.category || 'DERIVACIÓN',
+          label: c.category || 'DERIVACIÓN',
+          title: c.title || `Componente ${cIdx + 1}`,
+          description: c.description || 'Detalle del concepto.',
+          tags: Array.isArray(c.tags) ? c.tags : [category],
+          colorAccent,
+          maturity: 2,
+        },
+      });
+
+      createdEdges.push({
+        id: `e-${rootId}-${childId}`,
+        source: rootId,
+        target: childId,
+        animated: true,
+        style: { stroke: colorAccent, strokeWidth: 2 },
+        type: 'smoothstep',
+        label: c.connectionLabel || 'Derivación',
+      });
+    });
+
+    return {
+      id: tmplId,
+      title: item.title || `Núcleo de ${category}`,
+      description: item.description || `Estructura conceptual fresca y optimizada para ${category}.`,
+      category,
+      iconName: item.iconName || (category === 'Tecnología' ? 'Bot' : category === 'Negocios' ? 'Rocket' : category === 'Diseño' ? 'Compass' : category === 'Investigación' ? 'BookOpen' : 'PlusCircle'),
+      nodeCount: createdNodes.length,
+      nodes: createdNodes,
+      edges: createdEdges,
+      appearance: {
+        color: colorAccent,
+        strokeWidth: 2,
+        animated: true,
+        type: 'smoothstep',
+      },
+    };
+  });
+}
