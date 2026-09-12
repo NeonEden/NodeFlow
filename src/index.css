@@ -76,9 +76,48 @@
   font-family: inherit;
 }
 
-/* Separación sutil del fondo para las aristas que están en foco. */
+/* Separación sutil del fondo para las aristas que están en foco (halo tenue:
+   funciona sobre lienzo claro y oscuro sin recortar la línea). */
 .nf-edge--active .react-flow__edge-path {
-  filter: drop-shadow(0 0 3px rgba(2, 6, 23, 0.95));
+  filter: drop-shadow(0 1px 1px rgba(15, 23, 42, 0.18));
+}
+
+/* --- Tema del lienzo: los colores llegan como variables desde canvasTheme.ts --- */
+
+.nf-card {
+  background: var(--nf-card-bg);
+  color: var(--nf-title);
+}
+
+.nf-title {
+  color: var(--nf-title);
+  transition: color 0.15s ease;
+}
+
+.nf-title:hover {
+  color: #4f46e5;
+}
+
+.nf-body {
+  color: var(--nf-body);
+}
+
+.nf-muted {
+  color: var(--nf-muted);
+}
+
+.nf-maturity {
+  background: var(--nf-maturity-bg);
+  border-color: var(--nf-maturity-border);
+}
+
+.nf-seg-off {
+  background: var(--nf-segment-off);
+}
+
+.nf-input {
+  background: var(--nf-chip-bg);
+  color: var(--nf-title);
 }
 
 

@@ -38,14 +38,18 @@ import {
   Network,
   X,
   Link2,
+  Layers,
 } from 'lucide-react';
 import { IdeaNode } from './components/IdeaNode';
 import { FlowEdge } from './components/FlowEdge';
+import { ZonaNode } from './components/ZonaNode';
 import {
   setHoveredEdge,
   setHoveredNode,
   setFocusSelection,
 } from './state/focusStore';
+import { CANVAS_THEME, temaVars } from './state/canvasTheme';
+import { calcularNiveles, acentoDeNivel } from './utils/zonas';
 import { Toolbar } from './components/Toolbar';
 import { AuthModal } from './components/AuthModal';
 import { SavedStatesModal } from './components/SavedStatesModal';
@@ -93,6 +97,7 @@ import {
 // IMPORTANTE: Declarados fuera del componente funcional para evitar recreación en cada render y warnings de React Flow
 const NODE_TYPES = {
   ideaNode: IdeaNode,
+  zonaNode: ZonaNode,
 };
 
 const EDGE_TYPES = { flowEdge: FlowEdge };
@@ -195,6 +200,8 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(getInitialUser);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [zoomPercent, setZoomPercent] = useState(100);
+  // Zonas derivadas (marcos por nivel): sólo UI, no se guardan ni se sincronizan.
+  const [zonasVisibles, setZonasVisibles] = useState(true);
   const [lastSyncText, setLastSyncText] = useState('Reciente');
 
   // Módulo 2: Motor HITL Loop & Aprendizaje Continuo
@@ -1617,9 +1624,47 @@ export default function App() {
     return map;
   }, [nodes]);
 
+  /**
+   * Zonas derivadas: marcos por nivel de profundidad, calculados desde la posición
+   * y la estructura del grafo EN EL RENDER. Se inyectan como nodos de tipo `zonaNode`
+   * con `pointerEvents: none` (nunca roban clic ni paneo) y `zIndex: -1` (quedan detrás
+   * de las tarjetas). No entran al estado, no se guardan en el vault, no salen en el
+   * minimapa. Apagarlas no cambia ningún dato.
+   */
+  const niveles = useMemo(() => calcularNiveles(nodes, edges), [nodes, edges]);
+
+  const zonaNodes = useMemo<CustomNode[]>(() => {
+    if (!zonasVisibles) return [];
+    return niveles.map((nv) => {
+      const miembros = nodes.filter((n) => nv.ids.includes(n.id));
+      return {
+        id: `zona-nivel-${nv.nivel}`,
+        type: 'zonaNode',
+        position: { x: nv.x, y: nv.y },
+        // React Flow v11 oculta (`visibility: hidden`) todo nodo sin `width`/`height`
+        // propios: no alcanza con ponerlos en `style`.
+        width: nv.width,
+        height: nv.height,
+        draggable: false,
+        selectable: false,
+        connectable: false,
+        focusable: false,
+        ariaLabel: `Zona nivel ${nv.nivel}`,
+        zIndex: -1,
+        style: { width: nv.width, height: nv.height, pointerEvents: 'none' as const },
+        data: {
+          nivel: nv.nivel,
+          conteo: nv.ids.length,
+          categoria: nv.categoria,
+          acento: acentoDeNivel(miembros),
+        },
+      } as unknown as CustomNode;
+    });
+  }, [niveles, nodes, zonasVisibles]);
+
   const processedNodes = useMemo(() => {
     const hasSearch = searchQuery.trim().length > 0;
-    return nodes.map((node) => {
+    const ideas = nodes.map((node) => {
       const isMatched = searchMatchingNodeIds.has(node.id);
       return {
         ...node,
@@ -1632,7 +1677,8 @@ export default function App() {
         },
       };
     });
-  }, [nodes, searchQuery, searchMatchingNodeIds, handleAIAction, degreeById]);
+    return [...zonaNodes, ...ideas];
+  }, [nodes, searchQuery, searchMatchingNodeIds, handleAIAction, degreeById, zonaNodes]);
 
   /**
    * Aristas de render. NO se toca el estado guardado (el vault sigue con las
@@ -2773,7 +2819,8 @@ export default function App() {
         <main
           ref={reactFlowWrapperRef}
           onDoubleClick={handleCanvasDoubleClick}
-          className="flex-1 relative w-full h-full bg-slate-950 overflow-hidden"
+          className="flex-1 relative w-full h-full overflow-hidden"
+          style={{ ...temaVars(CANVAS_THEME), backgroundColor: CANVAS_THEME.canvasBg }}
         >
           <ReactFlow
             nodes={processedNodes}
@@ -2797,7 +2844,7 @@ export default function App() {
             }}
             fitView
             attributionPosition="bottom-left"
-            theme="dark"
+            theme="light"
             minZoom={0.2}
             maxZoom={2}
             defaultEdgeOptions={{
@@ -2809,35 +2856,43 @@ export default function App() {
               },
             }}
           >
-            {/* Background dot grid pattern matching Sophisticated Dark design */}
-            <Background color="#1e293b" gap={24} size={1.2} />
+            {/* Background dot grid pattern (color y densidad desde el tema del lienzo) */}
+            <Background color={CANVAS_THEME.grid} gap={CANVAS_THEME.gridSize} size={1.2} />
 
             {/* Minimap radar in top-right */}
             <MiniMap
-              className="!bg-slate-950/90 !border !border-slate-800 !rounded-xl overflow-hidden shadow-2xl"
-              nodeColor={(n) => (n.data as IdeaNodeData)?.colorAccent || '#4f46e5'}
-              maskColor="rgba(2, 6, 23, 0.85)"
+              className="!rounded-xl overflow-hidden shadow-lg"
+              style={{
+                backgroundColor: CANVAS_THEME.minimapBg,
+                border: `1px solid ${CANVAS_THEME.hudBorder}`,
+              }}
+              nodeColor={(n) =>
+                n.type === 'zonaNode'
+                  ? 'transparent'
+                  : (n.data as IdeaNodeData)?.colorAccent || '#4f46e5'
+              }
+              maskColor={CANVAS_THEME.minimapMask}
             />
           </ReactFlow>
 
           {/* Zoom HUD from Design HTML in bottom-left */}
           <div className="absolute bottom-6 left-6 flex items-center gap-2 z-30 pointer-events-auto">
-            <div className="flex bg-slate-900/80 border border-slate-800 rounded-lg shadow-2xl p-1 backdrop-blur-md">
+            <div className="flex bg-[var(--nf-hud-bg)] border border-[var(--nf-hud-border)] rounded-lg shadow-lg p-1 backdrop-blur-md">
               <button
                 type="button"
                 onClick={handleZoomOut}
-                className="p-1.5 md:p-2 hover:bg-slate-800 rounded text-slate-400 border-r border-slate-800 transition-colors text-xs font-bold leading-none cursor-pointer"
+                className="p-1.5 md:p-2 hover:bg-[var(--nf-hud-hover)] rounded text-[var(--nf-hud-text)] border-r border-[var(--nf-hud-border)] transition-colors text-xs font-bold leading-none cursor-pointer"
                 title="Alejar"
               >
                 -
               </button>
-              <div className="px-2.5 md:px-3 flex items-center text-[10px] font-bold text-slate-300 font-mono">
+              <div className="px-2.5 md:px-3 flex items-center text-[10px] font-bold text-[var(--nf-hud-text)] font-mono">
                 {zoomPercent}%
               </div>
               <button
                 type="button"
                 onClick={handleZoomIn}
-                className="p-1.5 md:p-2 hover:bg-slate-800 rounded text-slate-400 border-l border-slate-800 transition-colors text-xs font-bold leading-none cursor-pointer"
+                className="p-1.5 md:p-2 hover:bg-[var(--nf-hud-hover)] rounded text-[var(--nf-hud-text)] border-l border-[var(--nf-hud-border)] transition-colors text-xs font-bold leading-none cursor-pointer"
                 title="Acercar"
               >
                 +
@@ -2845,18 +2900,33 @@ export default function App() {
               <button
                 type="button"
                 onClick={handleFitView}
-                className="p-1.5 md:p-2 hover:bg-slate-800 rounded text-slate-400 border-l border-slate-800 transition-colors cursor-pointer hover:text-white"
+                className="p-1.5 md:p-2 hover:bg-[var(--nf-hud-hover)] rounded text-[var(--nf-hud-text)] border-l border-[var(--nf-hud-border)] transition-colors cursor-pointer"
                 title="Ajustar y centrar vista"
               >
                 <Maximize2 size={13} />
               </button>
             </div>
 
+            {/* Zonas derivadas: marcos por nivel de profundidad (no se guardan) */}
+            <button
+              type="button"
+              onClick={() => setZonasVisibles((v) => !v)}
+              className={`border rounded-lg p-2 backdrop-blur-md flex items-center gap-1.5 text-xs shadow-lg transition-colors cursor-pointer ${
+                zonasVisibles
+                  ? 'bg-indigo-500/10 border-indigo-400/70 text-indigo-600 hover:bg-indigo-500/20'
+                  : 'bg-[var(--nf-hud-bg)] border-[var(--nf-hud-border)] text-[var(--nf-hud-text)] hover:bg-[var(--nf-hud-hover)]'
+              }`}
+              title={zonasVisibles ? 'Ocultar las zonas por nivel' : 'Mostrar las zonas por nivel'}
+            >
+              <Layers size={14} />
+              <span className="text-[10px] hidden sm:inline font-mono">Zonas</span>
+            </button>
+
             {/* Shortcuts help button */}
             <button
               type="button"
               onClick={() => setIsShortcutsOpen(true)}
-              className="bg-slate-900/80 hover:bg-slate-800 border border-slate-800 rounded-lg p-2 text-slate-400 hover:text-slate-200 backdrop-blur-md flex items-center gap-1.5 text-xs shadow-2xl transition-colors cursor-pointer"
+              className="bg-[var(--nf-hud-bg)] hover:bg-[var(--nf-hud-hover)] border border-[var(--nf-hud-border)] rounded-lg p-2 text-[var(--nf-hud-text)] backdrop-blur-md flex items-center gap-1.5 text-xs shadow-lg transition-colors cursor-pointer"
               title="Atajos de teclado y ayuda"
             >
               <Keyboard size={14} />

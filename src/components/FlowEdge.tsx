@@ -6,6 +6,7 @@ import {
   getStraightPath,
 } from 'reactflow';
 import { focusStore, focusedNodeId } from '../state/focusStore';
+import { CANVAS_THEME } from '../state/canvasTheme';
 
 export interface FlowEdgeData {
   /** Etiqueta textual de la arista (antes vivía en `edge.label`, que React Flow
@@ -21,8 +22,9 @@ export interface FlowEdgeData {
   targetColor?: string;
 }
 
-/** Aristas sin foco: apenas atenuadas para que la estructura siga legible. */
-const BASE_OPACITY = 0.42;
+/** Aristas sin foco: apenas atenuadas para que la estructura siga legible.
+ *  La opacidad base sale del tema del lienzo (en claro aguanta más). */
+const BASE_OPACITY = CANVAS_THEME.edgeOpacity;
 /** Aristas fuera del foco: casi invisibles. */
 const DIM_OPACITY = 0.1;
 
@@ -139,18 +141,18 @@ export const FlowEdge: React.FC<EdgeProps<FlowEdgeData>> = memo(
               width={labelWidth}
               height={20}
               rx={10}
-              fill="#020617"
-              fillOpacity={0.94}
+              fillOpacity={0.96}
               stroke={stroke}
               strokeOpacity={0.55}
               strokeWidth={1}
+              style={{ fill: 'var(--nf-edge-label-bg)' }}
             />
             <text
               textAnchor="middle"
               dominantBaseline="middle"
               fontSize={10}
               fontWeight={600}
-              fill="#cbd5e1"
+              style={{ fill: 'var(--nf-edge-label-text)' }}
             >
               {label}
             </text>

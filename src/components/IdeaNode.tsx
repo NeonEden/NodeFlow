@@ -48,6 +48,11 @@ const ToolBtn: React.FC<ToolBtnProps> = ({ title, onClick, className, children }
 
 const Separator = () => <span className="w-px h-4 bg-slate-700/70 mx-0.5 shrink-0" />;
 
+/**
+ * Los colores del lienzo llegan como variables CSS desde `canvasTheme.ts`
+ * (clases `nf-card`, `nf-title`, `nf-body`, `nf-muted`, `nf-maturity`, `nf-seg-off`):
+ * así el tema se cambia en un archivo y no en 40 clases de Tailwind.
+ */
 export const IdeaNode: React.FC<NodeProps<IdeaNodeData>> = memo(({ id, data, selected }) => {
   const accentColor = data.colorAccent || '#6366f1';
   const categoryLabel = data.category || data.label || (data.isRoot ? 'NÚCLEO' : 'CONCEPTO');
@@ -146,17 +151,17 @@ export const IdeaNode: React.FC<NodeProps<IdeaNodeData>> = memo(({ id, data, sel
         e.stopPropagation();
         data.onAction?.('edit', id, data);
       }}
-      className={`relative group bg-slate-900/95 border-2 text-white rounded-xl shadow-2xl transition-[box-shadow,border-color,transform] z-10 select-none cursor-grab active:cursor-grabbing ${widthClass} ${
+      className={`relative group nf-card border-2 rounded-xl shadow-2xl transition-[box-shadow,border-color,transform] z-10 select-none cursor-grab active:cursor-grabbing ${widthClass} ${
         lod === 'compacto' ? 'p-3' : 'p-4'
       } ${
         selected
           ? 'ring-2 shadow-lg scale-[1.02]'
           : isSearchMatch
           ? 'ring-2 ring-amber-400/90 shadow-amber-500/30 scale-[1.02]'
-          : 'hover:border-slate-500'
+          : ''
       }`}
       style={{
-        borderColor: selected ? accentColor : isSearchMatch ? '#fbbf24' : `${accentColor}${isHub ? 'cc' : '80'}`,
+        borderColor: selected ? accentColor : isSearchMatch ? '#fbbf24' : `${accentColor}${isHub ? 'cc' : '99'}`,
         boxShadow: selected
           ? `0 10px 25px -5px ${accentColor}33`
           : isHub
@@ -217,7 +222,10 @@ export const IdeaNode: React.FC<NodeProps<IdeaNodeData>> = memo(({ id, data, sel
             {categoryLabel}
           </span>
           {isHub && (
-            <span className="ml-auto text-[9px] font-mono text-slate-500 shrink-0" title={`${degree} conexiones`}>
+            <span
+              className="ml-auto text-[9px] font-mono nf-muted shrink-0"
+              title={`${degree} conexiones`}
+            >
               {degree}
             </span>
           )}
@@ -234,9 +242,9 @@ export const IdeaNode: React.FC<NodeProps<IdeaNodeData>> = memo(({ id, data, sel
               onKeyDown={handleInputKeyDown}
               onBlur={() => commitEdit('inline-save')}
               placeholder="Escribe la idea..."
-              className="w-full bg-slate-950 text-white text-sm font-semibold px-2.5 py-1.5 rounded-lg border-2 border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-400/50 shadow-inner nodrag"
+              className="w-full nf-input text-sm font-semibold px-2.5 py-1.5 rounded-lg border-2 border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-400/50 shadow-inner nodrag"
             />
-            <div className="flex items-center justify-between text-[9px] text-slate-400 px-0.5 select-none font-medium">
+            <div className="flex items-center justify-between text-[9px] nf-muted px-0.5 select-none font-medium">
               <span>Enter guardar • Tab hijo</span>
               <button
                 type="button"
@@ -244,7 +252,7 @@ export const IdeaNode: React.FC<NodeProps<IdeaNodeData>> = memo(({ id, data, sel
                   e.preventDefault();
                   commitEdit('inline-save');
                 }}
-                className="text-indigo-400 hover:text-indigo-300 underline cursor-pointer"
+                className="text-indigo-500 hover:text-indigo-600 underline cursor-pointer"
               >
                 Listo
               </button>
@@ -258,18 +266,18 @@ export const IdeaNode: React.FC<NodeProps<IdeaNodeData>> = memo(({ id, data, sel
               data.onAction?.('inline-start', id, { ...data, isEditing: true });
             }}
             title="Doble clic para editar título directamente"
-            className={`${titleClass} text-slate-100 leading-snug break-words cursor-text hover:text-indigo-200 transition-colors ${
+            className={`${titleClass} nf-title leading-snug break-words cursor-text ${
               lod === 'compacto' ? 'line-clamp-2' : ''
             }`}
           >
-            {data.title || <span className="text-slate-500 italic">Idea sin título...</span>}
+            {data.title || <span className="nf-muted italic">Idea sin título...</span>}
           </div>
         )}
 
         {/* Cuerpo: recién a partir del zoom medio */}
         {showBody && data.description && !isInlineEditing && (
           <p
-            className={`text-[11px] text-slate-400 leading-relaxed break-words ${
+            className={`text-[11px] nf-body leading-relaxed break-words ${
               showFull ? 'line-clamp-3' : 'line-clamp-2'
             }`}
           >
@@ -285,7 +293,7 @@ export const IdeaNode: React.FC<NodeProps<IdeaNodeData>> = memo(({ id, data, sel
                 key={i}
                 className="text-[9px] px-2 py-0.5 rounded border transition-colors font-medium"
                 style={{
-                  backgroundColor: `${accentColor}15`,
+                  backgroundColor: `${accentColor}14`,
                   borderColor: `${accentColor}40`,
                   color: accentColor,
                 }}
@@ -304,14 +312,14 @@ export const IdeaNode: React.FC<NodeProps<IdeaNodeData>> = memo(({ id, data, sel
               return (
                 <span
                   key={lvl}
-                  className={`h-1 flex-1 rounded-full ${isReached ? maturityConfig.barBg : 'bg-slate-800'}`}
+                  className={`h-1 flex-1 rounded-full ${isReached ? maturityConfig.barBg : 'nf-seg-off'}`}
                 />
               );
             })}
           </div>
         ) : (
           <div
-            className="flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg bg-slate-950/70 border border-slate-800/80 my-0.5 select-none"
+            className="flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg nf-maturity border my-0.5 select-none"
             title="Calificador de Madurez de la Idea. Clic en el texto para rotar o en las barras para fijar nivel."
           >
             <button
@@ -346,7 +354,7 @@ export const IdeaNode: React.FC<NodeProps<IdeaNodeData>> = memo(({ id, data, sel
                     className={`h-2 rounded-full transition-all cursor-pointer ${
                       isReached
                         ? `${maturityConfig.barBg} w-3.5 shadow-sm`
-                        : 'bg-slate-800 hover:bg-slate-700 w-2.5 opacity-50'
+                        : 'nf-seg-off hover:brightness-95 w-2.5 opacity-60'
                     }`}
                   />
                 );
@@ -357,7 +365,8 @@ export const IdeaNode: React.FC<NodeProps<IdeaNodeData>> = memo(({ id, data, sel
       </div>
 
       {/* Barra flotante de acciones: sólo con el nodo seleccionado. Sacar estos
-          botones del cuerpo recorta ~40% de la altura de la tarjeta. */}
+          botones del cuerpo recorta ~40% de la altura de la tarjeta. Sigue siendo
+          oscura a propósito: es un overlay sobre el lienzo. */}
       {selected && !isInlineEditing && (
         <div
           className="absolute -top-11 left-1/2 -translate-x-1/2 flex items-center gap-0.5 bg-slate-900/97 backdrop-blur-md border border-slate-700 rounded-xl px-1 py-1 shadow-2xl nodrag nowheel z-50 whitespace-nowrap"
