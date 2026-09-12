@@ -1670,8 +1670,14 @@ async fn experto_run(
         if let Some(n) = nodes.iter().find(|x| crate::grafo::id_de(x) == otro) {
             let d: String = crate::grafo::descripcion_de(n).chars().take(220).collect();
             let ct = n["data"]["category"].as_str().unwrap_or("");
+            // La madurez es la señal de confianza del propio sistema: 1-2 = idea o semilla,
+            // 4-5 = validado en la práctica. Sin esto el modelo no puede pesar el contexto.
+            let mad = n["data"]["maturity"]
+                .as_i64()
+                .map(|m| format!(" · madurez {m}/5"))
+                .unwrap_or_default();
             vecinos.push(format!(
-                "- [{ct}] {}: {}",
+                "- [{ct}{mad}] {}: {}",
                 crate::grafo::titulo_de(n),
                 d.trim()
             ));
@@ -1684,6 +1690,41 @@ async fn experto_run(
         &json!({"title": titulo, "description": desc}),
     );
 
+    // ── Snapshot de estado MEDIDO ─────────────────────────────────────────────
+    // Sin esto, un experto puede afirmar que una capacidad «no existe» porque las notas que recuperó
+    // de la bóveda son viejas. Pasó dos veces el mismo día («la métrica no está medida» cuando ya
+    // estaba instrumentada). Los hechos medidos ganan sobre cualquier nota.
+    let diag = crate::grafo::diagnostico(&nodes, &edges);
+    let st_stats = &diag["stats"];
+    let mut hechos = format!("- fecha: {}\n", crate::server::now_iso());
+    hechos += &format!(
+        "- lienzo: {} nodos · {} aristas · {} aristas colgadas · {} nodos sin conexiones\n",
+        st_stats["nodos"].as_i64().unwrap_or(0),
+        st_stats["aristas"].as_i64().unwrap_or(0),
+        diag["bloqueantes"].as_i64().unwrap_or(0),
+        st_stats["huerfanos"].as_i64().unwrap_or(0),
+    );
+    hechos += &format!(
+        "- propuestas esperando aprobación humana: {}\n",
+        st.vault.count_pending()
+    );
+    let met = st.vault.metricas();
+    if met["conversiones"].as_i64().unwrap_or(0) > 0 {
+        hechos += &format!(
+            "- métrica de valor T0→T1: INSTRUMENTADA, {} conversión(es) medida(s) · promedio {} min · objetivo {} min\n",
+            met["conversiones"].as_i64().unwrap_or(0),
+            met["promedio_min"].as_f64().unwrap_or(0.0),
+            met["objetivo_min"].as_f64().unwrap_or(3.0),
+        );
+    } else {
+        hechos += "- métrica de valor T0→T1: instrumentada, todavía sin lecturas\n";
+    }
+    hechos += "- el sistema ya tiene: cola de aprobación persistente, memoria BM25 de la bóveda, \
+                jardín de invariantes, panel de conocimiento, orquestador de expertos con contrato de \
+                artefactos, puente MCP (22 herramientas) y app instalable\n";
+    hechos += "- el cliente MCP (el agente) SÍ re-registra herramientas en caliente al recibir la \
+                notificación tools/list_changed: no hace falta reiniciar nada para eso\n";
+
     let extra = body["extra"].as_str().unwrap_or("").trim().to_string();
     let mut prompt = format!("CONCEPTO (nodo del lienzo)\nTítulo: {titulo}\nDescripción: {desc}\n");
     if !categoria.is_empty() {
@@ -1695,13 +1736,27 @@ async fn experto_run(
             vecinos.join("\n")
         );
     }
+    prompt += &format!("\nESTADO MEDIDO DEL SISTEMA\n{hechos}");
+    prompt += "\nJERARQUÍA DE CONFIANZA (regla del sistema, no negociable)\n\
+1. ESTADO MEDIDO (arriba): son hechos que el sistema verifica en este momento. Es la verdad operativa:\n\
+   si algo de lo que sabés los contradice, ganan ellos y lo decís.\n\
+2. NOTAS DE LA BÓVEDA: son REFERENCIA, nunca verdad. Ahí hay ideas, teorías, borradores y datos sin\n\
+   corroborar. Usalas como material; si afirmás algo que sale de una nota, atribuilo («según la nota\n\
+   X»); si plantean algo no verificado, presentalo como hipótesis y no como hecho.\n\
+3. TU CONOCIMIENTO PREVIO: puede estar desactualizado. No lo presentes con más seguridad que los\n\
+   datos de arriba.\n\
+Todo artefacto tiene que distinguir lo establecido de lo propuesto, y lo medido de lo supuesto.\n";
     if !bloque.is_empty() {
-        prompt += &format!("\nNOTAS DE LA BÓVEDA (las más relevantes por BM25)\n{bloque}\n");
+        prompt += &format!("\nNOTAS DE LA BÓVEDA (las más relevantes por BM25; pueden estar desactualizadas)\n{bloque}\n");
     }
     if !extra.is_empty() {
         prompt += &format!("\nINDICACIONES EXTRA DEL USUARIO\n{extra}\n");
     }
-    prompt += &format!("\nTAREA\n{}", crate::artefactos::instruccion(&tipo));
+    prompt += &format!(
+        "\nTAREA\n{}\n\n{}",
+        crate::artefactos::instruccion(&tipo),
+        crate::artefactos::regla_epistemica()
+    );
 
     // Escalado por contrato: se prueba proveedor por proveedor y se avanza cuando el artefacto NO
     // cumple. Ollama es gratis y rápido pero no aplica el schema (solo pide "JSON"); Gemini sí lo

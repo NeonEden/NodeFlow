@@ -152,6 +152,14 @@ pub fn instruccion(tipo: &str) -> &'static str {
     }
 }
 
+/// Regla de honestidad epistémica que acompaña a TODOS los tipos.
+pub fn regla_epistemica() -> &'static str {
+    "Distinguí en el artefacto lo que está establecido de lo que es una propuesta, y lo que está \
+     medido de lo que es un supuesto. Si un dato proviene de una nota de la bóveda no corroborada, \
+     marcalo como tal (o como supuesto a completar) en vez de presentarlo como un hecho. Una \
+     invención segura de sí misma vale menos que un hueco declarado."
+}
+
 fn arr_len(v: &Value, campo: &str) -> usize {
     v[campo].as_array().map(|a| a.len()).unwrap_or(0)
 }
