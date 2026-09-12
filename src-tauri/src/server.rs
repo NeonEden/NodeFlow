@@ -90,6 +90,8 @@ pub fn spawn(
             .route("/api/vault/search", get(vault_search))
             .route("/api/vault/reindex", post(vault_reindex))
             .route("/api/vault/memory", get(vault_memory))
+            // Fase 7b — métrica de valor (T0 → T1)
+            .route("/api/metrics", get(metrics))
             .route("/api/vault/note", get(vault_note))
             // Fase 4 — superficie para el agente (leer y escribir el lienzo)
             .route("/api/graph/summary", get(graph_summary))
@@ -537,7 +539,7 @@ async fn ai_action(State(st): State<AppState>, headers: HeaderMap, Json(body): J
     let override_txt = body["hitlProfileOverride"].as_str();
     let system_instruction = build_hitl_system_instruction(&profile, override_txt);
     // Fase 6: la bóveda del usuario entra al prompt como contexto del nodo.
-    let context = build_context(&action_type, &body, Some(&st.memoria));
+    let context = build_context(&action_type, &body, Some((st.vault.as_ref(), st.memoria.as_ref())));
     let prompt = fill_template(spec["prompt"].as_str().unwrap_or(""), &context);
     let schema = spec["schema"].clone();
     let resp_key = spec["response"]["key"].as_str().unwrap_or("variations").to_string();
@@ -594,7 +596,10 @@ async fn ai_action(State(st): State<AppState>, headers: HeaderMap, Json(body): J
 /// Bloque de contexto con notas de la bóveda del usuario relacionadas con este nodo.
 /// Devuelve (bloque_para_el_prompt, fuentes). Vacío si no hay nada relevante: así el prompt
 /// queda idéntico al original cuando la bóveda no aporta nada.
-fn bloque_memoria(memoria: &Memoria, nodo: &Value) -> (String, Vec<Value>) {
+///
+/// Fase 7b — RAG espacial: las notas que son nodos VECINOS del nodo enfocado pesan más
+/// (vecino directo ×1.5, a dos saltos ×1.2) porque son el contexto real de trabajo.
+fn bloque_memoria(vault: &Vault, memoria: &Memoria, nodo: &Value) -> (String, Vec<Value>) {
     let titulo = nodo["title"].as_str().unwrap_or("");
     let desc = nodo["description"].as_str().unwrap_or("");
     let consulta = format!(
@@ -604,18 +609,75 @@ fn bloque_memoria(memoria: &Memoria, nodo: &Value) -> (String, Vec<Value>) {
     if consulta.trim().chars().count() < 6 {
         return (String::new(), Vec::new());
     }
-    let res = memoria.buscar(&consulta, 6);
+    let res = memoria.buscar(&consulta, 10);
     if res["ok"].as_bool() != Some(true) {
         return (String::new(), Vec::new());
     }
     // Excluir la nota del propio nodo: no tiene sentido citarse a sí mismo.
     let propia = format!("nodos/{}.md", crate::vault::slug(titulo));
-    let mut lineas: Vec<String> = Vec::new();
-    let mut fuentes: Vec<Value> = Vec::new();
+
+    // Sesgo espacial: qué nodos están cerca del enfocado en el grafo, y cuánto pesa cada uno.
+    let mapa = vault.nombre_mapa();
+    let (gnodos, garistas) = vault.grafo_actual();
+    let foco_id = gnodos
+        .iter()
+        .find(|n| crate::grafo::titulo_de(n) == titulo)
+        .or_else(|| {
+            gnodos
+                .iter()
+                .find(|n| crate::grafo::titulo_de(n).eq_ignore_ascii_case(titulo))
+        })
+        .map(crate::grafo::id_de);
+    // El boost se indexa por SLUG, no por ruta completa: las notas del lienzo se indexan como
+    // `NodeFlow/nodos/<slug>.md`, así que comparar la ruta entera nunca coincidía.
+    let slug_de = |t: &str| crate::vault::slug(t);
+    let mut boost_por_slug: std::collections::HashMap<String, f32> = std::collections::HashMap::new();
+    if let Some(fid) = &foco_id {
+        for (nid, factor) in crate::grafo::cercania(&gnodos, &garistas, fid, 2) {
+            if let Some(n) = gnodos.iter().find(|n| crate::grafo::id_de(n) == nid) {
+                boost_por_slug.insert(slug_de(&crate::grafo::titulo_de(n)), factor);
+            }
+        }
+    }
+    let slug_de_ruta = |ruta: &str| -> String {
+        ruta.rsplit('/')
+            .next()
+            .unwrap_or("")
+            .trim_end_matches(".md")
+            .to_string()
+    };
+
+    // Re-puntuar y reordenar con el sesgo espacial aplicado.
+    let mut candidatos: Vec<(f64, Value)> = Vec::new();
     for r in res["resultados"].as_array().cloned().unwrap_or_default() {
         let ruta = r["ruta"].as_str().unwrap_or("");
+        let base = r["puntaje"].as_f64().unwrap_or(0.0);
+        if ruta.ends_with(&propia) {
+            continue;
+        }
+        // Los artefactos GENERADOS (`<mapa>.md` y `<mapa>.canvas`) duplican todo el lienzo: inyectarlos
+        // como contexto es ruido puro. Se excluyen por NOMBRE de mapa, no por ruta: los artefactos se
+        // llaman como el mapa, y las rutas del índice son relativas (sin barra inicial).
+        if ruta.ends_with(&format!("{mapa}.md")) || ruta.ends_with(&format!("{mapa}.canvas")) {
+            continue;
+        }
+        let factor = boost_por_slug
+            .get(&slug_de_ruta(ruta))
+            .copied()
+            .unwrap_or(1.0);
+        let mut rr = r.clone();
+        rr["puntaje_espacial"] = json!(((base * factor as f64) * 100.0).round() / 100.0);
+        rr["factor_cercania"] = json!(factor);
+        candidatos.push((base * factor as f64, rr));
+    }
+    candidatos.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+
+    let mut lineas: Vec<String> = Vec::new();
+    let mut fuentes: Vec<Value> = Vec::new();
+    for (_puntaje_boost, r) in candidatos {
+        let ruta = r["ruta"].as_str().unwrap_or("");
         let puntaje = r["puntaje"].as_f64().unwrap_or(0.0);
-        if ruta.ends_with(&propia) || puntaje < 2.0 {
+        if puntaje < 2.0 {
             continue;
         }
         lineas.push(format!(
@@ -628,6 +690,8 @@ fn bloque_memoria(memoria: &Memoria, nodo: &Value) -> (String, Vec<Value>) {
             "titulo": r["titulo"],
             "ruta": ruta,
             "puntaje": puntaje,
+            "puntaje_con_sesgo": r["puntaje_espacial"],
+            "factor_cercania": r["factor_cercania"],
             "ya_en_el_lienzo": r["ya_en_el_lienzo"],
         }));
         if lineas.len() >= 3 {
@@ -649,7 +713,7 @@ nodo; usalas como materia prima concreta y nombrá la fuente entre corchetes cua
 fn build_context(
     action: &str,
     body: &Value,
-    memoria: Option<&Memoria>,
+    ctx_memoria: Option<(&crate::vault::Vault, &Memoria)>,
 ) -> std::collections::HashMap<String, String> {
     let mut ctx = std::collections::HashMap::new();
     let node = &body["nodeData"];
@@ -725,8 +789,8 @@ fn build_context(
         }
     }
     // Fase 6: la memoria de la bóveda entra al prompt como materia prima del nodo.
-    if let Some(m) = memoria {
-        let (bloque, fuentes) = bloque_memoria(m, node);
+    if let Some((vault, m)) = ctx_memoria {
+        let (bloque, fuentes) = bloque_memoria(vault, m, node);
         if !bloque.is_empty() {
             log::info!(
                 "memoria: {} nota(s) de la bóveda inyectadas en el prompt de {action}",
@@ -1009,6 +1073,7 @@ async fn graph_state(
         "info": info,
         "cambios_externos": st.vault.info()["ultimos_cambios_externos"].clone(),
         "pendientes": st.vault.count_pending(),
+        "metricas": st.vault.metricas(),
         "state": st.vault.read_state(),
     }))
 }
@@ -1204,4 +1269,9 @@ async fn graph_garden_fix(State(st): State<AppState>, Json(p): Json<Value>) -> i
 /// Propone reacomodar el lienzo en niveles (layout determinista sin solapamientos).
 async fn graph_tidy(State(st): State<AppState>, Json(p): Json<Value>) -> impl IntoResponse {
     responder(st.vault.tidy(&p), "reacomodo")
+}
+
+/// Métrica de valor: minutos entre el brain dump (T0) y el primer artefacto aprobado (T1).
+async fn metrics(State(st): State<AppState>) -> impl IntoResponse {
+    Json(st.vault.metricas())
 }

@@ -4,7 +4,7 @@
 //! que el backend necesita para validar una mutación ANTES de tocar el disco (el punto de control
 //! preventivo que faltaba: rechazar la arista huérfana al entrar, en vez de limpiarla después).
 
-use crate::memoria::{plegar, tokenizar};
+use crate::memoria::tokenizar;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -487,6 +487,51 @@ pub fn layout_jerarquico(nodes: &[Value], edges: &[Value]) -> HashMap<String, (f
     pos
 }
 
+// ── Cercanía en el grafo (para el RAG espacial) ───────────────────────────────
+
+/// Multiplicador de relevancia por distancia relacional al nodo enfocado:
+/// vecino directo 1.5×, a dos saltos 1.2×, el resto 1.0×. Devuelve id → factor, sin incluir el foco.
+pub fn cercania(nodes: &[Value], edges: &[Value], foco: &str, saltos: usize) -> HashMap<String, f32> {
+    let ids: HashSet<String> = nodes.iter().map(id_de).collect();
+    if !ids.contains(foco) {
+        return HashMap::new();
+    }
+    let mut ady: HashMap<String, Vec<String>> = HashMap::new();
+    for e in edges {
+        let s = e["source"].as_str().unwrap_or("");
+        let t = e["target"].as_str().unwrap_or("");
+        if ids.contains(s) && ids.contains(t) {
+            ady.entry(s.to_string()).or_default().push(t.to_string());
+            ady.entry(t.to_string()).or_default().push(s.to_string());
+        }
+    }
+    let mut out: HashMap<String, f32> = HashMap::new();
+    let mut visitados: HashSet<String> = HashSet::new();
+    visitados.insert(foco.to_string());
+    let mut frontera: Vec<String> = vec![foco.to_string()];
+    for nivel in 1..=saltos {
+        let factor = match nivel {
+            1 => 1.5,
+            2 => 1.2,
+            _ => 1.0,
+        };
+        let mut siguiente: Vec<String> = Vec::new();
+        for a in &frontera {
+            for b in ady.get(a).cloned().unwrap_or_default() {
+                if visitados.insert(b.clone()) {
+                    out.insert(b.clone(), factor);
+                    siguiente.push(b);
+                }
+            }
+        }
+        if siguiente.is_empty() {
+            break;
+        }
+        frontera = siguiente;
+    }
+    out
+}
+
 // ── Sugerencias de jardín ────────────────────────────────────────────────────
 
 /// Solapamiento de términos entre dos textos (0..1), con el título pesando doble.
@@ -761,6 +806,30 @@ mod tests {
     }
 
     #[test]
+    fn la_cercania_pondera_por_saltos() {
+        // r - a - b - c   => a(1.5), b(1.2), c fuera
+        let nodes = vec![
+            raiz("r", "Núcleo"),
+            nodo("a", "A", "descripcion larga uno"),
+            nodo("b", "B", "descripcion larga dos"),
+            nodo("c", "C", "descripcion larga tres"),
+        ];
+        let edges = vec![arista("e1", "r", "a"), arista("e2", "a", "b"), arista("e3", "b", "c")];
+        let c = cercania(&nodes, &edges, "r", 2);
+        assert_eq!(c.get("a"), Some(&1.5));
+        assert_eq!(c.get("b"), Some(&1.2));
+        assert_eq!(c.get("c"), None, "a tres saltos no se pondera");
+        assert_eq!(c.get("r"), None, "el foco no se pondera a si mismo");
+    }
+
+    #[test]
+    fn la_cercania_sin_foco_no_hace_nada() {
+        let nodes = vec![raiz("r", "Núcleo"), nodo("a", "A", "descripcion larga")];
+        let edges = vec![arista("e1", "r", "a")];
+        assert!(cercania(&nodes, &edges, "inexistente", 2).is_empty());
+    }
+
+    #[test]
     fn no_sugiere_padrino_ya_conectado() {
         // Dos nodos ya unidos entre si, ambos fuera del arbol: el padrino debe ser OTRO.
         let nodes = vec![
@@ -783,7 +852,7 @@ mod tests {
     }
 
     #[test]
-    fn similitud_ordenа_los_pares_correctamente() {
+    fn similitud_ordena_los_pares_correctamente() {
         let alta = similitud("Visuales TouchDesigner", "render en vivo", "TouchDesigner visuales", "render en vivo");
         let baja = similitud("Visuales TouchDesigner", "render en vivo", "Cold outreach", "prospeccion por instagram");
         assert!(alta > baja, "los textos afines deben puntuar mas alto");

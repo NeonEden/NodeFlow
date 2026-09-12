@@ -33,12 +33,23 @@ export interface VaultState {
   updated_at?: number;
 }
 
+export interface Metricas {
+  objetivo_min: number;
+  promedio_min: number | null;
+  ultima_min: number | null;
+  conversiones: number;
+  sesion_activa: boolean;
+  t1_ms?: number | null;
+  minutos_desde_t0?: number | null;
+}
+
 export interface VaultSnapshot {
   changed: boolean;
   revision: number;
   info?: VaultInfo;
   cambios_externos?: string[];
   state?: VaultState | null;
+  metricas?: Metricas | null;
 }
 
 export interface VaultSaveResult {

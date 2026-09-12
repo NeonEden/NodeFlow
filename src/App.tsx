@@ -65,6 +65,7 @@ import {
 import { fetchHitlProfile, recordHitlFeedback, DEFAULT_FRONTEND_PROFILE } from './services/hitlService';
 import { fetchVaultInfo, loadVaultState, pollVault, saveVault, type VaultInfo } from './services/vaultService';
 import { fetchPendientes, type Propuesta } from './services/agentService';
+import type { Metricas } from './services/vaultService';
 import { AgentChangesPanel } from './components/AgentChangesPanel';
 import { MemoriaPanel } from './components/MemoriaPanel';
 import {
@@ -204,6 +205,9 @@ export default function App() {
 
   // Fase 5b: memoria semántica de la bóveda
   const [isMemoriaOpen, setIsMemoriaOpen] = useState(false);
+
+  // Fase 7b: métrica de valor (T0 → T1)
+  const [metricas, setMetricas] = useState<Metricas | null>(null);
 
   // Carga inicial del perfil HITL aprendido
   useEffect(() => {
@@ -378,6 +382,7 @@ export default function App() {
     }
     vaultRevRef.current = snap.revision;
     setVaultInfo(snap.info ?? null);
+    if (snap.metricas) setMetricas(snap.metricas as Metricas);
   }, [showToast]);
 
   useEffect(() => {
@@ -2561,6 +2566,25 @@ export default function App() {
                 >
                   Cambios del agente{propuestas.length ? ` · ${propuestas.length}` : ''}
                 </button>
+                {/* Fase 7b: cronómetro de conversión (T0 → T1) */}
+                <div className="flex justify-between items-center mb-1.5" title="Minutos entre el brain dump y el primer artefacto aprobado (objetivo < 3)">
+                  <span className="text-[10px] text-slate-400">Conversión T0→T1</span>
+                  <span
+                    className={`text-[10px] font-mono ${
+                      metricas?.promedio_min == null
+                        ? 'text-slate-500'
+                        : metricas.promedio_min <= 3
+                          ? 'text-emerald-300'
+                          : 'text-amber-300'
+                    }`}
+                  >
+                    {metricas?.promedio_min == null
+                      ? metricas?.sesion_activa
+                        ? `${metricas.minutos_desde_t0 ?? 0} min en curso`
+                        : '—'
+                      : `${metricas.promedio_min} min prom.`}
+                  </span>
+                </div>
                 {/* Fase 5b: buscar en toda la bóveda de Obsidian */}
                 <button
                   type="button"

@@ -423,6 +423,26 @@ def t_tidy(args):
     )
 
 
+def t_valor_medido(args):
+    ok, d = api("/api/metrics")
+    if not ok:
+        return texto_error(d)
+    objetivo = d.get("objetivo_min", 3.0)
+    prom = d.get("promedio_min")
+    out = [f"MÉTRICA DE VALOR · objetivo: menos de {objetivo} min entre el brain dump y el primer artefacto aprobado"]
+    if prom is None:
+        out.append("Todavía no hay ninguna conversión completa (T0→T1) registrada.")
+    else:
+        out.append(f"promedio: {prom} min · conversiones completas: {d.get('conversiones')} · última: {d.get('ultima_min')} min")
+    if d.get("sesion_activa"):
+        estado = "ya con artefacto aprobado" if d.get("t1_ms") else "esperando el primer artefacto aprobado"
+        out.append(f"sesión en curso: {d.get('minutos_desde_t0')} min desde T0 · {estado}")
+    else:
+        out.append("no hay sesión activa (se abre con la primera escritura en el lienzo)")
+    out.append("T0 = primera escritura humana de la sesión · T1 = primera propuesta de IA que aprobás.")
+    return "\n".join(out)
+
+
 def t_vault(args):
     ok, info = api("/api/vault/info")
     if not ok:
@@ -648,6 +668,15 @@ TOOLS = [
         },
     },
     {
+        "name": "valor_medido",
+        "description": (
+            "Métrica de valor del sistema: minutos entre el brain dump (T0) y el primer artefacto "
+            "aprobado (T1). Es el número que decide si la herramienta acelera el trabajo de verdad; "
+            "el objetivo declarado es menos de 3 minutos."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
         "name": "vault_status",
         "description": "Estado del vault en disco: ruta, revisión, cantidad de notas y últimos cambios hechos desde Obsidian.",
         "inputSchema": {"type": "object", "properties": {}},
@@ -672,6 +701,7 @@ HANDLERS = {
     "connect_nodes": t_connect,
     "delete_node": t_delete,
     "repair_canvas": t_repair,
+    "valor_medido": t_valor_medido,
     "vault_status": t_vault,
     "garden_scan": t_garden_scan,
     "garden_fix": t_garden_fix,

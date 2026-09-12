@@ -46,6 +46,8 @@ struct Inner {
     /// Fase 5a: escrituras del agente esperando aprobación humana (persisten en disco).
     pendientes: Vec<Value>,
     pending_rev: u64,
+    /// Fase 7b: métrica de valor — sesiones de trabajo y su T0→T1.
+    metricas: Value,
 }
 
 fn epoch_ms() -> u64 {
@@ -154,6 +156,11 @@ impl Vault {
                 pendientes.len()
             );
         }
+        // Fase 7b: el cronómetro de conversión sobrevive reinicios (se lee antes de mover `root`).
+        let metricas = std::fs::read_to_string(root.join(".nodeflow").join("metricas.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+            .unwrap_or_else(|| json!({"version": 1, "sesiones": [], "abierta": Value::Null}));
         Arc::new(Self {
             root,
             inner: Mutex::new(Inner {
@@ -166,6 +173,7 @@ impl Vault {
                 agent_writes: HashMap::new(),
                 pendientes,
                 pending_rev: 0,
+                metricas,
             }),
         })
     }
@@ -634,6 +642,8 @@ impl Vault {
                 .retain(|k, _| !conocidos.contains(k));
         }
 
+        // Fase 7b: la escritura humana abre/refresca la sesión de trabajo (T0 = la primera).
+        self.marcar_actividad("lienzo");
         self.backup_canonico();
         let appearance = payload
             .get("appearance")
@@ -1495,6 +1505,10 @@ impl Vault {
                 Ok(v) => {
                     hechos += 1;
                     revision = v["revision"].clone();
+                    // Fase 7b: aprobar una creación/actualización del agente ES el artefacto (T1).
+                    if tipo == "nodo" {
+                        self.marcar_actividad("aprobacion_ia");
+                    }
                     detalle.push(json!({
                         "id": pid,
                         "resultado": "aplicado",
@@ -1780,6 +1794,21 @@ impl Vault {
         }))
     }
 
+    /// Nombre del mapa en disco (`<mapa>.md` / `<mapa>.canvas` son artefactos generados).
+    pub fn nombre_mapa(&self) -> String {
+        self.read_state()
+            .and_then(|s| s["name"].as_str().map(String::from))
+            .unwrap_or_else(|| "nodeflow".into())
+    }
+
+    /// Grafo canónico actual (nodos, aristas). Lo usa el contexto de la IA para el sesgo espacial.
+    pub fn grafo_actual(&self) -> (Vec<Value>, Vec<Value>) {
+        match self.estado_base() {
+            Ok((_s, n, e, _m)) => (n, e),
+            Err(_) => (Vec::new(), Vec::new()),
+        }
+    }
+
     // ── Fase 7a: agente jardín (diagnóstico + arreglo propuesto) ────────────────
 
     /// Diagnóstico del grafo: invariantes + hallazgos del jardín + padrinos sugeridos.
@@ -1969,6 +1998,108 @@ impl Vault {
             "peligro": "medio",
             "nodos_movidos": cambios.len(),
         }))
+    }
+
+    // ── Fase 7b: métrica de valor (T0 → T1) ─────────────────────────────────────
+
+    /// Gap que cierra una sesión de trabajo (30 min sin actividad).
+    const SESION_GAP_MS: u64 = 30 * 60 * 1000;
+
+    fn guardar_metricas(&self, doc: &Value) {
+        if let Ok(txt) = serde_json::to_string_pretty(doc) {
+            let _ = self.write_atomic(".nodeflow/metricas.json", &txt);
+        }
+    }
+
+    /// Registra actividad y, cuando corresponde, cierra la conversión de la sesión.
+    /// T0 = la primera escritura HUMANA de la sesión (el brain dump aterriza en el lienzo).
+    /// T1 = la primera propuesta de IA APROBADA (aprobar es decir «esto es un artefacto»).
+    fn marcar_actividad(&self, evento: &str) {
+        let ahora = epoch_ms();
+        let mut doc = self.inner.lock().unwrap().metricas.clone();
+        if !doc.is_object() {
+            doc = json!({"version": 1, "sesiones": [], "abierta": Value::Null});
+        }
+        let mut sesiones = doc["sesiones"].as_array().cloned().unwrap_or_default();
+        let mut abierta = doc["abierta"].clone();
+        let abrir = match abierta["t0_ms"].as_u64() {
+            None => true,
+            Some(t0) => {
+                ahora.saturating_sub(abierta["ultima_ms"].as_u64().unwrap_or(t0)) > Self::SESION_GAP_MS
+            }
+        };
+        if abrir {
+            if abierta["t1_ms"].as_u64().is_some() {
+                sesiones.push(abierta.clone());
+            }
+            abierta = json!({
+                "t0_ms": ahora,
+                "ultima_ms": ahora,
+                "t1_ms": Value::Null,
+                "delta_min": Value::Null,
+                "eventos": [],
+            });
+        }
+        abierta["ultima_ms"] = json!(ahora);
+        let mut eventos = abierta["eventos"].as_array().cloned().unwrap_or_default();
+        eventos.push(json!({"ts": ahora, "que": evento}));
+        if eventos.len() > 60 {
+            eventos.drain(0..eventos.len() - 60);
+        }
+        abierta["eventos"] = json!(eventos);
+        if evento == "aprobacion_ia" && abierta["t1_ms"].is_null() {
+            let t0 = abierta["t0_ms"].as_u64().unwrap_or(ahora);
+            let delta = ahora.saturating_sub(t0) as f64 / 60_000.0;
+            abierta["t1_ms"] = json!(ahora);
+            abierta["delta_min"] = json!((delta * 10.0).round() / 10.0);
+            log::info!(
+                "metrica: primera conversión de la sesión en {:.1} min (objetivo < 3)",
+                delta
+            );
+        }
+        doc["sesiones"] = json!(sesiones);
+        doc["abierta"] = abierta;
+        {
+            self.inner.lock().unwrap().metricas = doc.clone();
+        }
+        self.guardar_metricas(&doc);
+    }
+
+    /// Estado de la métrica de valor: la última conversión, el promedio y la sesión abierta.
+    pub fn metricas(&self) -> Value {
+        let doc = self.inner.lock().unwrap().metricas.clone();
+        let sesiones = doc["sesiones"].as_array().cloned().unwrap_or_default();
+        let mut deltas: Vec<f64> = sesiones
+            .iter()
+            .filter_map(|s| s["delta_min"].as_f64())
+            .collect();
+        let abierta = doc["abierta"].clone();
+        let en_curso = abierta["delta_min"].as_f64();
+        if let Some(d) = en_curso {
+            deltas.push(d);
+        }
+        let promedio = if deltas.is_empty() {
+            Value::Null
+        } else {
+            json!(((deltas.iter().sum::<f64>() / deltas.len() as f64) * 10.0).round() / 10.0)
+        };
+        let abierta_activa = abierta["t0_ms"].as_u64().is_some()
+            && epoch_ms().saturating_sub(abierta["ultima_ms"].as_u64().unwrap_or(0))
+                < Self::SESION_GAP_MS;
+        json!({
+            "objetivo_min": 3.0,
+            "promedio_min": promedio,
+            "ultima_min": deltas.last().copied().map(|d| json!((d * 10.0).round() / 10.0)),
+            "conversiones": deltas.len(),
+            "sesion_activa": abierta_activa,
+            "t0_ms": abierta["t0_ms"],
+            "t1_ms": abierta["t1_ms"],
+            "minutos_desde_t0": abierta["t0_ms"].as_u64().map(|t0| {
+                (((epoch_ms().saturating_sub(t0)) as f64 / 60_000.0) * 10.0).round() / 10.0
+            }),
+            "sesiones_cerradas": sesiones.len(),
+            "detalle": sesiones.iter().rev().take(5).collect::<Vec<_>>(),
+        })
     }
 
 }
