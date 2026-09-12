@@ -64,6 +64,38 @@ fn hash_bytes(b: &[u8]) -> u64 {
 }
 
 /// Nombre de archivo seguro: sin separadores ni caracteres prohibidos, en minúsculas.
+/// Pliega acentos y símbolos para comparar títulos escritos a mano. Misma idea que el índice BM25:
+/// «información» y «informacion» son la misma cosa, y «MCP & Guardrails» ≈ «MCP y Guardrails».
+fn plano(s: &str) -> String {
+    // Se pliega sobre minúsculas: si no, «DISEÑO» y «diseño» no compararían igual.
+    let bajo = s.to_lowercase();
+    bajo
+        .chars()
+        .map(|c| match c {
+            'á' | 'à' | 'ä' | 'â' | 'ã' => 'a',
+            'é' | 'è' | 'ë' | 'ê' => 'e',
+            'í' | 'ì' | 'ï' | 'î' => 'i',
+            'ó' | 'ò' | 'ö' | 'ô' | 'õ' => 'o',
+            'ú' | 'ù' | 'ü' | 'û' => 'u',
+            'ñ' => 'n',
+            'ç' => 'c',
+            '&' => 'y',
+            _ => c,
+        })
+        .collect()
+}
+
+/// ¿Esta propuesta es el nodo `padre` que se está buscando? Tolera mayúsculas, acentos, «&» y
+/// puntuación, y también acepta el id que tendrá al aprobarse (`n-ag-<slug>`, sin plegar, que es
+/// como lo genera el alta real).
+fn pendiente_es_padre(padre: &str, p: &Value) -> bool {
+    if p["tipo"].as_str() != Some("nodo") {
+        return false;
+    }
+    let t = p["payload"]["title"].as_str().unwrap_or("");
+    !t.is_empty() && (slug(&plano(t)) == slug(&plano(padre)) || format!("n-ag-{}", slug(t)) == padre)
+}
+
 pub(crate) fn slug(raw: &str) -> String {
     let mut out = String::new();
     for c in raw.chars() {
@@ -1387,6 +1419,15 @@ impl Vault {
         }
     }
 
+    /// ¿El padre es una propuesta de nodo que todavía no se aprobó? Permite proponer un ÁRBOL
+    /// completo de una sola pasada (hub → pilares → items): el hijo valida contra el padre pendiente
+    /// y se resuelve de verdad cuando el padre ya está aprobado. Compara por slug, así tolera
+    /// mayúsculas, acentos y puntuación.
+    fn padre_pendiente(&self, padre: &str) -> bool {
+        let inner = self.inner.lock().unwrap();
+        inner.pendientes.iter().any(|p| pendiente_es_padre(padre, p))
+    }
+
     pub fn count_pending(&self) -> usize {
         self.inner.lock().unwrap().pendientes.len()
     }
@@ -1562,6 +1603,16 @@ impl Vault {
         let parent_id = match req["parent"].as_str() {
             Some(p) => Some(
                 self.resolve(&nodes, p)
+                    .or_else(|| {
+                        // El padre puede ser OTRA propuesta sin aprobar todavía (hub → pilares):
+                        // el árbol se propone de una sola pasada. Se predice su id con el mismo
+                        // slug que usa el alta real, así al aprobarlo en orden la arista resuelve.
+                        if self.padre_pendiente(p) {
+                            Some(format!("n-ag-{}", slug(p)))
+                        } else {
+                            None
+                        }
+                    })
                     .ok_or_else(|| format!("no encontré el nodo padre: {p}"))?,
             ),
             None => None,
@@ -2143,7 +2194,10 @@ impl Vault {
         if nodos.is_empty() {
             return Err("no hay nada para capturar (el texto no produjo candidatos)".into());
         }
-        if !parent.is_empty() && self.resolve(&self.grafo_actual().0, &parent).is_none() {
+        if !parent.is_empty()
+            && self.resolve(&self.grafo_actual().0, &parent).is_none()
+            && !self.padre_pendiente(&parent)
+        {
             return Err(format!("no encontré el nodo padre: {parent}"));
         }
         let mut props: Vec<Value> = Vec::new();
@@ -2376,4 +2430,40 @@ pub fn start_watcher(vault: Arc<Vault>) {
             vault.process_external(batch);
         }
     });
+}
+
+#[cfg(test)]
+mod tests_padre_pendiente {
+    use super::*;
+    use serde_json::json;
+
+    fn propuesta(tipo: &str, titulo: &str) -> Value {
+        json!({"tipo": tipo, "payload": {"title": titulo}})
+    }
+
+    #[test]
+    fn reconoce_el_padre_por_titulo_exacto() {
+        let p = propuesta("nodo", "Ecosistema creativo (lo que NodeFlow va a conectar)");
+        assert!(pendiente_es_padre("Ecosistema creativo (lo que NodeFlow va a conectar)", &p));
+    }
+
+    #[test]
+    fn tolera_mayusculas_acentos_y_puntuacion() {
+        let p = propuesta("nodo", "Diseño Gráfico & Sistema Visual");
+        assert!(pendiente_es_padre("diseño grafico y sistema visual", &p));
+        assert!(pendiente_es_padre("DISEÑO GRÁFICO & SISTEMA VISUAL", &p));
+    }
+
+    #[test]
+    fn acepta_el_id_que_tendra_al_aprobarse() {
+        let p = propuesta("nodo", "Panel Conocimiento");
+        assert!(pendiente_es_padre("n-ag-panel-conocimiento", &p));
+    }
+
+    #[test]
+    fn ignora_otros_tipos_y_titulos_distintos() {
+        assert!(!pendiente_es_padre("Puente MCP", &propuesta("arista", "Puente MCP")));
+        assert!(!pendiente_es_padre("Puente MCP", &propuesta("nodo", "Otra cosa")));
+        assert!(!pendiente_es_padre("Puente MCP", &propuesta("nodo", "")));
+    }
 }

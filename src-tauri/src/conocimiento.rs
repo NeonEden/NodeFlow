@@ -44,7 +44,7 @@ fn limpiar_markdown(t: &str) -> String {
 fn titulo_de(bloque: &str) -> String {
     let primera = bloque.lines().next().unwrap_or("").trim();
     if primera.starts_with('#') {
-        let t = limpiar_markdown(primera);
+        let t = sin_numeracion(&limpiar_markdown(primera));
         if !t.is_empty() {
             return recortar(&t);
         }
@@ -60,6 +60,19 @@ fn titulo_de(bloque: &str) -> String {
         }
     }
     recortar(&limpio)
+}
+
+/// "3. Modelos de IA" → "Modelos de IA": la numeración de una lista es andamiaje, no título.
+fn sin_numeracion(t: &str) -> String {
+    let s = t.trim();
+    let digitos = s.chars().take_while(|c| c.is_ascii_digit()).count();
+    if digitos > 0 && digitos <= 2 {
+        let resto: String = s.chars().skip(digitos).collect();
+        if let Some(r) = resto.strip_prefix('.').or_else(|| resto.strip_prefix(')')) {
+            return r.trim().to_string();
+        }
+    }
+    s.to_string()
 }
 
 fn recortar(t: &str) -> String {
@@ -90,10 +103,11 @@ fn bloques(texto: &str) -> Vec<String> {
         }
         let es_heading = l.trim_start().starts_with("# ") || l.trim_start().starts_with("## ");
         let vacia = l.trim().is_empty();
-        // Un heading SOLO (todavía sin cuerpo) no cierra bloque: si no, la línea en blanco que sigue
-        // lo separaría de su propio texto y el título saldría del cuerpo, no del heading.
+        // Un heading SOLO (todavía sin cuerpo) no lo cierra una LÍNEA EN BLANCO: si no, el título
+        // del documento se despegaría de su primer pilar. Sí lo cierra otro heading, que siempre
+        // arranca sección nueva.
         let solo_heading = actual.len() == 1 && actual[0].trim_start().starts_with('#');
-        if (es_heading || vacia) && !actual.is_empty() && !solo_heading {
+        if !actual.is_empty() && (es_heading || (vacia && !solo_heading)) {
             let b = actual.join("\n").trim().to_string();
             if !b.is_empty() {
                 out.push(b);
@@ -212,6 +226,26 @@ modelos ni red, y con plegado de acentos para que buscar informacion encuentre i
         let b = segmentar(texto, None, None);
         assert_eq!(a, b, "mismo texto ⇒ mismos candidatos");
         assert_eq!(a.len(), 1, "titulos repetidos se descartan");
+    }
+
+    #[test]
+    fn el_titulo_del_documento_no_se_pega_al_primer_pilar() {
+        // Forma real de un playbook: H1 del documento + pilares numerados con viñetas.
+        let texto = "# Pilares Extendidos de Conocimiento para la Bóveda\n\n## 1. TouchDesigner & Arte Generativo\n- **Pipelines de Render (GLSL):** Estructura de CHOPs, TOPs y SOPs con bajo impacto en CPU.\n\n## 2. Diseño Gráfico & Sistema Visual\n- **Design Tokens:** Paletas con contraste accesible y escalas tipográficas para entornos oscuros.";
+        let c = segmentar(texto, None, None);
+        assert_eq!(c.len(), 2, "el H1 del documento no es un pilar: {:?}", c);
+        assert_eq!(c[0]["titulo"], "TouchDesigner & Arte Generativo");
+        assert_eq!(c[1]["titulo"], "Diseño Gráfico & Sistema Visual");
+        assert!(c[0]["descripcion"].as_str().unwrap().contains("CHOPs"));
+        assert!(!c[0]["descripcion"].as_str().unwrap().contains("Pilares Extendidos"));
+    }
+
+    #[test]
+    fn sin_numeracion_solo_saca_el_andamiaje() {
+        assert_eq!(sin_numeracion("4. Marketing de Producto"), "Marketing de Producto");
+        assert_eq!(sin_numeracion("12) Otro tema"), "Otro tema");
+        assert_eq!(sin_numeracion("MCP 2026"), "MCP 2026");
+        assert_eq!(sin_numeracion("1-2-3 probando"), "1-2-3 probando");
     }
 
     #[test]
