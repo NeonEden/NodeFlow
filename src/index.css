@@ -120,4 +120,167 @@
   color: var(--nf-title);
 }
 
+/* --- Tema de la ESTRUCTURA (header, sidebar, modales, paneles) -------------------
+
+   La app tiene ~1100 clases de color de Tailwind hardcodeadas, así que en vez de
+   reescribir 20 componentes se remapea la escala de grises a las variables del tema.
+   Jerarquía preservada: slate-950 (más profundo) → fondo, slate-900 → superficie,
+   slate-800 → superficie-2, slate-700 → borde fuerte. En tema claro eso da blanco /
+   gris muy suave / gris, o sea la misma relación de profundidad.
+   El color de acento (bg-indigo-*, etc.) NO se toca. */
+
+.nf-app {
+  background-color: var(--nf-chrome-bg) !important;
+  color: var(--nf-chrome-text) !important;
+}
+
+/* Fondos */
+.nf-app .bg-slate-950,
+.nf-app .bg-slate-950\/90,
+.nf-app .bg-slate-950\/50,
+.nf-app .bg-slate-950\/40 {
+  background-color: var(--nf-chrome-bg) !important;
+}
+.nf-app .bg-slate-950\/80,
+.nf-app .bg-slate-950\/60 {
+  background-color: var(--nf-chrome-bg-80) !important;
+}
+.nf-app .bg-slate-900,
+.nf-app .bg-slate-900\/95,
+.nf-app .bg-slate-900\/90,
+.nf-app .bg-slate-900\/80,
+.nf-app .bg-slate-900\/70,
+.nf-app .bg-slate-900\/60 {
+  background-color: var(--nf-chrome-surface) !important;
+}
+.nf-app .bg-slate-800,
+.nf-app .bg-slate-800\/80,
+.nf-app .bg-slate-800\/60 {
+  background-color: var(--nf-chrome-surface-2) !important;
+}
+.nf-app .bg-slate-700 {
+  background-color: var(--nf-chrome-border-strong) !important;
+}
+.nf-app .hover\:bg-slate-950:hover,
+.nf-app .hover\:bg-slate-900:hover,
+.nf-app .hover\:bg-slate-800:hover,
+.nf-app .hover\:bg-slate-700:hover,
+.nf-app .group:hover .group-hover\:bg-slate-800 {
+  background-color: var(--nf-chrome-surface-2) !important;
+}
+
+/* Bordes y separadores */
+.nf-app .border-slate-800,
+.nf-app .border-slate-800\/80,
+.nf-app .border-slate-800\/60,
+.nf-app .border-slate-800\/50,
+.nf-app .divide-slate-800 > * + *,
+.nf-app .divide-slate-800\/80 > * + * {
+  border-color: var(--nf-chrome-border) !important;
+}
+.nf-app .border-slate-700,
+.nf-app .border-slate-700\/80,
+.nf-app .border-slate-700\/60,
+.nf-app .border-slate-700\/50 {
+  border-color: var(--nf-chrome-border-strong) !important;
+}
+
+/* Textos */
+.nf-app .text-slate-100,
+.nf-app .text-slate-200,
+.nf-app .text-slate-300,
+.nf-app .hover\:text-slate-200:hover,
+.nf-app .hover\:text-slate-300:hover,
+.nf-app .hover\:text-white:hover,
+.nf-app .group:hover .group-hover\:text-white {
+  color: var(--nf-chrome-text) !important;
+}
+.nf-app .text-slate-400,
+.nf-app .hover\:text-slate-400:hover {
+  color: var(--nf-chrome-text-muted) !important;
+}
+.nf-app .text-slate-500,
+.nf-app .text-slate-600,
+.nf-app .placeholder\:text-slate-500::placeholder {
+  color: var(--nf-chrome-text-dim) !important;
+}
+
+/* El texto blanco pasa a tinta… */
+.nf-app .text-white {
+  color: var(--nf-chrome-text) !important;
+}
+
+/* …salvo sobre fondo saturado (acento, scrim negro o color de estado), donde el
+   blanco es la decisión correcta y hay que conservarlo. */
+.nf-app :is(
+    [class*='bg-indigo-'], [class*='bg-violet-'], [class*='bg-purple-'], [class*='bg-fuchsia-'],
+    [class*='bg-rose-'], [class*='bg-red-'], [class*='bg-orange-'], [class*='bg-amber-'],
+    [class*='bg-yellow-'], [class*='bg-lime-'], [class*='bg-green-'], [class*='bg-emerald-'],
+    [class*='bg-teal-'], [class*='bg-cyan-'], [class*='bg-sky-'], [class*='bg-blue-'],
+    [class*='bg-pink-'], [class*='bg-black']
+  )
+  .text-white,
+.nf-app
+  :is(
+    [class*='bg-indigo-'], [class*='bg-violet-'], [class*='bg-purple-'], [class*='bg-fuchsia-'],
+    [class*='bg-rose-'], [class*='bg-red-'], [class*='bg-orange-'], [class*='bg-amber-'],
+    [class*='bg-yellow-'], [class*='bg-lime-'], [class*='bg-green-'], [class*='bg-emerald-'],
+    [class*='bg-teal-'], [class*='bg-cyan-'], [class*='bg-sky-'], [class*='bg-blue-'],
+    [class*='bg-pink-'], [class*='bg-black']
+  ).text-white {
+  color: #ffffff !important;
+}
+
+/* Overlays del lienzo que deben seguir oscuros pase lo que pase (barras flotantes:
+   son cromo sobre el plano de trabajo, no parte del tema). */
+.nf-app .nf-dark {
+  background-color: rgba(15, 23, 42, 0.97) !important;
+  border-color: #334155 !important;
+  color: #e2e8f0 !important;
+}
+.nf-app .nf-dark .text-slate-400,
+.nf-app .nf-dark .text-slate-300 {
+  color: #cbd5e1 !important;
+}
+.nf-app .nf-dark .text-white {
+  color: #ffffff !important;
+}
+
+/* --- Ajustes de contraste, sólo en tema claro -----------------------------------
+
+   Tailwind trae los tintes de acento pensados para fondo oscuro: `bg-rose-950/60`
+   como pastilla y `text-rose-300` como su texto. Sobre blanco eso queda claro sobre
+   claro (medido: 1.0:1 en el botón «Hibridador IA»). En vez de reescribir cada
+   componente, se recomponen con color-mix: el tinte se vuelve una pastilla clara y
+   el texto toma el acento oscurecido con la tinta del tema. El acento SÓLIDO
+   (bg-indigo-600 y compañía) no se toca: ahí el blanco ya contrasta. */
+
+.nf-claro [class*='bg-indigo-9'], .nf-claro [class*='bg-indigo-8'] { background-color: color-mix(in srgb, #6366f1 12%, var(--nf-chrome-surface)) !important; }
+.nf-claro [class*='bg-purple-9'], .nf-claro [class*='bg-purple-8'] { background-color: color-mix(in srgb, #a855f7 12%, var(--nf-chrome-surface)) !important; }
+.nf-claro [class*='bg-violet-9'], .nf-claro [class*='bg-violet-8'] { background-color: color-mix(in srgb, #8b5cf6 12%, var(--nf-chrome-surface)) !important; }
+.nf-claro [class*='bg-emerald-9'], .nf-claro [class*='bg-emerald-8'] { background-color: color-mix(in srgb, #10b981 12%, var(--nf-chrome-surface)) !important; }
+.nf-claro [class*='bg-rose-9'], .nf-claro [class*='bg-rose-8'] { background-color: color-mix(in srgb, #f43f5e 12%, var(--nf-chrome-surface)) !important; }
+.nf-claro [class*='bg-amber-9'], .nf-claro [class*='bg-amber-8'] { background-color: color-mix(in srgb, #f59e0b 14%, var(--nf-chrome-surface)) !important; }
+.nf-claro [class*='bg-cyan-9'], .nf-claro [class*='bg-cyan-8'] { background-color: color-mix(in srgb, #06b6d4 12%, var(--nf-chrome-surface)) !important; }
+.nf-claro [class*='bg-sky-9'], .nf-claro [class*='bg-sky-8'] { background-color: color-mix(in srgb, #0ea5e9 12%, var(--nf-chrome-surface)) !important; }
+
+.nf-claro [class*='text-indigo-2'], .nf-claro [class*='text-indigo-3'], .nf-claro [class*='text-indigo-4'] { color: color-mix(in srgb, #6366f1 74%, var(--nf-chrome-text)) !important; }
+.nf-claro [class*='text-purple-2'], .nf-claro [class*='text-purple-3'], .nf-claro [class*='text-purple-4'] { color: color-mix(in srgb, #a855f7 68%, var(--nf-chrome-text)) !important; }
+.nf-claro [class*='text-violet-2'], .nf-claro [class*='text-violet-3'], .nf-claro [class*='text-violet-4'] { color: color-mix(in srgb, #8b5cf6 72%, var(--nf-chrome-text)) !important; }
+.nf-claro [class*='text-emerald-2'], .nf-claro [class*='text-emerald-3'], .nf-claro [class*='text-emerald-4'] { color: color-mix(in srgb, #10b981 62%, var(--nf-chrome-text)) !important; }
+.nf-claro [class*='text-rose-2'], .nf-claro [class*='text-rose-3'], .nf-claro [class*='text-rose-4'] { color: color-mix(in srgb, #f43f5e 76%, var(--nf-chrome-text)) !important; }
+.nf-claro [class*='text-amber-2'], .nf-claro [class*='text-amber-3'], .nf-claro [class*='text-amber-4'] { color: color-mix(in srgb, #f59e0b 62%, var(--nf-chrome-text)) !important; }
+.nf-claro [class*='text-cyan-2'], .nf-claro [class*='text-cyan-3'], .nf-claro [class*='text-cyan-4'] { color: color-mix(in srgb, #06b6d4 66%, var(--nf-chrome-text)) !important; }
+.nf-claro [class*='text-sky-2'], .nf-claro [class*='text-sky-3'], .nf-claro [class*='text-sky-4'] { color: color-mix(in srgb, #0ea5e9 70%, var(--nf-chrome-text)) !important; }
+.nf-claro [class*='text-lime-2'], .nf-claro [class*='text-lime-3'], .nf-claro [class*='text-lime-4'] { color: color-mix(in srgb, #84cc16 52%, var(--nf-chrome-text)) !important; }
+
+/* Acento del propio nodo como texto (rótulo de categoría, tags): el acento viaja
+   como variable en la tarjeta y acá se oscurece lo justo para leerse. */
+.nf-acento {
+  color: var(--nf-acento);
+}
+.nf-claro .nf-acento {
+  color: color-mix(in srgb, var(--nf-acento) 74%, var(--nf-chrome-text));
+}
+
 

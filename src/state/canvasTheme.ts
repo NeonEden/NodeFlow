@@ -10,8 +10,23 @@
 
 import type { CSSProperties } from 'react';
 
+/** Paleta de la estructura de la app (header, sidebar, modales, paneles). */
+export interface ChromePalette {
+  bg: string;
+  bgA80: string;
+  surface: string;
+  surface2: string;
+  border: string;
+  borderStrong: string;
+  text: string;
+  textMuted: string;
+  textDim: string;
+}
+
 export interface CanvasTheme {
   nombre: string;
+  /** true si el lienzo es claro: habilita los ajustes de contraste (acentos y tintes). */
+  claro: boolean;
   /** Fondo del área de trabajo. */
   canvasBg: string;
   /** Punto de la grilla. */
@@ -45,10 +60,13 @@ export interface CanvasTheme {
   hudBorder: string;
   hudText: string;
   hudHover: string;
+  /** Estructura de la app (header, sidebar, modales, paneles). */
+  chrome: ChromePalette;
 }
 
 export const PAPEL: CanvasTheme = {
   nombre: 'papel',
+  claro: true,
   // Blanco puro para las tarjetas y un off-white mínimo para el lienzo: es lo que da
   // figura/fondo sin agregar sombras ni bordes extra (con blanco sobre blanco las
   // tarjetas se perdían en la vista general).
@@ -78,11 +96,25 @@ export const PAPEL: CanvasTheme = {
   hudBorder: '#e2e8f0',
   hudText: '#475569',
   hudHover: 'rgba(241, 245, 249, 0.9)',
+  // Estructura clara: el lienzo es off-white, así que la estructura va en blanco
+  // para que el lienzo se lea como el plano de trabajo y no al revés.
+  chrome: {
+    bg: '#ffffff',
+    bgA80: 'rgba(255, 255, 255, 0.85)',
+    surface: '#f8fafc',
+    surface2: '#eef2f7',
+    border: '#e5eaf1',
+    borderStrong: '#cbd5e1',
+    text: '#0f172a',
+    textMuted: '#5b6b82',
+    textDim: '#62707f',
+  },
 };
 
 export const NOCHE: CanvasTheme = {
   ...PAPEL,
   nombre: 'noche',
+  claro: false,
   canvasBg: '#020617',
   grid: '#1e293b',
   cardBg: 'rgba(15, 23, 42, 0.95)',
@@ -108,6 +140,18 @@ export const NOCHE: CanvasTheme = {
   hudBorder: '#1e293b',
   hudText: '#cbd5e1',
   hudHover: 'rgba(30, 41, 59, 0.9)',
+  // Estructura oscura: los valores originales de la app.
+  chrome: {
+    bg: '#020617',
+    bgA80: 'rgba(2, 6, 23, 0.8)',
+    surface: '#0f172a',
+    surface2: '#1e293b',
+    border: '#1e293b',
+    borderStrong: '#334155',
+    text: '#f1f5f9',
+    textMuted: '#94a3b8',
+    textDim: '#64748b',
+  },
 };
 
 /** Cambiar acá para volver al lienzo oscuro. */
@@ -119,6 +163,11 @@ function aRgb(hex: string): [number, number, number] {
   const h = hex.replace('#', '');
   const n = parseInt(h.length === 3 ? h.split('').map((c) => c + c).join('') : h, 16);
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+export function aRgba(hex: string, alpha: number): string {
+  const [r, g, b] = aRgb(hex);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
 /** Mezcla dos colores (t = peso del segundo). */
@@ -145,14 +194,29 @@ export function luminancia(hex: string): number {
 export function temaDesdeFondo(bg: string, nombre = 'personalizado'): CanvasTheme {
   const claro = luminancia(bg) > 0.5;
   const base = claro ? PAPEL : NOCHE;
+  // La estructura acompaña el fondo elegido (mismo tinte, misma jerarquía:
+  // fondo < superficie < superficie2), así el lienzo y el chrome no se pelean.
+  const cFondo = claro ? mezclar(bg, '#ffffff', 0.82) : bg;
+  const cSuperficie = claro ? mezclar(bg, '#ffffff', 0.5) : mezclar(bg, '#ffffff', 0.07);
+  const cSuperficie2 = claro ? mezclar(bg, '#ffffff', 0.24) : mezclar(bg, '#ffffff', 0.14);
   return {
     ...base,
     nombre,
+    claro,
     canvasBg: bg,
     grid: claro ? mezclar(bg, '#0f172a', 0.16) : mezclar(bg, '#ffffff', 0.2),
     minimapBg: claro ? 'rgba(255,255,255,0.93)' : 'rgba(15,23,42,0.9)',
     minimapMask: claro ? 'rgba(255,255,255,0.8)' : 'rgba(2,6,23,0.85)',
     hudBg: claro ? 'rgba(255,255,255,0.85)' : 'rgba(15,23,42,0.85)',
+    chrome: {
+      ...base.chrome,
+      bg: cFondo,
+      bgA80: aRgba(cFondo, 0.85),
+      surface: cSuperficie,
+      surface2: cSuperficie2,
+      border: claro ? mezclar(bg, '#0f172a', 0.08) : mezclar(bg, '#ffffff', 0.16),
+      borderStrong: claro ? mezclar(bg, '#0f172a', 0.2) : mezclar(bg, '#ffffff', 0.26),
+    },
   };
 }
 
@@ -179,5 +243,15 @@ export function temaVars(t: CanvasTheme): CSSProperties {
     '--nf-hud-text': t.hudText,
     '--nf-hud-hover': t.hudHover,
     '--nf-zona-texto': t.zonaTexto,
+    // Estructura
+    '--nf-chrome-bg': t.chrome.bg,
+    '--nf-chrome-bg-80': t.chrome.bgA80,
+    '--nf-chrome-surface': t.chrome.surface,
+    '--nf-chrome-surface-2': t.chrome.surface2,
+    '--nf-chrome-border': t.chrome.border,
+    '--nf-chrome-border-strong': t.chrome.borderStrong,
+    '--nf-chrome-text': t.chrome.text,
+    '--nf-chrome-text-muted': t.chrome.textMuted,
+    '--nf-chrome-text-dim': t.chrome.textDim,
   } as CSSProperties;
 }

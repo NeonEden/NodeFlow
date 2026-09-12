@@ -54,6 +54,7 @@ export const FlowEdge: React.FC<EdgeProps<FlowEdgeData>> = memo(
     const focus = useSyncExternalStore(focusStore.subscribe, focusStore.getState);
     const tema = useTema();
     const baseOpacity = tema.edgeOpacity;
+    const lente = focus.lente;
     const focusId = focusedNodeId(focus);
 
     const isDirect = !!focusId && (source === focusId || target === focusId);
@@ -61,7 +62,27 @@ export const FlowEdge: React.FC<EdgeProps<FlowEdgeData>> = memo(
     const active = isDirect || isHovered || Boolean(selected);
     const dimmed = !!focusId && !active;
 
-    const opacity = dimmed ? DIM_OPACITY : active ? 1 : baseOpacity;
+    // Lente semántica por categoría (manda sobre el foco por hover):
+    // interna = los dos extremos son de la categoría; borde = uno solo; ajena = ninguno.
+    const enLente = lente
+      ? lente.ids.has(source) && lente.ids.has(target)
+        ? 'interna'
+        : lente.ids.has(source) || lente.ids.has(target)
+        ? 'borde'
+        : 'ajena'
+      : null;
+
+    const opacity = enLente
+      ? enLente === 'interna' || isHovered
+        ? 1
+        : enLente === 'borde'
+        ? 0.5
+        : 0.06
+      : dimmed
+      ? DIM_OPACITY
+      : active
+      ? 1
+      : baseOpacity;
 
     const curve = data?.curve || 'smoothstep';
     let path = '';
@@ -95,11 +116,13 @@ export const FlowEdge: React.FC<EdgeProps<FlowEdgeData>> = memo(
 
     const baseColor = (style?.stroke as string) || data?.color || '#6366f1';
     const baseWidth = Number(style?.strokeWidth ?? data?.strokeWidth ?? 2);
-    // El color del foco sale del nodo de origen; si el foco es el destino, del destino.
+    // El color del realce sale del nodo de origen; si el foco es el destino, del destino.
     const focusColor =
       source === focusId ? data?.sourceColor : data?.targetColor;
-    const stroke = isDirect && focusColor ? focusColor : baseColor;
-    const width = active && !dimmed ? baseWidth + 0.9 : baseWidth;
+    const colorLente = enLente === 'interna' ? data?.sourceColor : undefined;
+    const stroke = (isDirect && focusColor) || colorLente || baseColor;
+    const realzada = (active && !dimmed) || enLente === 'interna';
+    const width = realzada ? baseWidth + 0.9 : baseWidth;
 
     const label = data?.label;
     const showLabel = Boolean(label) && (isHovered || Boolean(selected));
@@ -107,7 +130,7 @@ export const FlowEdge: React.FC<EdgeProps<FlowEdgeData>> = memo(
     const wantsDash = Boolean(data?.animated);
     // El dash animado queda como señal de foco: en reposo 53 líneas en movimiento
     // es exactamente el ruido que buscamos sacar.
-    const dash = wantsDash && active && !dimmed;
+    const dash = wantsDash && (enLente ? enLente === 'interna' : active && !dimmed);
 
     return (
       <g

@@ -165,7 +165,9 @@ export const IdeaNode: React.FC<NodeProps<IdeaNodeData>> = memo(({ id, data, sel
       }`}
       style={{
         borderColor: selected ? accentColor : isSearchMatch ? '#fbbf24' : `${accentColor}${isHub ? 'cc' : '99'}`,
-        boxShadow: selected
+        boxShadow: data.lente
+          ? `0 0 0 3px ${accentColor}40, 0 12px 24px -10px ${accentColor}66`
+          : selected
           ? `0 10px 25px -5px ${accentColor}33`
           : isHub
           ? `0 8px 20px -12px ${accentColor}55`
@@ -178,7 +180,10 @@ export const IdeaNode: React.FC<NodeProps<IdeaNodeData>> = memo(({ id, data, sel
           tarjetas === 'tintada'
             ? `linear-gradient(180deg, ${accentColor}16, ${accentColor}07)`
             : undefined,
-      }}
+        // El acento del nodo viaja como variable: las clases `.nf-acento` lo usan
+        // para el rótulo y los tags y lo oscurecen en tema claro (contraste).
+        '--nf-acento': accentColor,
+      } as React.CSSProperties}
     >
       {/* Indicador de acento superior */}
       <div
@@ -227,8 +232,7 @@ export const IdeaNode: React.FC<NodeProps<IdeaNodeData>> = memo(({ id, data, sel
             style={{ backgroundColor: accentColor }}
           />
           <span
-            className="text-[10px] font-bold uppercase tracking-wider truncate"
-            style={{ color: accentColor }}
+            className="text-[10px] font-bold uppercase tracking-wider truncate nf-acento"
           >
             {categoryLabel}
           </span>
@@ -302,11 +306,10 @@ export const IdeaNode: React.FC<NodeProps<IdeaNodeData>> = memo(({ id, data, sel
             {data.tags.map((tag, i) => (
               <span
                 key={i}
-                className="text-[9px] px-2 py-0.5 rounded border transition-colors font-medium"
+                className="text-[9px] px-2 py-0.5 rounded border transition-colors font-medium nf-acento"
                 style={{
                   backgroundColor: `${accentColor}14`,
                   borderColor: `${accentColor}40`,
-                  color: accentColor,
                 }}
               >
                 #{tag}
@@ -380,7 +383,7 @@ export const IdeaNode: React.FC<NodeProps<IdeaNodeData>> = memo(({ id, data, sel
           oscura a propósito: es un overlay sobre el lienzo. */}
       {selected && !isInlineEditing && (
         <div
-          className="absolute -top-11 left-1/2 -translate-x-1/2 flex items-center gap-0.5 bg-slate-900/97 backdrop-blur-md border border-slate-700 rounded-xl px-1 py-1 shadow-2xl nodrag nowheel z-50 whitespace-nowrap"
+          className="absolute -top-11 left-1/2 -translate-x-1/2 nf-dark flex items-center gap-0.5 backdrop-blur-md border rounded-xl px-1 py-1 shadow-2xl nodrag nowheel z-50 whitespace-nowrap"
           onClick={(e) => e.stopPropagation()}
         >
           <ToolBtn

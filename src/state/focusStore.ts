@@ -11,12 +11,15 @@ export interface FocusState {
   hoveredNodeId: string | null;
   hoveredEdgeId: string | null;
   selectedNodeIds: string[];
+  /** Lente semántica: una categoría enfocada y los ids que le pertenecen. */
+  lente: { categoria: string; ids: Set<string> } | null;
 }
 
 const EMPTY: FocusState = {
   hoveredNodeId: null,
   hoveredEdgeId: null,
   selectedNodeIds: [],
+  lente: null,
 };
 
 let state: FocusState = EMPTY;
@@ -28,6 +31,7 @@ function commit(next: FocusState) {
   if (
     next.hoveredNodeId === state.hoveredNodeId &&
     next.hoveredEdgeId === state.hoveredEdgeId &&
+    next.lente === state.lente &&
     next.selectedNodeIds.length === state.selectedNodeIds.length &&
     next.selectedNodeIds.every((id, i) => id === state.selectedNodeIds[i])
   ) {
@@ -61,6 +65,17 @@ export function setHoveredEdge(id: string | null) {
 
 export function setFocusSelection(ids: string[]) {
   commit({ ...state, selectedNodeIds: ids });
+}
+
+/** Lente semántica por categoría: null apaga la lente. */
+export function setLente(categoria: string | null, ids?: Set<string>) {
+  if (!categoria || !ids) {
+    if (state.lente === null) return;
+    commit({ ...state, lente: null });
+    return;
+  }
+  if (state.lente && state.lente.categoria === categoria && state.lente.ids === ids) return;
+  commit({ ...state, lente: { categoria, ids } });
 }
 
 export function resetFocus() {

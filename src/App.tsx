@@ -47,7 +47,9 @@ import {
   setHoveredEdge,
   setHoveredNode,
   setFocusSelection,
+  setLente,
 } from './state/focusStore';
+import { ZonasHud, CategoriaZona, ModoZonas } from './components/ZonasHud';
 import { temaVars } from './state/canvasTheme';
 import { useTema } from './state/canvasPrefs';
 import { AparienciaHud } from './components/AparienciaHud';
@@ -204,6 +206,8 @@ export default function App() {
   const [zoomPercent, setZoomPercent] = useState(100);
   // Zonas derivadas (marcos por nivel): sólo UI, no se guardan ni se sincronizan.
   const [zonasVisibles, setZonasVisibles] = useState(true);
+  const [modoZonas, setModoZonas] = useState<ModoZonas>('nivel');
+  const [categoriaLente, setCategoriaLente] = useState<string | null>(null);
   // Apariencia del lienzo (fondo + superficie de tarjeta), preferencia local.
   const tema = useTema();
   const varsTema = useMemo(() => temaVars(tema), [tema]);
@@ -1638,8 +1642,32 @@ export default function App() {
    */
   const niveles = useMemo(() => calcularNiveles(nodes, edges), [nodes, edges]);
 
+  /** Categorías del lienzo con su conteo y su acento, para la lente semántica. */
+  const categorias = useMemo<CategoriaZona[]>(() => {
+    const mapa = new Map<string, CategoriaZona>();
+    nodes.forEach((n) => {
+      const nombre = n.data?.category || 'SIN CATEGORÍA';
+      const previo = mapa.get(nombre);
+      if (previo) previo.n += 1;
+      else mapa.set(nombre, { nombre, n: 1, acento: n.data?.colorAccent || '#6366f1' });
+    });
+    return [...mapa.values()].sort((a, b) => b.n - a.n || a.nombre.localeCompare(b.nombre));
+  }, [nodes]);
+
+  /** Ids de la categoría enfocada por la lente (null = sin lente). */
+  const idsLente = useMemo(() => {
+    if (!categoriaLente) return null;
+    return new Set(
+      nodes.filter((n) => (n.data?.category || 'SIN CATEGORÍA') === categoriaLente).map((n) => n.id)
+    );
+  }, [nodes, categoriaLente]);
+
+  useEffect(() => {
+    setLente(categoriaLente, idsLente || undefined);
+  }, [categoriaLente, idsLente]);
+
   const zonaNodes = useMemo<CustomNode[]>(() => {
-    if (!zonasVisibles) return [];
+    if (!zonasVisibles || modoZonas !== 'nivel') return [];
     return niveles.map((nv) => {
       const miembros = nodes.filter((n) => nv.ids.includes(n.id));
       return {
@@ -1665,25 +1693,29 @@ export default function App() {
         },
       } as unknown as CustomNode;
     });
-  }, [niveles, nodes, zonasVisibles]);
+  }, [niveles, nodes, zonasVisibles, modoZonas]);
 
   const processedNodes = useMemo(() => {
     const hasSearch = searchQuery.trim().length > 0;
     const ideas = nodes.map((node) => {
       const isMatched = searchMatchingNodeIds.has(node.id);
+      const enLente = idsLente ? idsLente.has(node.id) : null;
+      // La lente semántica y la búsqueda comparten el mecanismo de atenuación.
+      const atenuado = (hasSearch && !isMatched) || enLente === false;
       return {
         ...node,
-        className: hasSearch && !isMatched ? 'opacity-30 transition-opacity duration-300' : undefined,
+        className: atenuado ? 'opacity-25 transition-opacity duration-300' : undefined,
         data: {
           ...node.data,
           isSearchMatch: isMatched,
           degree: degreeById.get(node.id) || 0,
+          lente: enLente === true,
           onAction: (...args: any[]) => (handleAIAction as any)(...args),
         },
       };
     });
     return [...zonaNodes, ...ideas];
-  }, [nodes, searchQuery, searchMatchingNodeIds, handleAIAction, degreeById, zonaNodes]);
+  }, [nodes, searchQuery, searchMatchingNodeIds, handleAIAction, degreeById, zonaNodes, idsLente]);
 
   /**
    * Aristas de render. NO se toca el estado guardado (el vault sigue con las
@@ -2410,7 +2442,10 @@ export default function App() {
   }, []);
 
   return (
-    <div className="w-full h-screen bg-slate-950 flex flex-col font-sans text-slate-200 select-none overflow-hidden">
+    <div
+      className={`nf-app ${tema.claro ? 'nf-claro' : ''} w-full h-screen flex flex-col font-sans select-none overflow-hidden`}
+      style={{ ...varsTema, backgroundColor: tema.chrome.bg }}
+    >
       {/* Top Header & Toolbar */}
       <Toolbar
         canUndo={canUndo}
@@ -2912,20 +2947,21 @@ export default function App() {
               </button>
             </div>
 
-            {/* Zonas derivadas: marcos por nivel de profundidad (no se guardan) */}
-            <button
-              type="button"
-              onClick={() => setZonasVisibles((v) => !v)}
-              className={`border rounded-lg p-2 backdrop-blur-md flex items-center gap-1.5 text-xs shadow-lg transition-colors cursor-pointer ${
-                zonasVisibles
-                  ? 'bg-indigo-500/10 border-indigo-400/70 text-indigo-600 hover:bg-indigo-500/20'
-                  : 'bg-[var(--nf-hud-bg)] border-[var(--nf-hud-border)] text-[var(--nf-hud-text)] hover:bg-[var(--nf-hud-hover)]'
-              }`}
-              title={zonasVisibles ? 'Ocultar las zonas por nivel' : 'Mostrar las zonas por nivel'}
-            >
-              <Layers size={14} />
-              <span className="text-[10px] hidden sm:inline font-mono">Zonas</span>
-            </button>
+            {/* Zonas: marcos por nivel o lente por categoría (no se guardan) */}
+            <ZonasHud
+              visible={zonasVisibles}
+              onVisible={setZonasVisibles}
+              modo={modoZonas}
+              onModo={(m) => {
+                setModoZonas(m);
+                // Los dos modos son excluyentes: al volver a niveles hay que apagar la
+                // lente, si no quedan las tarjetas atenuadas con los marcos encendidos.
+                if (m === 'nivel') setCategoriaLente(null);
+              }}
+              categorias={categorias}
+              categoriaLente={categoriaLente}
+              onCategoria={setCategoriaLente}
+            />
 
             <AparienciaHud />
 

@@ -71,6 +71,8 @@ export interface IdeaNodeData {
   /** Grado del nodo (aristas que lo tocan). Se inyecta en el render: alimenta la
    *  jerarquía de escala. No forma parte del estado persistido. */
   degree?: number;
+  /** true si la lente de categoría lo está marcando como miembro. Sólo render. */
+  lente?: boolean;
   aiOrigin?: {
     batchId: string;
     actionType: 'branch' | 'explore' | 'hybrid' | 'critique' | 'socratic' | 'braindump' | 'bridge' | 'manual';
