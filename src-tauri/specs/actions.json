@@ -1,0 +1,682 @@
+{
+  "branch": {
+    "aliases": [],
+    "prompt": "Analiza este nodo: \"{{title}}: {{description}}\".\r\nGenera 3 sub-ideas o componentes técnicamente viables que expandan y complementen este concepto.\r\n{{memoria}}\nResponde exclusivamente en este formato JSON:\r\n[\r\n  {\"category\": \"CATEGORIA\", \"title\": \"Titulo Corto\", \"description\": \"Explicacion concisa\", \"tags\": [\"tag1\", \"tag2\"]}\r\n]",
+    "schema": {
+      "type": "ARRAY",
+      "items": {
+        "type": "OBJECT",
+        "properties": {
+          "category": {
+            "type": "STRING"
+          },
+          "title": {
+            "type": "STRING"
+          },
+          "description": {
+            "type": "STRING"
+          },
+          "tags": {
+            "type": "ARRAY",
+            "items": {
+              "type": "STRING"
+            }
+          }
+        },
+        "required": [
+          "category",
+          "title",
+          "description",
+          "tags"
+        ]
+      }
+    },
+    "schema_alt": null,
+    "prompt_alt": null,
+    "schemas_all": [
+      "branchSchema"
+    ],
+    "fallbacks": {
+      "fallbackVariations": [
+        {
+          "category": "EVOLUCIÓN",
+          "title": "Evolución Autónoma de {{title}}",
+          "description": "Integración con automatización, flujos en tiempo real y APIs modernas para {{title.toLowerCase()}}.",
+          "tags": [
+            "Digital",
+            "Autónomo"
+          ]
+        },
+        {
+          "category": "EFICIENCIA",
+          "title": "Enfoque Minimalista y Ágil",
+          "description": "Versión simplificada que reduce la complejidad operativa y prioriza la máxima velocidad de ejecución.",
+          "tags": [
+            "Eficiencia",
+            "Lean"
+          ]
+        },
+        {
+          "category": "COMUNIDAD",
+          "title": "Capa Colaborativa & Red",
+          "description": "Plataforma comunitaria de co-creación con incentivos y sincronización distribuida.",
+          "tags": [
+            "Comunidad",
+            "Sinergia"
+          ]
+        }
+      ]
+    },
+    "body_fields": [],
+    "inner_conditions": [
+      "type === \"branch\""
+    ],
+    "response": {
+      "key": "variations"
+    }
+  },
+  "explore": {
+    "aliases": [],
+    "prompt": "Analiza a fondo el concepto: \"{{title}}: {{description}}\".\r\nProporciona 3 ángulos de exploración analítica profunda:\r\n1. Factibilidad Técnica e Infraestructura\r\n2. Experiencia de Usuario y Adopción\r\n3. Factores Críticos y Seguridad\r\n{{memoria}}\nDevuelve un JSON array con objetos que tengan: category, title, description, tags (array de 2 tags).",
+    "schema": {
+      "type": "ARRAY",
+      "items": {
+        "type": "OBJECT",
+        "properties": {
+          "category": {
+            "type": "STRING"
+          },
+          "title": {
+            "type": "STRING"
+          },
+          "description": {
+            "type": "STRING"
+          },
+          "tags": {
+            "type": "ARRAY",
+            "items": {
+              "type": "STRING"
+            }
+          }
+        },
+        "required": [
+          "category",
+          "title",
+          "description",
+          "tags"
+        ]
+      }
+    },
+    "schema_alt": null,
+    "prompt_alt": null,
+    "schemas_all": [
+      "exploreSchema"
+    ],
+    "fallbacks": {
+      "fallbackExploration": [
+        {
+          "category": "ARQUITECTURA",
+          "title": "Factibilidad y Arquitectura",
+          "description": "Evaluar requerimientos de infraestructura escalable y tiempos de respuesta para {{title}}.",
+          "tags": [
+            "Técnico",
+            "Escala"
+          ]
+        },
+        {
+          "category": "EXPERIENCIA",
+          "title": "Adopción y Experiencia de Usuario",
+          "description": "Diseñar flujos intuitivos y reducir la fricción para la interacción con {{title}}.",
+          "tags": [
+            "UX",
+            "Adopción"
+          ]
+        },
+        {
+          "category": "ESTRATEGIA",
+          "title": "Estrategia de Crecimiento",
+          "description": "Medir métricas clave de retención y casos de uso de alto impacto para la propuesta.",
+          "tags": [
+            "Estrategia",
+            "Impacto"
+          ]
+        }
+      ]
+    },
+    "body_fields": [],
+    "inner_conditions": [
+      "type === \"explore\""
+    ],
+    "response": {
+      "key": "variations"
+    }
+  },
+  "hybrid": {
+    "aliases": [],
+    "prompt": "Actúa como un sintetizador conceptual de vanguardia.\r\nFusiona creativamente estas dos ideas en una única propuesta híbrida innovadora:\r\nIdea 1: \"{{nodeA.title}}: {{nodeA.description}}\"\r\nIdea 2: \"{{nodeB.title}}: {{nodeB.description}}\"\r\n\r\nGenera una síntesis innovadora con:\r\n- \"title\": Nombre atractivo del concepto híbrido (máx. 5 palabras)\r\n- \"description\": Explicación clara de cómo se combinan ambas fortalezas (2 oraciones)\r\n- \"tags\": Lista de 2 o 3 etiquetas\r\n- \"rationale\": Breve justificación de la sinergia\n{{memoria}}",
+    "schema": {
+      "type": "OBJECT",
+      "properties": {
+        "title": {
+          "type": "STRING"
+        },
+        "description": {
+          "type": "STRING"
+        },
+        "tags": {
+          "type": "ARRAY",
+          "items": {
+            "type": "STRING"
+          }
+        },
+        "rationale": {
+          "type": "STRING"
+        }
+      },
+      "required": [
+        "title",
+        "description",
+        "tags"
+      ]
+    },
+    "schema_alt": null,
+    "prompt_alt": null,
+    "schemas_all": [
+      "hybridSchema"
+    ],
+    "fallbacks": {},
+    "body_fields": [],
+    "inner_conditions": [
+      "type === \"hybrid\"",
+      "result && result.parsed?.title"
+    ],
+    "response": {
+      "key": "hybrid"
+    }
+  },
+  "synthesize": {
+    "aliases": [],
+    "prompt": "Analiza la siguiente red de nodos y mapa mental conceptual:\r\n{{nodeSummaries}}\r\n\r\nGenera una síntesis ejecutiva integral del mapa mental en formato JSON:\r\n- \"summary\": Un párrafo conciso (3-4 oraciones) resumiendo la visión global del mapa.\r\n- \"pillars\": Un array de 3 pilares clave identificados en la red de ideas.\r\n- \"actionItems\": Un array de 3 a 5 próximos pasos recomendados para ejecutar este mapa.\r\n- \"keyOpportunities\": 2 oportunidades de diferenciación o innovación identificadas.\n{{memoria}}",
+    "schema": {
+      "type": "OBJECT",
+      "properties": {
+        "summary": {
+          "type": "STRING"
+        },
+        "pillars": {
+          "type": "ARRAY",
+          "items": {
+            "type": "STRING"
+          }
+        },
+        "actionItems": {
+          "type": "ARRAY",
+          "items": {
+            "type": "STRING"
+          }
+        },
+        "keyOpportunities": {
+          "type": "ARRAY",
+          "items": {
+            "type": "STRING"
+          }
+        }
+      },
+      "required": [
+        "summary",
+        "pillars",
+        "actionItems",
+        "keyOpportunities"
+      ]
+    },
+    "schema_alt": null,
+    "prompt_alt": null,
+    "schemas_all": [
+      "synthesizeSchema"
+    ],
+    "fallbacks": {
+      "fallbackSynthesis": {
+        "summary": "El mapa actual articula {{allNodes.length}} nodos interconectados con foco en innovación estratégica, desarrollo ágil y escalabilidad. Presenta un equilibrio entre fundamentos conceptuales y componentes de ejecución práctica.",
+        "pillars": [
+          "Arquitectura y Fundamentos de Conocimiento",
+          "Diferenciación y Adopción por Usuarios",
+          "Escalabilidad y Ejecución Continua"
+        ],
+        "actionItems": [
+          "Priorizar el desarrollo de los nodos raíz de mayor impacto",
+          "Validar las hipótesis planteadas en las ramificaciones con usuarios de prueba",
+          "Estructurar hitos trimestrales basados en los componentes explorados"
+        ],
+        "keyOpportunities": [
+          "Integración de automatización cognitiva en los procesos clave",
+          "Consolidación de una propuesta de valor unificada frente a alternativas existentes"
+        ]
+      }
+    },
+    "body_fields": [],
+    "inner_conditions": [
+      "type === \"synthesize\"",
+      "allNodes.length > 0",
+      "result && result.parsed?.summary"
+    ],
+    "response": {
+      "key": "synthesis"
+    }
+  },
+  "critique": {
+    "aliases": [
+      "devils_advocate"
+    ],
+    "prompt": "Actúa como un riguroso 'Abogado del Diablo', auditor crítico y analista de riesgos.\r\nExamina objetivamente el concepto: \"{{title}}: {{description}}\".\r\nDetecta 3 puntos ciegos, contraargumentos, riesgos operativos o suposiciones no validadas que desafíen esta idea para hacerla más robusta.\r\n{{memoria}}\nDevuelve un JSON array con objetos: category (\"PUNTO CIEGO\" | \"RIESGO CRÍTICO\" | \"ANTÍTESIS\"), title (máx 5 palabras), description (explicación concisa del riesgo o contraargumento), tags (array de 2 tags).",
+    "schema": {
+      "type": "ARRAY",
+      "items": {
+        "type": "OBJECT",
+        "properties": {
+          "category": {
+            "type": "STRING"
+          },
+          "title": {
+            "type": "STRING"
+          },
+          "description": {
+            "type": "STRING"
+          },
+          "tags": {
+            "type": "ARRAY",
+            "items": {
+              "type": "STRING"
+            }
+          }
+        },
+        "required": [
+          "category",
+          "title",
+          "description",
+          "tags"
+        ]
+      }
+    },
+    "schema_alt": null,
+    "prompt_alt": null,
+    "schemas_all": [
+      "critiqueSchema"
+    ],
+    "fallbacks": {
+      "fallbackCritique": [
+        {
+          "category": "PUNTO CIEGO",
+          "title": "Suposición Crítica No Validada",
+          "description": "Se asume una adopción inmediata sin fricción operativa o resistencia al cambio en {{title}}.",
+          "tags": [
+            "Adopción",
+            "Sesgo"
+          ]
+        },
+        {
+          "category": "RIESGO CRÍTICO",
+          "title": "Cuello de Botella Operativo",
+          "description": "La complejidad de mantenimiento o escalado técnico puede superar los beneficios tempranos de la solución.",
+          "tags": [
+            "Escalabilidad",
+            "Costos"
+          ]
+        },
+        {
+          "category": "ANTÍTESIS",
+          "title": "Alternativa Simplificada Existente",
+          "description": "Herramientas consolidadas o métodos manuales podrían resolver el 80% del problema con menor fricción.",
+          "tags": [
+            "Competencia",
+            "Fricción"
+          ]
+        }
+      ]
+    },
+    "body_fields": [],
+    "inner_conditions": [
+      "type === \"critique\" || type === \"devils_advocate\""
+    ],
+    "response": {
+      "key": "variations"
+    }
+  },
+  "socratic": {
+    "aliases": [],
+    "prompt": "Actúa como un mentor socrático de pensamiento profundo e inquisitivo.\r\nExamina el concepto: \"{{title}}: {{description}}\".\r\nFormula 3 preguntas catalizadoras directas, profundas e incisivas (no complacientes) para forzar al pensador a clarificar y destrabar la esencia de la idea.\r\n{{memoria}}\nDevuelve un JSON array con objetos: category (\"PREGUNTA CATALIZADORA\" | \"DESAFÍO COGNITIVO\"), title (la pregunta en formato ¿...?, máx 7 palabras), description (por qué esta pregunta es crucial resolverla), tags (array de 2 tags).",
+    "schema": {
+      "type": "ARRAY",
+      "items": {
+        "type": "OBJECT",
+        "properties": {
+          "category": {
+            "type": "STRING"
+          },
+          "title": {
+            "type": "STRING"
+          },
+          "description": {
+            "type": "STRING"
+          },
+          "tags": {
+            "type": "ARRAY",
+            "items": {
+              "type": "STRING"
+            }
+          }
+        },
+        "required": [
+          "category",
+          "title",
+          "description",
+          "tags"
+        ]
+      }
+    },
+    "schema_alt": null,
+    "prompt_alt": null,
+    "schemas_all": [
+      "socraticSchema"
+    ],
+    "fallbacks": {
+      "fallbackSocratic": [
+        {
+          "category": "PREGUNTA CATALIZADORA",
+          "title": "¿Qué falla si esto tiene éxito?",
+          "description": "Evaluar consecuencias de segundo orden causadas por un incremento drástico en demanda o uso.",
+          "tags": [
+            "Segundo Orden",
+            "Estrategia"
+          ]
+        },
+        {
+          "category": "DESAFÍO COGNITIVO",
+          "title": "¿Cuál es el núcleo irreductible?",
+          "description": "Si tuvieras que eliminar el 80% de las partes accesorias, ¿qué componente seguiría aportando valor real?",
+          "tags": [
+            "Esencia",
+            "Minimalismo"
+          ]
+        },
+        {
+          "category": "PREGUNTA CATALIZADORA",
+          "title": "¿Para quién NO es esta solución?",
+          "description": "Definir los límites precisos de exclusión clarifica el foco y previene la dispersión del alcance.",
+          "tags": [
+            "Foco",
+            "Audiencia"
+          ]
+        }
+      ]
+    },
+    "body_fields": [],
+    "inner_conditions": [
+      "type === \"socratic\""
+    ],
+    "response": {
+      "key": "variations"
+    }
+  },
+  "find_bridges": {
+    "aliases": [],
+    "prompt": "Analiza estos nodos en un mapa mental conceptual:\r\n{{JSON.stringify(nodeSummaries, null, 2)}}\r\n\r\nConexiones ya existentes:\r\n{{Array.from(existingConnections).slice(0, 30).join(\", \")}}\r\n\r\nEncuentra de 2 a 3 conexiones ocultas, no obvias y de alto valor conceptual (Semantic Bridges) entre pares de nodos que NO estén ya conectados directamente.\r\nPara cada puente, proporciona:\r\n- sourceId: id exacto del nodo origen\r\n- targetId: id exacto del nodo destino\r\n- sourceTitle: título del nodo origen\r\n- targetTitle: título del nodo destino\r\n- label: etiqueta corta de la relación (ej: \"Sinergia Cripto\", \"Mitiga Riesgo\", \"Optimiza UX\", 2-3 palabras)\r\n- rationale: justificación conceptual en 1-2 oraciones explicando por qué conectar estas ideas eleva el pensamiento del proyecto.\r\n\r\n{{memoria}}\nResponde exclusivamente en este formato JSON:\r\n{\r\n  \"bridges\": [\r\n    {\r\n      \"sourceId\": \"id1\",\r\n      \"targetId\": \"id2\",\r\n      \"sourceTitle\": \"...\",\r\n      \"targetTitle\": \"...\",\r\n      \"label\": \"...\",\r\n      \"rationale\": \"...\"\r\n    }\r\n  ]\r\n}",
+    "schema": {
+      "type": "OBJECT",
+      "properties": {
+        "bridges": {
+          "type": "ARRAY",
+          "items": {
+            "type": "OBJECT",
+            "properties": {
+              "sourceId": {
+                "type": "STRING"
+              },
+              "targetId": {
+                "type": "STRING"
+              },
+              "sourceTitle": {
+                "type": "STRING"
+              },
+              "targetTitle": {
+                "type": "STRING"
+              },
+              "label": {
+                "type": "STRING"
+              },
+              "rationale": {
+                "type": "STRING"
+              }
+            },
+            "required": [
+              "sourceId",
+              "targetId",
+              "sourceTitle",
+              "targetTitle",
+              "label",
+              "rationale"
+            ]
+          }
+        }
+      },
+      "required": [
+        "bridges"
+      ]
+    },
+    "schema_alt": null,
+    "prompt_alt": null,
+    "schemas_all": [
+      "bridgesSchema"
+    ],
+    "fallbacks": {},
+    "body_fields": [],
+    "inner_conditions": [
+      "type === \"find_bridges\"",
+      "allNodes.length < 2"
+    ],
+    "response": {
+      "key": "bridges",
+      "nested": "bridges"
+    }
+  },
+  "braindump": {
+    "aliases": [],
+    "prompt": "Actúa como un arquitecto de mapas mentales y estructurador cognitivo de alto rendimiento.\r\nAnaliza la siguiente entrada del usuario, que puede ser desde una idea simple (una frase o concepto breve) hasta notas desordenadas o una especificación compleja con múltiples párrafos:\r\n\"\"\"\r\n{{rawText}}\r\n\"\"\"\r\n\r\nINSTRUCCIONES DE PROCESAMIENTO:\r\n1. Si la entrada es SIMPLE (una frase o pocas palabras): Extrae la idea nuclear en \"root\" y deriva proactivamente entre 3 y 5 sub-nodos lógicos esenciales (ej: Propuesta Central, Implementación Técnica, Adopción/Usuarios, Métricas de Éxito).\r\n2. Si la entrada es COMPLEJA o EXTENSA: Sintetiza el propósito global en \"root\" y descompón los diferentes aspectos en 4 a 8 sub-nodos categorizados con precisión. Si algún aspecto depende de otro nodo secundario en vez del núcleo, indica en \"connectsTo\" el tempId correspondiente; de lo contrario, \"connectsTo\": \"root\".\r\n3. Cada nodo debe tener un título conciso (máx. 5 palabras), una descripción breve y accionable (1-2 oraciones), una categoría en mayúsculas (ej: ARQUITECTURA, PRODUCTO, ESTRATEGIA, RIESGO, INVESTIGACIÓN, MÉTRICAS) y 2 tags clave.\r\n\r\nFormato JSON esperado:\r\n{\r\n  \"root\": {\r\n    \"title\": \"Idea Central Concisa\",\r\n    \"description\": \"Síntesis clara del propósito global\",\r\n    \"category\": \"NÚCLEO\",\r\n    \"tags\": [\"Tag1\", \"Tag2\"]\r\n  },\r\n  \"nodes\": [\r\n    {\r\n      \"tempId\": \"node-1\",\r\n      \"connectsTo\": \"root\",\r\n      \"title\": \"Título Corto\",\r\n      \"description\": \"Detalle explicativo breve\",\r\n      \"category\": \"CATEGORÍA\",\r\n      \"tags\": [\"Tag1\", \"Tag2\"]\r\n    }\r\n  ]\r\n}",
+    "schema": {
+      "type": "OBJECT",
+      "properties": {
+        "root": {
+          "type": "OBJECT",
+          "properties": {
+            "title": {
+              "type": "STRING"
+            },
+            "description": {
+              "type": "STRING"
+            },
+            "category": {
+              "type": "STRING"
+            },
+            "tags": {
+              "type": "ARRAY",
+              "items": {
+                "type": "STRING"
+              }
+            }
+          },
+          "required": [
+            "title",
+            "description",
+            "category",
+            "tags"
+          ]
+        },
+        "nodes": {
+          "type": "ARRAY",
+          "items": {
+            "type": "OBJECT",
+            "properties": {
+              "tempId": {
+                "type": "STRING"
+              },
+              "connectsTo": {
+                "type": "STRING"
+              },
+              "title": {
+                "type": "STRING"
+              },
+              "description": {
+                "type": "STRING"
+              },
+              "category": {
+                "type": "STRING"
+              },
+              "tags": {
+                "type": "ARRAY",
+                "items": {
+                  "type": "STRING"
+                }
+              }
+            },
+            "required": [
+              "tempId",
+              "connectsTo",
+              "title",
+              "description",
+              "category",
+              "tags"
+            ]
+          }
+        }
+      },
+      "required": [
+        "root",
+        "nodes"
+      ]
+    },
+    "schema_alt": null,
+    "prompt_alt": null,
+    "schemas_all": [
+      "braindumpSchema"
+    ],
+    "fallbacks": {
+      "fallbackStructure": {
+        "__error": "SyntaxError: Unexpected token ':'"
+      }
+    },
+    "body_fields": [
+      "rawText"
+    ],
+    "inner_conditions": [
+      "type === \"braindump\"",
+      "rawSegments.length === 0",
+      "childSegments.length === 0"
+    ],
+    "response": {
+      "key": "structure"
+    }
+  },
+  "refresh_templates": {
+    "aliases": [],
+    "prompt": "Actúa como arquitecto de innovación conceptual de vanguardia.\r\nGenera 5 nuevos núcleos de ideas conceptuales (plantillas de inicio de proyectos) manteniendo exactamente estos 5 tópicos/categorías:\r\n1. \"Tecnología\" (ej: Inteligencia de Agentes, Neurotecnología, Edge AI, Computación Cuántica, Biología Sintética)\r\n2. \"Negocios\" (ej: Modelos Circulares, Micro-SaaS B2B, Plataformas Algorítmicas, Finanzas Autónomas)\r\n3. \"Diseño\" (ej: Computación Espacial, Interfaces Generativas, Diseño Biomimético, Arquitectura de Sistemas)\r\n4. \"Investigación\" (ej: Modelos Cognitivos, Transición Energética, Epistemología de Redes Complejas)\r\n5. \"Esencial\" (ej: Primeros Principios, Deep Work, Reducción de Ruido)\r\n\r\nPara cada una de las 5 categorías, genera una estructura JSON con:\r\n- \"category\": Una de \"Tecnología\", \"Negocios\", \"Diseño\", \"Investigación\", \"Esencial\"\r\n- \"title\": Título atractivo e inspirador (máx. 6 palabras)\r\n- \"description\": Resumen de 1-2 oraciones explicando la propuesta y visión\r\n- \"iconName\": Uno de \"Bot\", \"Rocket\", \"Compass\", \"BookOpen\", \"PlusCircle\"\r\n- \"colorAccent\": Color hex (#6366f1, #10b981, #f59e0b, #8b5cf6, #06b6d4)\r\n- \"root\": { \"title\": string, \"description\": string, \"tags\": string[] }\r\n- \"nodes\": Array de 3 a 4 sub-nodos derivados que ramifican la idea, cada uno con:\r\n    - \"title\": Título conciso del concepto derivado\r\n    - \"description\": Breve detalle explicativo\r\n    - \"category\": Nombre de la sub-etiqueta (ej: \"OPTIMIZACIÓN\", \"ARQUITECTURA\", \"VALIDACIÓN\")\r\n    - \"tags\": Array de 2 o 3 tags clave\r\n    - \"connectionLabel\": Etiqueta de la relación con el núcleo",
+    "schema": {
+      "type": "ARRAY",
+      "items": {
+        "type": "OBJECT",
+        "properties": {
+          "category": {
+            "type": "STRING"
+          },
+          "title": {
+            "type": "STRING"
+          },
+          "description": {
+            "type": "STRING"
+          },
+          "iconName": {
+            "type": "STRING"
+          },
+          "colorAccent": {
+            "type": "STRING"
+          },
+          "root": {
+            "type": "OBJECT",
+            "properties": {
+              "title": {
+                "type": "STRING"
+              },
+              "description": {
+                "type": "STRING"
+              },
+              "tags": {
+                "type": "ARRAY",
+                "items": {
+                  "type": "STRING"
+                }
+              }
+            },
+            "required": [
+              "title",
+              "description",
+              "tags"
+            ]
+          },
+          "nodes": {
+            "type": "ARRAY",
+            "items": {
+              "type": "OBJECT",
+              "properties": {
+                "title": {
+                  "type": "STRING"
+                },
+                "description": {
+                  "type": "STRING"
+                },
+                "category": {
+                  "type": "STRING"
+                },
+                "tags": {
+                  "type": "ARRAY",
+                  "items": {
+                    "type": "STRING"
+                  }
+                },
+                "connectionLabel": {
+                  "type": "STRING"
+                }
+              },
+              "required": [
+                "title",
+                "description",
+                "category",
+                "tags"
+              ]
+            }
+          }
+        },
+        "required": [
+          "category",
+          "title",
+          "description",
+          "root",
+          "nodes"
+        ]
+      }
+    },
+    "schema_alt": null,
+    "prompt_alt": null,
+    "schemas_all": [
+      "templatesSchema"
+    ],
+    "fallbacks": {},
+    "body_fields": [],
+    "inner_conditions": [
+      "type === \"refresh_templates\""
+    ],
+    "response": {
+      "key": "templates",
+      "extra": {
+        "source": "gemini"
+      }
+    }
+  }
+}

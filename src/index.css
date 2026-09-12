@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+/* ReactFlow Sophisticated Dark Theme Overrides */
+.react-flow__controls {
+  background: #0f172a !important;
+  border: 1px solid #1e293b !important;
+  border-radius: 0.5rem !important;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7) !important;
+  overflow: hidden;
+}
+
+.react-flow__controls-button {
+  background: #0f172a !important;
+  border-bottom: 1px solid #1e293b !important;
+  fill: #94a3b8 !important;
+  color: #94a3b8 !important;
+  transition: all 0.15s ease !important;
+}
+
+.react-flow__controls-button:hover {
+  background: #1e293b !important;
+  fill: #f8fafc !important;
+  color: #f8fafc !important;
+}
+
+.react-flow__controls-button svg {
+  fill: currentColor !important;
+}
+
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke-width: 3.5px !important;
+  filter: drop-shadow(0 0 8px rgba(99, 102, 241, 0.85));
+}
+
+.react-flow__handle {
+  transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.15s ease !important;
+}
+
+.react-flow__handle:hover {
+  transform: scale(1.35) !important;
+}
+
+.react-flow__edge-text {
+  font-size: 10px !important;
+  fill: #94a3b8 !important;
+  font-weight: 600 !important;
+  font-family: inherit !important;
+}
+
+.react-flow__edge-textbg {
+  fill: #020617 !important;
+  rx: 4px !important;
+  ry: 4px !important;
+}
+

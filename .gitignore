@@ -1,0 +1,20 @@
+# Dependencias y artefactos de build (pesados o regenerables)
+node_modules/
+dist/
+target/
+src-tauri/target/
+src-tauri/gen/
+
+# Registros y temporales
+*.log
+*.tmp-nf
+npm-debug.log*
+.DS_Store
+
+# Credenciales — NUNCA al repo
+.env
+.env.local
+*.key
+
+# Datos locales de la app
+data/
