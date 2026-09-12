@@ -489,6 +489,54 @@ def t_export_document(args):
     )
 
 
+def t_list_experts(args):
+    ok, d = api("/api/expertos")
+    if not ok:
+        return texto_error(d)
+    out = [f"EXPERTOS ({len(d.get('expertos', []))}) · carpeta: {d.get('carpeta')}"]
+    for e in d.get("expertos", []):
+        marca = "" if e.get("valido") else "  [TIPO INVÁLIDO]"
+        out.append(f"  · {e.get('nombre')}  → {e.get('tipo_artefacto')}  "
+                   f"({e.get('caracteres_system')} car. de prompt)"
+                   f"{' · proveedor: ' + e['proveedor'] if e.get('proveedor') else ''}{marca}")
+        if e.get("descripcion"):
+            out.append(f"      {e['descripcion']}")
+    out.append("\nTipos de artefacto y su destino:")
+    for t in d.get("tipos", []):
+        out.append(f"  · {t.get('tipo')} → {t.get('destino')}: {t.get('descripcion')}")
+    return "\n".join(out)
+
+
+def t_run_expert(args):
+    nodo = str(args.get("nodo") or "").strip()
+    experto = str(args.get("experto") or "").strip()
+    if not nodo or not experto:
+        return "Faltan `nodo` y `experto`. Mirá `list_experts` para los disponibles."
+    ok, d = api("/api/expert/run", {
+        "nodo": nodo, "experto": experto, "extra": str(args.get("extra") or ""),
+    }, "POST", timeout=300)
+    if not ok:
+        return texto_error(d)
+    out = [
+        f"{'ARTEFACTO VÁLIDO' if d.get('ok') else 'ARTEFACTO CON PROBLEMAS'} · {d.get('tipo')} "
+        f"· experto «{d.get('experto')}»",
+        f"nodo: {d.get('nodo', {}).get('titulo')}  ·  {d.get('proveedor')}  ·  "
+        f"{d.get('ms')} ms  ·  {d.get('intentos')} intento(s)  ·  contexto {d.get('contexto_chars')} car.",
+    ]
+    for p in d.get("traza", []):
+        est = "✓" if p.get("valido") else ("sin respuesta" if p.get("resultado") else "✗ contrato")
+        out.append(f"  proveedor {p.get('proveedor')}: {est} ({p.get('ms')} ms)")
+    if d.get("problemas"):
+        out.append("PROBLEMAS QUE EL VALIDADOR MARCÓ:")
+        out.extend(f"  - {x}" for x in d["problemas"])
+    if d.get("fuentes"):
+        out.append("contexto de la bóveda: " + " · ".join(
+            (f.get("titulo") or "")[:40] for f in d["fuentes"][:3]))
+    out.append("\n──── artefacto listo para su destino ────")
+    out.append(d.get("texto", ""))
+    return "\n".join(out)
+
+
 def t_vault(args):
     ok, info = api("/api/vault/info")
     if not ok:
@@ -684,6 +732,32 @@ TOOLS = [
         },
     },
     {
+        "name": "list_experts",
+        "description": (
+            "Lista los EXPERTOS disponibles (notas de la bóveda en expertos/ con un system prompt y un "
+            "tipo de artefacto) y los tipos de artefacto con su destino. Usalo antes de run_expert."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "run_expert",
+        "description": (
+            "Ejecuta un EXPERTO sobre un nodo del lienzo: arma el contexto (nodo + vecinos + memoria "
+            "de la bóveda), llama al modelo y devuelve un ARTEFACTO VALIDADO contra su destino "
+            "(prompt_visual para Flow, brief_documento para Copilot, spec_td para TouchDesigner, "
+            "critica). Tarda entre 15 y 90 segundos. NO escribe en el lienzo: el artefacto vuelve a vos."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "nodo": {"type": "string", "description": "id o título del nodo del lienzo (el concepto)."},
+                "experto": {"type": "string", "description": "nombre del experto (ver list_experts)."},
+                "extra": {"type": "string", "description": "indicaciones extra para este artefacto."},
+            },
+            "required": ["nodo", "experto"],
+        },
+    },
+    {
         "name": "pending_changes",
         "description": (
             "Lista las escrituras que propuse y todavía no fueron aprobadas ni rechazadas. "
@@ -784,6 +858,8 @@ HANDLERS = {
     "garden_fix": t_garden_fix,
     "tidy_canvas": t_tidy,
     "capture_knowledge": t_capture_knowledge,
+    "list_experts": t_list_experts,
+    "run_expert": t_run_expert,
     "export_document": t_export_document,
     "search_vault": t_search_vault,
     "leer_nota": t_leer_nota,

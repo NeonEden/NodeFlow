@@ -176,7 +176,10 @@ impl Memoria {
     pub fn new(data_dir: &Path) -> Arc<Self> {
         let raiz = resolve_raiz(data_dir);
         let prefijo_nodos = prefijo_nodos(data_dir);
-        log::info!("memoria: raíz = {} (nodos: {prefijo_nodos})", raiz.display());
+        log::info!(
+            "memoria: raíz = {} (nodos: {prefijo_nodos})",
+            raiz.display()
+        );
         Arc::new(Self {
             raiz,
             prefijo_nodos,
@@ -445,9 +448,11 @@ impl Memoria {
         if limpio.is_empty() || limpio.contains("..") {
             return Err("ruta inválida".into());
         }
-        let candidato = self.raiz.join(limpio.replace('/', std::path::MAIN_SEPARATOR_STR));
-        let canon = std::fs::canonicalize(&candidato)
-            .map_err(|_| format!("no encontré la nota: {rel}"))?;
+        let candidato = self
+            .raiz
+            .join(limpio.replace('/', std::path::MAIN_SEPARATOR_STR));
+        let canon =
+            std::fs::canonicalize(&candidato).map_err(|_| format!("no encontré la nota: {rel}"))?;
         let raiz_canon = std::fs::canonicalize(&self.raiz).map_err(|e| e.to_string())?;
         if !canon.starts_with(&raiz_canon) {
             return Err("la ruta sale de la bóveda".into());

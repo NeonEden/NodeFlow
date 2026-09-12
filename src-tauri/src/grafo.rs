@@ -145,7 +145,12 @@ pub fn validar(nodes: &[Value], edges: &[Value]) -> Vec<Problema> {
     let grados = grados(nodes, edges);
     let huerfanos: Vec<String> = nodes
         .iter()
-        .filter(|n| grados.get(&id_de(n)).map(|(i, o)| *i + *o == 0).unwrap_or(true))
+        .filter(|n| {
+            grados
+                .get(&id_de(n))
+                .map(|(i, o)| *i + *o == 0)
+                .unwrap_or(true)
+        })
         .map(|n| id_de(n))
         .collect();
     if !huerfanos.is_empty() {
@@ -189,7 +194,10 @@ pub fn validar(nodes: &[Value], edges: &[Value]) -> Vec<Problema> {
         out.push(Problema {
             tipo: "aristas_duplicadas",
             gravedad: Gravedad::Media,
-            detalle: format!("{} conexión(es) repetidas entre los mismos nodos", repetidas.len()),
+            detalle: format!(
+                "{} conexión(es) repetidas entre los mismos nodos",
+                repetidas.len()
+            ),
             ids: repetidas,
             accion: "podar",
         });
@@ -263,16 +271,12 @@ pub fn validar(nodes: &[Value], edges: &[Value]) -> Vec<Problema> {
             ady.entry(t.to_string()).or_default().push(s.to_string());
         }
     }
-    let raiz = nodes
-        .iter()
-        .find(|n| es_nucleo(n))
-        .map(id_de)
-        .or_else(|| {
-            grados
-                .iter()
-                .max_by_key(|(_, (i, o))| *i + *o)
-                .map(|(k, _)| k.clone())
-        });
+    let raiz = nodes.iter().find(|n| es_nucleo(n)).map(id_de).or_else(|| {
+        grados
+            .iter()
+            .max_by_key(|(_, (i, o))| *i + *o)
+            .map(|(k, _)| k.clone())
+    });
     if let Some(raiz) = raiz {
         let mut alcanzables: HashSet<String> = HashSet::new();
         let mut cola = VecDeque::new();
@@ -452,7 +456,9 @@ pub fn layout_jerarquico(nodes: &[Value], edges: &[Value]) -> HashMap<String, (f
         .map(id_de)
         .filter(|id| !nivel.contains_key(id))
         .collect();
-    sueltos.sort_by_key(|id| titulo_de(nodes.iter().find(|n| id_de(n) == *id).unwrap()).to_lowercase());
+    sueltos.sort_by_key(|id| {
+        titulo_de(nodes.iter().find(|n| id_de(n) == *id).unwrap()).to_lowercase()
+    });
     for (i, id) in sueltos.iter().enumerate() {
         nivel.insert(id.clone(), max_nivel + 1 + (i / 8));
     }
@@ -466,8 +472,16 @@ pub fn layout_jerarquico(nodes: &[Value], edges: &[Value]) -> HashMap<String, (f
     }
     for (_, v) in por_nivel.iter_mut() {
         v.sort_by(|a, b| {
-            let ta = nodes.iter().find(|n| id_de(n) == *a).map(titulo_de).unwrap_or_default();
-            let tb = nodes.iter().find(|n| id_de(n) == *b).map(titulo_de).unwrap_or_default();
+            let ta = nodes
+                .iter()
+                .find(|n| id_de(n) == *a)
+                .map(titulo_de)
+                .unwrap_or_default();
+            let tb = nodes
+                .iter()
+                .find(|n| id_de(n) == *b)
+                .map(titulo_de)
+                .unwrap_or_default();
             ta.to_lowercase().cmp(&tb.to_lowercase())
         });
     }
@@ -491,7 +505,12 @@ pub fn layout_jerarquico(nodes: &[Value], edges: &[Value]) -> HashMap<String, (f
 
 /// Multiplicador de relevancia por distancia relacional al nodo enfocado:
 /// vecino directo 1.5×, a dos saltos 1.2×, el resto 1.0×. Devuelve id → factor, sin incluir el foco.
-pub fn cercania(nodes: &[Value], edges: &[Value], foco: &str, saltos: usize) -> HashMap<String, f32> {
+pub fn cercania(
+    nodes: &[Value],
+    edges: &[Value],
+    foco: &str,
+    saltos: usize,
+) -> HashMap<String, f32> {
     let ids: HashSet<String> = nodes.iter().map(id_de).collect();
     if !ids.contains(foco) {
         return HashMap::new();
@@ -676,7 +695,10 @@ mod tests {
 
     #[test]
     fn arista_colgada_se_detecta_y_bloquea() {
-        let nodes = vec![raiz("r", "Núcleo"), nodo("a", "Uno", "descripcion larga de prueba")];
+        let nodes = vec![
+            raiz("r", "Núcleo"),
+            nodo("a", "Uno", "descripcion larga de prueba"),
+        ];
         let edges = vec![arista("e1", "r", "a"), arista("e2", "r", "fantasma")];
         let problemas = validar(&nodes, &edges);
         assert!(
@@ -689,14 +711,20 @@ mod tests {
 
     #[test]
     fn grafo_sano_no_reporta_nada_bloqueante() {
-        let nodes = vec![raiz("r", "Núcleo"), nodo("a", "Uno", "una descripcion suficientemente larga")];
+        let nodes = vec![
+            raiz("r", "Núcleo"),
+            nodo("a", "Uno", "una descripcion suficientemente larga"),
+        ];
         let edges = vec![arista("e1", "r", "a")];
         assert!(errores_bloqueantes(&nodes, &edges).is_empty());
     }
 
     #[test]
     fn ids_duplicados_bloquean() {
-        let nodes = vec![raiz("r", "Núcleo"), nodo("r", "Otro", "descripcion de prueba larga")];
+        let nodes = vec![
+            raiz("r", "Núcleo"),
+            nodo("r", "Otro", "descripcion de prueba larga"),
+        ];
         let b = errores_bloqueantes(&nodes, &[]);
         assert!(b.iter().any(|s| s.contains("ids_duplicados")));
     }
@@ -717,14 +745,21 @@ mod tests {
             nodo("b", "B", "descripcion larga dos"),
             nodo("c", "C", "descripcion larga tres"),
         ];
-        let edges = vec![arista("e1", "r", "a"), arista("e2", "r", "b"), arista("e3", "a", "c")];
+        let edges = vec![
+            arista("e1", "r", "a"),
+            arista("e2", "r", "b"),
+            arista("e3", "a", "c"),
+        ];
         let p1 = layout_jerarquico(&nodes, &edges);
         let p2 = layout_jerarquico(&nodes, &edges);
         assert_eq!(p1, p2, "el mismo grafo debe dar las mismas posiciones");
         // Nadie en la misma celda
         let mut vistos: HashSet<(i64, i64)> = HashSet::new();
         for (_, (x, y)) in p1.iter() {
-            assert!(vistos.insert((*x as i64, *y as i64)), "dos nodos en la misma posición");
+            assert!(
+                vistos.insert((*x as i64, *y as i64)),
+                "dos nodos en la misma posición"
+            );
         }
         // El núcleo queda a la izquierda de sus hijos
         let (rx, _) = p1.get("r").unwrap();
@@ -734,7 +769,11 @@ mod tests {
 
     #[test]
     fn el_layout_ubica_los_desconectados_a_la_derecha() {
-        let nodes = vec![raiz("r", "Núcleo"), nodo("a", "A", "descripcion larga"), nodo("x", "Isla", "otra descripcion larga")];
+        let nodes = vec![
+            raiz("r", "Núcleo"),
+            nodo("a", "A", "descripcion larga"),
+            nodo("x", "Isla", "otra descripcion larga"),
+        ];
         let edges = vec![arista("e1", "r", "a")];
         let p = layout_jerarquico(&nodes, &edges);
         let (ax, _) = p.get("a").unwrap();
@@ -746,11 +785,18 @@ mod tests {
     fn detecta_nodos_basura_archivos_generados() {
         let nodes = vec![
             raiz("r", "Núcleo"),
-            nodo("junk", "agente-autónomo-multimodal", "Desde el vault: NodeFlow/x.md # titulo"),
+            nodo(
+                "junk",
+                "agente-autónomo-multimodal",
+                "Desde el vault: NodeFlow/x.md # titulo",
+            ),
             nodo("malo", "indice.canvas", "cualquier cosa"),
         ];
         let p = validar(&nodes, &[]);
-        let basura = p.iter().find(|p| p.tipo == "nodos_basura").expect("debe detectar basura");
+        let basura = p
+            .iter()
+            .find(|p| p.tipo == "nodos_basura")
+            .expect("debe detectar basura");
         assert!(basura.ids.contains(&"junk".to_string()));
         assert!(basura.ids.contains(&"malo".to_string()));
         assert_eq!(basura.accion, "borrar");
@@ -768,7 +814,10 @@ mod tests {
             ),
         ];
         let p = validar(&nodes, &[]);
-        let basura = p.iter().find(|p| p.tipo == "nodos_basura").expect("el indice importado es basura");
+        let basura = p
+            .iter()
+            .find(|p| p.tipo == "nodos_basura")
+            .expect("el indice importado es basura");
         assert!(basura.ids.contains(&"junk".to_string()));
     }
 
@@ -793,15 +842,29 @@ mod tests {
     fn detecta_isla_y_sugiere_padrino_por_similitud() {
         let nodes = vec![
             raiz("r", "Núcleo del Mapa"),
-            nodo("a", "Visuales TouchDesigner", "render en vivo con difusion y latencia baja"),
-            nodo("isla", "Render en vivo TouchDesigner", "latencia de difusion en visuales"),
+            nodo(
+                "a",
+                "Visuales TouchDesigner",
+                "render en vivo con difusion y latencia baja",
+            ),
+            nodo(
+                "isla",
+                "Render en vivo TouchDesigner",
+                "latencia de difusion en visuales",
+            ),
         ];
         let edges = vec![arista("e1", "r", "a")];
         let p = validar(&nodes, &edges);
         assert!(p.iter().any(|p| p.tipo == "huerfanos" || p.tipo == "islas"));
         let pad = padrinos(&nodes, &edges);
-        let par = pad.iter().find(|v| v["nodo"] == "isla").expect("debe encontrar padrino");
-        assert_eq!(par["padre_sugerido"], "a", "el par mas parecido es el de TouchDesigner");
+        let par = pad
+            .iter()
+            .find(|v| v["nodo"] == "isla")
+            .expect("debe encontrar padrino");
+        assert_eq!(
+            par["padre_sugerido"], "a",
+            "el par mas parecido es el de TouchDesigner"
+        );
         assert!(par["similitud"].as_f64().unwrap() > 0.2);
     }
 
@@ -814,7 +877,11 @@ mod tests {
             nodo("b", "B", "descripcion larga dos"),
             nodo("c", "C", "descripcion larga tres"),
         ];
-        let edges = vec![arista("e1", "r", "a"), arista("e2", "a", "b"), arista("e3", "b", "c")];
+        let edges = vec![
+            arista("e1", "r", "a"),
+            arista("e2", "a", "b"),
+            arista("e3", "b", "c"),
+        ];
         let c = cercania(&nodes, &edges, "r", 2);
         assert_eq!(c.get("a"), Some(&1.5));
         assert_eq!(c.get("b"), Some(&1.2));
@@ -834,9 +901,21 @@ mod tests {
         // Dos nodos ya unidos entre si, ambos fuera del arbol: el padrino debe ser OTRO.
         let nodes = vec![
             raiz("r", "Núcleo"),
-            nodo("a", "Guardrails y Auditoria Etica", "validacion de seguridad y gobernanza del agente"),
-            nodo("i1", "Curaduria de Señales HITL", "filtrar señales de aprendizaje antes de inyectarlas"),
-            nodo("i2", "Provenance de Nodos IA", "trazabilidad de validacion de los nodos generados"),
+            nodo(
+                "a",
+                "Guardrails y Auditoria Etica",
+                "validacion de seguridad y gobernanza del agente",
+            ),
+            nodo(
+                "i1",
+                "Curaduria de Señales HITL",
+                "filtrar señales de aprendizaje antes de inyectarlas",
+            ),
+            nodo(
+                "i2",
+                "Provenance de Nodos IA",
+                "trazabilidad de validacion de los nodos generados",
+            ),
         ];
         let edges = vec![arista("e1", "r", "a"), arista("e2", "i1", "i2")];
         let pad = padrinos(&nodes, &edges);
@@ -853,8 +932,18 @@ mod tests {
 
     #[test]
     fn similitud_ordena_los_pares_correctamente() {
-        let alta = similitud("Visuales TouchDesigner", "render en vivo", "TouchDesigner visuales", "render en vivo");
-        let baja = similitud("Visuales TouchDesigner", "render en vivo", "Cold outreach", "prospeccion por instagram");
+        let alta = similitud(
+            "Visuales TouchDesigner",
+            "render en vivo",
+            "TouchDesigner visuales",
+            "render en vivo",
+        );
+        let baja = similitud(
+            "Visuales TouchDesigner",
+            "render en vivo",
+            "Cold outreach",
+            "prospeccion por instagram",
+        );
         assert!(alta > baja, "los textos afines deben puntuar mas alto");
         assert!(alta > MIN_SIMILITUD);
         assert!(baja < MIN_SIMILITUD);

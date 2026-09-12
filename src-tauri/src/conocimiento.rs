@@ -146,8 +146,20 @@ pub fn segmentar(texto: &str, min_chars: Option<usize>, max_nodos: Option<usize>
             continue; // sin título útil o repetido
         }
         // El cuerpo va sin el heading inicial (ya está en el título).
-        let cuerpo = if limpio.lines().next().unwrap_or("").trim_start().starts_with('#') {
-            limpio.lines().skip(1).collect::<Vec<_>>().join("\n").trim().to_string()
+        let cuerpo = if limpio
+            .lines()
+            .next()
+            .unwrap_or("")
+            .trim_start()
+            .starts_with('#')
+        {
+            limpio
+                .lines()
+                .skip(1)
+                .collect::<Vec<_>>()
+                .join("\n")
+                .trim()
+                .to_string()
         } else {
             limpio.clone()
         };
@@ -214,7 +226,10 @@ modelos ni red, y con plegado de acentos para que buscar informacion encuentre i
         let c = segmentar(texto, None, None);
         assert_eq!(c.len(), 1);
         let t = c[0]["titulo"].as_str().unwrap();
-        assert!(t.chars().count() <= MAX_TITULO + 1, "el titulo se recorta: {t}");
+        assert!(
+            t.chars().count() <= MAX_TITULO + 1,
+            "el titulo se recorta: {t}"
+        );
         assert!(!t.ends_with('.'), "sin punto final");
     }
 
@@ -237,12 +252,18 @@ modelos ni red, y con plegado de acentos para que buscar informacion encuentre i
         assert_eq!(c[0]["titulo"], "TouchDesigner & Arte Generativo");
         assert_eq!(c[1]["titulo"], "Diseño Gráfico & Sistema Visual");
         assert!(c[0]["descripcion"].as_str().unwrap().contains("CHOPs"));
-        assert!(!c[0]["descripcion"].as_str().unwrap().contains("Pilares Extendidos"));
+        assert!(!c[0]["descripcion"]
+            .as_str()
+            .unwrap()
+            .contains("Pilares Extendidos"));
     }
 
     #[test]
     fn sin_numeracion_solo_saca_el_andamiaje() {
-        assert_eq!(sin_numeracion("4. Marketing de Producto"), "Marketing de Producto");
+        assert_eq!(
+            sin_numeracion("4. Marketing de Producto"),
+            "Marketing de Producto"
+        );
         assert_eq!(sin_numeracion("12) Otro tema"), "Otro tema");
         assert_eq!(sin_numeracion("MCP 2026"), "MCP 2026");
         assert_eq!(sin_numeracion("1-2-3 probando"), "1-2-3 probando");

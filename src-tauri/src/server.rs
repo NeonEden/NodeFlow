@@ -52,12 +52,7 @@ pub struct AppState {
 // Arranque
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn spawn(
-    data_dir: PathBuf,
-    env_key: Option<String>,
-    vault: Arc<Vault>,
-    memoria: Arc<Memoria>,
-) {
+pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memoria: Arc<Memoria>) {
     tauri::async_runtime::spawn(async move {
         let state = AppState {
             data_dir,
@@ -104,6 +99,9 @@ pub fn spawn(
             .route("/api/graph/garden/fix", post(graph_garden_fix))
             .route("/api/graph/tidy", post(graph_tidy))
             // Fase 8 — captura de conocimiento y exportación
+            // Slice 1 — Expertos y Contrato de Artefactos
+            .route("/api/expertos", get(expertos_listar))
+            .route("/api/expert/run", post(experto_run))
             .route("/api/knowledge/preview", post(knowledge_preview))
             .route("/api/knowledge/capture", post(knowledge_capture))
             .route("/api/export/document", get(export_document))
@@ -352,7 +350,12 @@ async fn hitl_preferences(State(st): State<AppState>) -> impl IntoResponse {
 
 async fn hitl_feedback(State(st): State<AppState>, Json(body): Json<Value>) -> impl IntoResponse {
     let action = body["action"].as_str().unwrap_or("").to_string();
-    if action.is_empty() || body.get("human_decision").map(|v| v.is_null()).unwrap_or(true) {
+    if action.is_empty()
+        || body
+            .get("human_decision")
+            .map(|v| v.is_null())
+            .unwrap_or(true)
+    {
         return (
             StatusCode::BAD_REQUEST,
             Json(json!({ "error": "Estructura de evento feedback inválida" })),
@@ -363,7 +366,13 @@ async fn hitl_feedback(State(st): State<AppState>, Json(body): Json<Value>) -> i
     let decision = &body["human_decision"];
     let arr = |v: &Value| -> Vec<String> {
         v.as_array()
-            .map(|a| a.iter().filter_map(|x| x.as_str()).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| x.as_str())
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect()
+            })
             .unwrap_or_default()
     };
     let accepted = arr(&decision["accepted"]);
@@ -382,19 +391,39 @@ async fn hitl_feedback(State(st): State<AppState>, Json(body): Json<Value>) -> i
     });
 
     // categorías y tópicos
-    let mut cats: Vec<String> = current["categoriesAccepted"].as_array().map(|a| a.iter().filter_map(|v| v.as_str()).map(String::from).collect()).unwrap_or_default();
-    let mut topics: Vec<String> = current["topicsRejected"].as_array().map(|a| a.iter().filter_map(|v| v.as_str()).map(String::from).collect()).unwrap_or_default();
+    let mut cats: Vec<String> = current["categoriesAccepted"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str())
+                .map(String::from)
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut topics: Vec<String> = current["topicsRejected"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str())
+                .map(String::from)
+                .collect()
+        })
+        .unwrap_or_default();
     // Solo se persisten señales que pasan el saneo (largo 5..60, sin control chars, con alfanumérico).
     for s in accepted.iter().chain(added.iter()) {
         if let Some(item) = sanitize_item(s) {
-            if !cats.iter().any(|x| x.eq_ignore_ascii_case(&item)) { cats.push(item); }
+            if !cats.iter().any(|x| x.eq_ignore_ascii_case(&item)) {
+                cats.push(item);
+            }
         } else {
             log::info!("HITL: feedback descartado por saneo: {s:?}");
         }
     }
     for s in rejected.iter() {
         if let Some(item) = sanitize_item(s) {
-            if !topics.iter().any(|x| x.eq_ignore_ascii_case(&item)) { topics.push(item); }
+            if !topics.iter().any(|x| x.eq_ignore_ascii_case(&item)) {
+                topics.push(item);
+            }
         }
     }
 
@@ -443,18 +472,34 @@ async fn hitl_feedback(State(st): State<AppState>, Json(body): Json<Value>) -> i
     });
 
     save_profile(&st.data_dir, &updated);
-    (StatusCode::OK, Json(json!({ "success": true, "profile": updated })))
+    (
+        StatusCode::OK,
+        Json(json!({ "success": true, "profile": updated })),
+    )
 }
 
-async fn hitl_set_profile(State(st): State<AppState>, Json(body): Json<Value>) -> impl IntoResponse {
-    let Some(learned) = body["learnedProfile"].as_str().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()) else {
-        return (StatusCode::BAD_REQUEST, Json(json!({ "error": "El perfil aprendido debe ser un texto válido" })));
+async fn hitl_set_profile(
+    State(st): State<AppState>,
+    Json(body): Json<Value>,
+) -> impl IntoResponse {
+    let Some(learned) = body["learnedProfile"]
+        .as_str()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+    else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "El perfil aprendido debe ser un texto válido" })),
+        );
     };
     let mut profile = get_profile(&st.data_dir);
     profile["learnedProfile"] = json!(learned);
     profile["updatedAt"] = json!(now_iso());
     save_profile(&st.data_dir, &profile);
-    (StatusCode::OK, Json(json!({ "success": true, "profile": profile })))
+    (
+        StatusCode::OK,
+        Json(json!({ "success": true, "profile": profile })),
+    )
 }
 
 async fn hitl_recalibrate(State(st): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
@@ -492,7 +537,9 @@ async fn hitl_recalibrate(State(st): State<AppState>, headers: HeaderMap) -> imp
                     profile["learnedProfile"] = json!(p);
                     profile["updatedAt"] = json!(now_iso());
                     save_profile(&st.data_dir, &profile);
-                    return Json(json!({ "success": true, "profile": profile, "calibratedWithAi": true }));
+                    return Json(
+                        json!({ "success": true, "profile": profile, "calibratedWithAi": true }),
+                    );
                 }
             }
         }
@@ -500,9 +547,23 @@ async fn hitl_recalibrate(State(st): State<AppState>, headers: HeaderMap) -> imp
 
     let last3: Vec<String> = profile["categoriesAccepted"]
         .as_array()
-        .map(|a| a.iter().filter_map(|v| v.as_str()).rev().take(3).collect::<Vec<_>>().into_iter().rev().map(String::from).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str())
+                .rev()
+                .take(3)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .map(String::from)
+                .collect()
+        })
         .unwrap_or_default();
-    let cats = if last3.is_empty() { "arquitectura y sistemas".to_string() } else { last3.join(", ") };
+    let cats = if last3.is_empty() {
+        "arquitectura y sistemas".to_string()
+    } else {
+        last3.join(", ")
+    };
     profile["learnedProfile"] = json!(format!(
         "El usuario prefiere un enfoque técnico y conciso. Prioriza {cats}, descartando generalidades."
     ));
@@ -521,15 +582,30 @@ async fn hitl_reset(State(st): State<AppState>) -> impl IntoResponse {
 // Motor de acciones IA (genérico, alimentado por specs/actions.json)
 // ─────────────────────────────────────────────────────────────────────────────
 
-async fn ai_action(State(st): State<AppState>, headers: HeaderMap, Json(body): Json<Value>) -> impl IntoResponse {
+async fn ai_action(
+    State(st): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> impl IntoResponse {
     let action_type = body["type"].as_str().unwrap_or("").to_string();
     let specs: Value = serde_json::from_str(SPECS).unwrap_or(json!({}));
 
     // resolver alias (critique | devils_advocate)
     let mut spec = specs.get(&action_type).cloned();
     if spec.is_none() {
-        for (_, s) in specs.as_object().map(|o| o.iter().map(|(k, v)| (k.clone(), v.clone())).collect::<Vec<_>>()).unwrap_or_default() {
-            let is_alias = s["aliases"].as_array().map(|a| a.iter().any(|x| x.as_str() == Some(action_type.as_str()))).unwrap_or(false);
+        for (_, s) in specs
+            .as_object()
+            .map(|o| {
+                o.iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+        {
+            let is_alias = s["aliases"]
+                .as_array()
+                .map(|a| a.iter().any(|x| x.as_str() == Some(action_type.as_str())))
+                .unwrap_or(false);
             if is_alias {
                 spec = Some(s);
                 break;
@@ -537,18 +613,33 @@ async fn ai_action(State(st): State<AppState>, headers: HeaderMap, Json(body): J
         }
     }
     let Some(spec) = spec else {
-        return (StatusCode::BAD_REQUEST, Json(json!({ "success": false, "error": format!("Tipo de acción desconocido: {action_type}") })));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(
+                json!({ "success": false, "error": format!("Tipo de acción desconocido: {action_type}") }),
+            ),
+        );
     };
 
     let profile = get_profile(&st.data_dir);
     let override_txt = body["hitlProfileOverride"].as_str();
     let system_instruction = build_hitl_system_instruction(&profile, override_txt);
     // Fase 6: la bóveda del usuario entra al prompt como contexto del nodo.
-    let context = build_context(&action_type, &body, Some((st.vault.as_ref(), st.memoria.as_ref())));
+    let context = build_context(
+        &action_type,
+        &body,
+        Some((st.vault.as_ref(), st.memoria.as_ref())),
+    );
     let prompt = fill_template(spec["prompt"].as_str().unwrap_or(""), &context);
     let schema = spec["schema"].clone();
-    let resp_key = spec["response"]["key"].as_str().unwrap_or("variations").to_string();
-    let nested = spec["response"].get("nested").and_then(|v| v.as_str()).map(String::from);
+    let resp_key = spec["response"]["key"]
+        .as_str()
+        .unwrap_or("variations")
+        .to_string();
+    let nested = spec["response"]
+        .get("nested")
+        .and_then(|v| v.as_str())
+        .map(String::from);
 
     let called = match resolve_key(&st, &headers) {
         Some(key) if !prompt.is_empty() && !schema.is_null() => {
@@ -568,9 +659,21 @@ async fn ai_action(State(st): State<AppState>, headers: HeaderMap, Json(body): J
                 Value::Object(o) => !o.is_empty(),
                 _ => false,
             };
-            if ok { (value, model, true) } else { (fallback_for(&action_type, &spec, &context), "fallback".to_string(), false) }
+            if ok {
+                (value, model, true)
+            } else {
+                (
+                    fallback_for(&action_type, &spec, &context),
+                    "fallback".to_string(),
+                    false,
+                )
+            }
         }
-        None => (fallback_for(&action_type, &spec, &context), "fallback".to_string(), false),
+        None => (
+            fallback_for(&action_type, &spec, &context),
+            "fallback".to_string(),
+            false,
+        ),
     };
 
     let mut out = json!({
@@ -607,10 +710,7 @@ async fn ai_action(State(st): State<AppState>, headers: HeaderMap, Json(body): J
 fn bloque_memoria(vault: &Vault, memoria: &Memoria, nodo: &Value) -> (String, Vec<Value>) {
     let titulo = nodo["title"].as_str().unwrap_or("");
     let desc = nodo["description"].as_str().unwrap_or("");
-    let consulta = format!(
-        "{titulo} {}",
-        desc.chars().take(300).collect::<String>()
-    );
+    let consulta = format!("{titulo} {}", desc.chars().take(300).collect::<String>());
     if consulta.trim().chars().count() < 6 {
         return (String::new(), Vec::new());
     }
@@ -636,7 +736,8 @@ fn bloque_memoria(vault: &Vault, memoria: &Memoria, nodo: &Value) -> (String, Ve
     // El boost se indexa por SLUG, no por ruta completa: las notas del lienzo se indexan como
     // `NodeFlow/nodos/<slug>.md`, así que comparar la ruta entera nunca coincidía.
     let slug_de = |t: &str| crate::vault::slug(t);
-    let mut boost_por_slug: std::collections::HashMap<String, f32> = std::collections::HashMap::new();
+    let mut boost_por_slug: std::collections::HashMap<String, f32> =
+        std::collections::HashMap::new();
     if let Some(fid) = &foco_id {
         for (nid, factor) in crate::grafo::cercania(&gnodos, &garistas, fid, 2) {
             if let Some(n) = gnodos.iter().find(|n| crate::grafo::id_de(n) == nid) {
@@ -724,14 +825,38 @@ fn build_context(
     let node = &body["nodeData"];
     let s = |v: &Value, k: &str| v[k].as_str().unwrap_or("").to_string();
 
-    ctx.insert("title".into(), if node["title"].is_null() { "Idea Central".into() } else { s(node, "title") });
-    ctx.insert("description".into(), if node["description"].is_null() { "Sin descripción".into() } else { s(node, "description") });
-    ctx.insert("rawText".into(), body["rawText"].as_str().unwrap_or("").to_string());
+    ctx.insert(
+        "title".into(),
+        if node["title"].is_null() {
+            "Idea Central".into()
+        } else {
+            s(node, "title")
+        },
+    );
+    ctx.insert(
+        "description".into(),
+        if node["description"].is_null() {
+            "Sin descripción".into()
+        } else {
+            s(node, "description")
+        },
+    );
+    ctx.insert(
+        "rawText".into(),
+        body["rawText"].as_str().unwrap_or("").to_string(),
+    );
 
-    let selected = body["selectedNodes"].as_array().cloned().unwrap_or_default();
+    let selected = body["selectedNodes"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
     for (i, alias) in ["nodeA", "nodeB"].iter().enumerate() {
         let n = selected.get(i).cloned().unwrap_or(json!({}));
-        let data = if n["data"].is_object() { n["data"].clone() } else { n.clone() };
+        let data = if n["data"].is_object() {
+            n["data"].clone()
+        } else {
+            n.clone()
+        };
         ctx.insert(format!("{alias}.title"), s(&data, "title"));
         ctx.insert(format!("{alias}.description"), s(&data, "description"));
     }
@@ -740,12 +865,24 @@ fn build_context(
     let nodes = body["nodes"].as_array().cloned().unwrap_or_default();
     let norm = |n: &Value| -> (String, String, String, Vec<String>) {
         let d = if n["data"].is_object() { &n["data"] } else { n };
-        let cat = d["category"].as_str().or_else(|| d["label"].as_str()).unwrap_or("Concepto").to_string();
+        let cat = d["category"]
+            .as_str()
+            .or_else(|| d["label"].as_str())
+            .unwrap_or("Concepto")
+            .to_string();
         (
             d["title"].as_str().unwrap_or("Sin título").to_string(),
             d["description"].as_str().unwrap_or("").to_string(),
             cat,
-            d["tags"].as_array().map(|a| a.iter().filter_map(|v| v.as_str()).map(String::from).collect()).unwrap_or_default(),
+            d["tags"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str())
+                        .map(String::from)
+                        .collect()
+                })
+                .unwrap_or_default(),
         )
     };
 
@@ -764,12 +901,18 @@ fn build_context(
             let edges = body["edges"].as_array().cloned().unwrap_or_default();
             let mut conns: Vec<String> = Vec::new();
             for e in &edges {
-                let (src, tgt) = (e["source"].as_str().unwrap_or(""), e["target"].as_str().unwrap_or(""));
+                let (src, tgt) = (
+                    e["source"].as_str().unwrap_or(""),
+                    e["target"].as_str().unwrap_or(""),
+                );
                 conns.push(format!("{src}->{tgt}"));
                 conns.push(format!("{tgt}->{src}"));
             }
             conns.truncate(30);
-            ctx.insert("Array.from(existingConnections).slice(0, 30).join(\", \")".into(), conns.join(", "));
+            ctx.insert(
+                "Array.from(existingConnections).slice(0, 30).join(\", \")".into(),
+                conns.join(", "),
+            );
 
             let summaries: Vec<Value> = nodes
                 .iter()
@@ -778,8 +921,14 @@ fn build_context(
                     json!({ "id": n["id"], "title": t, "category": c, "description": d })
                 })
                 .collect();
-            ctx.insert("nodeSummaries".into(), serde_json::to_string_pretty(&summaries).unwrap_or_default());
-            ctx.insert("JSON.stringify(nodeSummaries, null, 2)".into(), serde_json::to_string_pretty(&summaries).unwrap_or_default());
+            ctx.insert(
+                "nodeSummaries".into(),
+                serde_json::to_string_pretty(&summaries).unwrap_or_default(),
+            );
+            ctx.insert(
+                "JSON.stringify(nodeSummaries, null, 2)".into(),
+                serde_json::to_string_pretty(&summaries).unwrap_or_default(),
+            );
         }
         _ => {
             let summaries: Vec<String> = nodes
@@ -790,7 +939,10 @@ fn build_context(
                 })
                 .collect();
             ctx.insert("nodeSummaries".into(), summaries.join("\n"));
-            ctx.insert("JSON.stringify(nodeSummaries, null, 2)".into(), summaries.join("\n"));
+            ctx.insert(
+                "JSON.stringify(nodeSummaries, null, 2)".into(),
+                summaries.join("\n"),
+            );
         }
     }
     // Fase 6: la memoria de la bóveda entra al prompt como materia prima del nodo.
@@ -802,7 +954,11 @@ fn build_context(
                 fuentes.len()
             );
             for f in &fuentes {
-                log::info!("   · {} ({})", f["ruta"].as_str().unwrap_or(""), f["titulo"].as_str().unwrap_or(""));
+                log::info!(
+                    "   · {} ({})",
+                    f["ruta"].as_str().unwrap_or(""),
+                    f["titulo"].as_str().unwrap_or("")
+                );
             }
         }
         ctx.insert("memoria".into(), bloque);
@@ -820,7 +976,9 @@ fn fill_template(tpl: &str, ctx: &std::collections::HashMap<String, String>) -> 
     let mut i = 0;
     while i < bytes.len() {
         if i + 1 < bytes.len() && bytes[i] == '{' && bytes[i + 1] == '{' {
-            if let Some(close) = (i + 2..bytes.len().saturating_sub(1)).find(|&j| bytes[j] == '}' && bytes[j + 1] == '}') {
+            if let Some(close) = (i + 2..bytes.len().saturating_sub(1))
+                .find(|&j| bytes[j] == '}' && bytes[j + 1] == '}')
+            {
                 let key: String = bytes[i + 2..close].iter().collect();
                 out.push_str(ctx.get(&key).map(|s| s.as_str()).unwrap_or(""));
                 i = close + 2;
@@ -834,7 +992,11 @@ fn fill_template(tpl: &str, ctx: &std::collections::HashMap<String, String>) -> 
 }
 
 /// Fallback cuando el modelo no responde o devuelve vacío.
-fn fallback_for(action: &str, spec: &Value, ctx: &std::collections::HashMap<String, String>) -> Value {
+fn fallback_for(
+    action: &str,
+    spec: &Value,
+    ctx: &std::collections::HashMap<String, String>,
+) -> Value {
     let fb = &spec["fallbacks"];
     let first = fb.as_object().and_then(|o| o.values().next()).cloned();
     if let Some(v) = first {
@@ -851,14 +1013,28 @@ fn fallback_for(action: &str, spec: &Value, ctx: &std::collections::HashMap<Stri
     if action == "braindump" {
         let raw = ctx.get("rawText").cloned().unwrap_or_default();
         let clean: String = raw.split_whitespace().collect::<Vec<_>>().join(" ");
-        let title = if clean.is_empty() { "Idea nuclear".to_string() } else { clean.chars().take(60).collect::<String>() };
-        let desc = if clean.len() > 80 { format!("{}...", clean.chars().take(160).collect::<String>()) } else { "Idea nuclear sintetizada a partir del volcado de pensamiento.".to_string() };
+        let title = if clean.is_empty() {
+            "Idea nuclear".to_string()
+        } else {
+            clean.chars().take(60).collect::<String>()
+        };
+        let desc = if clean.len() > 80 {
+            format!("{}...", clean.chars().take(160).collect::<String>())
+        } else {
+            "Idea nuclear sintetizada a partir del volcado de pensamiento.".to_string()
+        };
         let segs: Vec<String> = clean
             .split(['.', '\n', ';'])
             .map(|s| s.trim().to_string())
             .filter(|s| s.len() > 3)
             .collect();
-        let cats = ["ESTRATEGIA", "ARQUITECTURA", "EJECUCIÓN", "VALIDACIÓN", "MÉTRICAS"];
+        let cats = [
+            "ESTRATEGIA",
+            "ARQUITECTURA",
+            "EJECUCIÓN",
+            "VALIDACIÓN",
+            "MÉTRICAS",
+        ];
         let childs: Vec<Value> = segs.iter().take(8).enumerate().map(|(i, seg)| {
             json!({
                 "tempId": format!("node-{}", i + 1),
@@ -916,28 +1092,53 @@ fn cadena_del_config(data_dir: &std::path::Path) -> Option<String> {
 ///
 /// Cadena por defecto: Ollama Cloud (gratis, vía el daemon local) → Gemini (fallback).
 /// Se puede cambiar con `NODEFLOW_AI_CHAIN=ollama,gemini` o `NODEFLOW_AI_CHAIN=gemini`.
-async fn call_model(st: &AppState, key: &str, prompt: &str, schema: &Value, system: Option<&str>) -> Option<(Value, String)> {
-    let chain = std::env::var("NODEFLOW_AI_CHAIN")
+/// Orden de proveedores a intentar (variable de entorno o `ai_chain` del config).
+fn cadena_de_proveedores(st: &AppState) -> Vec<String> {
+    std::env::var("NODEFLOW_AI_CHAIN")
         .or_else(|_| std::env::var("NODEFLOW_AI_PROVIDER"))
         .ok()
         .or_else(|| cadena_del_config(&st.data_dir))
-        .unwrap_or_else(|| "ollama,gemini".to_string());
+        .unwrap_or_else(|| "ollama,gemini".to_string())
+        .split(',')
+        .map(|s| s.trim().to_lowercase())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
 
-    for provider in chain.split(',').map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty()) {
-        let attempt = match provider.as_str() {
-            "ollama" => call_ollama(st, prompt, system).await,
-            "gemini" => {
-                if key.is_empty() {
-                    None
-                } else {
-                    call_gemini(st, key, prompt, schema, system).await
-                }
-            }
-            other => {
-                log::warn!("proveedor desconocido en la cadena: {other}");
+/// Llama a UN proveedor concreto (lo usa la cadena y también el escalado por contrato).
+async fn call_provider(
+    st: &AppState,
+    key: &str,
+    provider: &str,
+    prompt: &str,
+    schema: &Value,
+    system: Option<&str>,
+) -> Option<(Value, String)> {
+    match provider {
+        "ollama" => call_ollama(st, prompt, system).await,
+        "gemini" => {
+            if key.is_empty() {
                 None
+            } else {
+                call_gemini(st, key, prompt, schema, system).await
             }
-        };
+        }
+        other => {
+            log::warn!("proveedor desconocido en la cadena: {other}");
+            None
+        }
+    }
+}
+
+async fn call_model(
+    st: &AppState,
+    key: &str,
+    prompt: &str,
+    schema: &Value,
+    system: Option<&str>,
+) -> Option<(Value, String)> {
+    for provider in cadena_de_proveedores(st) {
+        let attempt = call_provider(st, key, &provider, prompt, schema, system).await;
         if attempt.is_some() {
             return attempt;
         }
@@ -946,9 +1147,17 @@ async fn call_model(st: &AppState, key: &str, prompt: &str, schema: &Value, syst
     None
 }
 
-async fn call_gemini(st: &AppState, key: &str, prompt: &str, schema: &Value, system: Option<&str>) -> Option<(Value, String)> {
+async fn call_gemini(
+    st: &AppState,
+    key: &str,
+    prompt: &str,
+    schema: &Value,
+    system: Option<&str>,
+) -> Option<(Value, String)> {
     for model in CANDIDATE_MODELS {
-        let url = format!("https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent");
+        let url = format!(
+            "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+        );
         let mut body = json!({
             "contents": [{ "role": "user", "parts": [{ "text": prompt }] }],
             "generationConfig": { "responseMimeType": "application/json", "responseSchema": schema }
@@ -957,13 +1166,22 @@ async fn call_gemini(st: &AppState, key: &str, prompt: &str, schema: &Value, sys
             body["systemInstruction"] = json!({ "parts": [{ "text": sys }] });
         }
 
-        match st.http.post(&url).header("x-goog-api-key", key).json(&body).send().await {
+        match st
+            .http
+            .post(&url)
+            .header("x-goog-api-key", key)
+            .json(&body)
+            .send()
+            .await
+        {
             Ok(resp) if resp.status().is_success() => {
                 let value: Value = match resp.json().await {
                     Ok(v) => v,
                     Err(_) => continue,
                 };
-                let text = value["candidates"][0]["content"]["parts"][0]["text"].as_str().unwrap_or("");
+                let text = value["candidates"][0]["content"]["parts"][0]["text"]
+                    .as_str()
+                    .unwrap_or("");
                 if let Some(parsed) = parse_json_text(text) {
                     return Some((parsed, model.to_string()));
                 }
@@ -978,8 +1196,10 @@ async fn call_gemini(st: &AppState, key: &str, prompt: &str, schema: &Value, sys
 }
 
 async fn call_ollama(st: &AppState, prompt: &str, system: Option<&str>) -> Option<(Value, String)> {
-    let base = std::env::var("NODEFLOW_OLLAMA_URL").unwrap_or_else(|_| "http://localhost:11434/v1".to_string());
-    let model = std::env::var("NODEFLOW_OLLAMA_MODEL").unwrap_or_else(|_| "nemotron-3-nano:30b-cloud".to_string());
+    let base = std::env::var("NODEFLOW_OLLAMA_URL")
+        .unwrap_or_else(|_| "http://localhost:11434/v1".to_string());
+    let model = std::env::var("NODEFLOW_OLLAMA_MODEL")
+        .unwrap_or_else(|_| "nemotron-3-nano:30b-cloud".to_string());
     let mut messages = Vec::new();
     if let Some(s) = system {
         messages.push(json!({ "role": "system", "content": s }));
@@ -993,7 +1213,13 @@ async fn call_ollama(st: &AppState, prompt: &str, system: Option<&str>) -> Optio
         "temperature": 0.7
     });
 
-    match st.http.post(format!("{base}/chat/completions")).json(&body).send().await {
+    match st
+        .http
+        .post(format!("{base}/chat/completions"))
+        .json(&body)
+        .send()
+        .await
+    {
         Ok(resp) if resp.status().is_success() => {
             let v: Value = resp.json().await.ok()?;
             let text = v["choices"][0]["message"]["content"].as_str().unwrap_or("");
@@ -1045,7 +1271,10 @@ pub(crate) fn now_iso() -> String {
     let rem = secs % 86_400;
     let (h, m, s) = (rem / 3600, (rem % 3600) / 60, rem % 60);
     let (y, mo, d) = civil_from_days(days);
-    format!("{y:04}-{mo:02}-{d:02}T{h:02}:{m:02}:{s:02}.{:03}Z", ms % 1000)
+    format!(
+        "{y:04}-{mo:02}-{d:02}T{h:02}:{m:02}:{s:02}.{:03}Z",
+        ms % 1000
+    )
 }
 
 /// Días desde epoch → (año, mes, día). Algoritmo de Howard Hinnant.
@@ -1110,11 +1339,13 @@ async fn graph_save(State(st): State<AppState>, Json(payload): Json<Value>) -> i
         }
         Err(e) => {
             log::warn!("vault: guardado rechazado: {e}");
-            (StatusCode::BAD_REQUEST, Json(json!({ "ok": false, "error": e })))
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "ok": false, "error": e })),
+            )
         }
     }
 }
-
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Fase 4 — Superficie del agente (lee y escribe el lienzo)
@@ -1172,7 +1403,10 @@ fn responder(res: Result<Value, String>, que: &str) -> (StatusCode, Json<Value>)
         }
         Err(e) => {
             log::warn!("agente: {que} rechazado: {e}");
-            (StatusCode::BAD_REQUEST, Json(json!({ "ok": false, "error": e })))
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "ok": false, "error": e })),
+            )
         }
     }
 }
@@ -1266,7 +1500,10 @@ async fn vault_note(
     let ruta = q.get("ruta").cloned().unwrap_or_default();
     match st.memoria.leer_nota(&ruta) {
         Ok(v) => (StatusCode::OK, Json(v)),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({"ok": false, "error": e}))),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"ok": false, "error": e})),
+        ),
     }
 }
 
@@ -1302,7 +1539,10 @@ async fn metrics(State(st): State<AppState>) -> impl IntoResponse {
 async fn knowledge_preview(State(st): State<AppState>, Json(p): Json<Value>) -> impl IntoResponse {
     match st.vault.conocimiento_preview(&p) {
         Ok(v) => (StatusCode::OK, Json(v)),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({"ok": false, "error": e}))),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"ok": false, "error": e})),
+        ),
     }
 }
 
@@ -1315,7 +1555,10 @@ async fn knowledge_capture(State(st): State<AppState>, Json(p): Json<Value>) -> 
 async fn export_document(State(st): State<AppState>) -> impl IntoResponse {
     match st.vault.exportar_documento() {
         Ok(v) => (StatusCode::OK, Json(v)),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({"ok": false, "error": e}))),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"ok": false, "error": e})),
+        ),
     }
 }
 
@@ -1328,4 +1571,241 @@ async fn export_json(State(st): State<AppState>) -> impl IntoResponse {
             Json(json!({"ok": false, "error": "todavía no hay estado en disco"})),
         ),
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Slice 1 — Expertos y Contrato de Artefactos
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Lista los expertos disponibles (notas en `<vault>/expertos/*.md`) y los tipos de artefacto.
+async fn expertos_listar(State(st): State<AppState>) -> impl IntoResponse {
+    let dir = st.vault.raiz().join(crate::expertos::CARPETA);
+    Json(json!({
+        "ok": true,
+        "expertos": crate::expertos::cargar(&dir),
+        "tipos": crate::artefactos::tipos(),
+        "carpeta": dir.to_string_lossy(),
+    }))
+}
+
+/// Ejecuta un Experto sobre un nodo del lienzo.
+///
+/// Arma el contexto (el nodo + sus vecinos en el grafo + las notas de la bóveda que recupera BM25),
+/// llama al modelo con el system prompt del experto y devuelve un artefacto **validado contra su
+/// destino**. Si el validador lo rechaza, hace UN reintento de reparación explicándole al modelo qué
+/// falló: es más barato que devolver basura y que el usuario la pegue en Flow.
+async fn experto_run(
+    State(st): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> impl IntoResponse {
+    let inicio = std::time::Instant::now();
+    let nodo_ref = body["nodo"].as_str().unwrap_or("").trim().to_string();
+    let experto_ref = body["experto"].as_str().unwrap_or("").trim().to_string();
+    if nodo_ref.is_empty() || experto_ref.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"ok": false, "error": "faltan `nodo` y `experto`"})),
+        );
+    }
+
+    let Some(nodo) = st.vault.buscar_nodo(&nodo_ref) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"ok": false, "error": format!("no encontré el nodo «{nodo_ref}»")})),
+        );
+    };
+
+    let dir = st.vault.raiz().join(crate::expertos::CARPETA);
+    let expertos = crate::expertos::cargar(&dir);
+    let encontrado = expertos.iter().find(|e| {
+        let n = e["nombre"].as_str().unwrap_or("");
+        let s = e["slug"].as_str().unwrap_or("");
+        n.eq_ignore_ascii_case(&experto_ref) || s.eq_ignore_ascii_case(&experto_ref)
+    });
+    let Some(exp) = encontrado else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"ok": false, "error": format!(
+                "no encontré el experto «{experto_ref}» (la carpeta es {})", dir.to_string_lossy()
+            )})),
+        );
+    };
+    if exp["valido"].as_bool() != Some(true) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"ok": false, "error": format!(
+                "el experto «{}» declara un tipo de artefacto desconocido: «{}»",
+                exp["nombre"], exp["tipo_artefacto"]
+            )})),
+        );
+    }
+
+    let tipo = exp["tipo_artefacto"].as_str().unwrap_or("").to_string();
+    let system = exp["system"].as_str().unwrap_or("").to_string();
+    let Some(schema) = crate::artefactos::schema(&tipo) else {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"ok": false, "error": "tipo de artefacto sin schema"})),
+        );
+    };
+
+    // ── Contexto: el nodo + vecinos del grafo + memoria de la bóveda ──────────
+    let titulo = crate::grafo::titulo_de(&nodo);
+    let desc = crate::grafo::descripcion_de(&nodo);
+    let categoria = nodo["data"]["category"].as_str().unwrap_or("").to_string();
+    let id = crate::grafo::id_de(&nodo);
+    let (nodes, edges) = st.vault.grafo_actual();
+    let mut vecinos: Vec<String> = Vec::new();
+    for e in &edges {
+        let s = e["source"].as_str().unwrap_or("");
+        let t = e["target"].as_str().unwrap_or("");
+        let otro = if s == id {
+            t
+        } else if t == id {
+            s
+        } else {
+            continue;
+        };
+        if let Some(n) = nodes.iter().find(|x| crate::grafo::id_de(x) == otro) {
+            let d: String = crate::grafo::descripcion_de(n).chars().take(220).collect();
+            let ct = n["data"]["category"].as_str().unwrap_or("");
+            vecinos.push(format!(
+                "- [{ct}] {}: {}",
+                crate::grafo::titulo_de(n),
+                d.trim()
+            ));
+        }
+    }
+    vecinos.truncate(8);
+    let (bloque, fuentes) = bloque_memoria(
+        &st.vault,
+        &st.memoria,
+        &json!({"title": titulo, "description": desc}),
+    );
+
+    let extra = body["extra"].as_str().unwrap_or("").trim().to_string();
+    let mut prompt = format!("CONCEPTO (nodo del lienzo)\nTítulo: {titulo}\nDescripción: {desc}\n");
+    if !categoria.is_empty() {
+        prompt += &format!("Categoría: {categoria}\n");
+    }
+    if !vecinos.is_empty() {
+        prompt += &format!(
+            "\nNODOS CONECTADOS (contexto del mismo grafo)\n{}\n",
+            vecinos.join("\n")
+        );
+    }
+    if !bloque.is_empty() {
+        prompt += &format!("\nNOTAS DE LA BÓVEDA (las más relevantes por BM25)\n{bloque}\n");
+    }
+    if !extra.is_empty() {
+        prompt += &format!("\nINDICACIONES EXTRA DEL USUARIO\n{extra}\n");
+    }
+    prompt += &format!("\nTAREA\n{}", crate::artefactos::instruccion(&tipo));
+
+    // Escalado por contrato: se prueba proveedor por proveedor y se avanza cuando el artefacto NO
+    // cumple. Ollama es gratis y rápido pero no aplica el schema (solo pide "JSON"); Gemini sí lo
+    // aplica. Así el barato va primero y el estricto corrige, y no se gasta un llamado de más cuando
+    // el primero ya cumple el contrato.
+    let key = resolve_key(&st, &headers).unwrap_or_default();
+    let mut artefacto = json!({});
+    let mut problemas: Vec<String> = vec!["todavía sin respuesta".into()];
+    let mut proveedor = String::new();
+    let mut intentos = 0;
+    let mut traza: Vec<Value> = Vec::new();
+    let mut respondio_alguno = false;
+
+    // Si el experto declara su proveedor, va primero (y el resto de la cadena queda de respaldo).
+    // Motivo medido: Ollama es gratis pero no aplica el schema, así que un artefacto estricto gasta
+    // 50-60 s hasta que el validador lo rechaza y recién ahí escala. Lo decide el experto.
+    let mut cadena = cadena_de_proveedores(&st);
+    let preferido = exp["proveedor"]
+        .as_str()
+        .unwrap_or("")
+        .trim()
+        .to_lowercase();
+    if !preferido.is_empty() {
+        cadena.retain(|p| p != &preferido);
+        cadena.insert(0, preferido.clone());
+    }
+    for prov in cadena {
+        let t = std::time::Instant::now();
+        let Some((v1, modelo)) =
+            call_provider(&st, &key, &prov, &prompt, &schema, Some(&system)).await
+        else {
+            traza.push(json!({"proveedor": prov, "resultado": "sin respuesta", "ms": t.elapsed().as_millis()}));
+            continue;
+        };
+        respondio_alguno = true;
+        intentos += 1;
+        let mut v = v1;
+        let mut p = crate::artefactos::validar(&tipo, &v);
+        if !p.is_empty() {
+            // Un reintento de reparación en el mismo proveedor: sale más barato que cambiar de modelo.
+            let reintento = format!(
+                "{prompt}\n\nTU RESPUESTA ANTERIOR FUE RECHAZADA POR EL VALIDADOR:\n{}\n\nCorregí exactamente eso y devolvé el JSON completo con TODOS los campos.",
+                p.join("\n")
+            );
+            if let Some((v2, _)) =
+                call_provider(&st, &key, &prov, &reintento, &schema, Some(&system)).await
+            {
+                let p2 = crate::artefactos::validar(&tipo, &v2);
+                intentos += 1;
+                if p2.len() < p.len() {
+                    v = v2;
+                    p = p2;
+                }
+            }
+        }
+        let valido = p.is_empty();
+        traza.push(json!({
+            "proveedor": prov, "modelo": modelo, "valido": valido,
+            "problemas": p.clone(), "ms": t.elapsed().as_millis(),
+        }));
+        if proveedor.is_empty() || p.len() < problemas.len() {
+            artefacto = v;
+            problemas = p.clone();
+            proveedor = format!("{modelo} ({prov})");
+        }
+        if valido {
+            break; // cumple el contrato: no gastamos un llamado más
+        }
+        log::warn!(
+            "experto: «{modelo}» no cumplió el contrato ({p:?}); escalo al siguiente proveedor"
+        );
+    }
+
+    if !respondio_alguno {
+        return (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({"ok": false, "error": "ningún proveedor de IA respondió"})),
+        );
+    }
+    let valido = problemas.is_empty();
+    log::info!(
+        "experto: «{}» sobre «{titulo}» → {tipo} · {} · {intentos} intento(s) · {} ms",
+        exp["nombre"].as_str().unwrap_or(""),
+        if valido { "válido" } else { "con problemas" },
+        inicio.elapsed().as_millis()
+    );
+
+    (
+        StatusCode::OK,
+        Json(json!({
+            "ok": valido,
+            "tipo": tipo,
+            "experto": exp["nombre"],
+            "nodo": { "id": id, "titulo": titulo },
+            "artefacto": artefacto,
+            "texto": crate::artefactos::como_texto(&tipo, &artefacto),
+            "problemas": problemas,
+            "intentos": intentos,
+            "proveedor": proveedor,
+            "traza": traza,
+            "ms": inicio.elapsed().as_millis(),
+            "fuentes": fuentes,
+            "contexto_chars": prompt.chars().count(),
+            "costo": "sin costo medible (texto)",
+        })),
+    )
 }

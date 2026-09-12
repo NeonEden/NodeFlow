@@ -69,8 +69,7 @@ fn hash_bytes(b: &[u8]) -> u64 {
 fn plano(s: &str) -> String {
     // Se pliega sobre minúsculas: si no, «DISEÑO» y «diseño» no compararían igual.
     let bajo = s.to_lowercase();
-    bajo
-        .chars()
+    bajo.chars()
         .map(|c| match c {
             'á' | 'à' | 'ä' | 'â' | 'ã' => 'a',
             'é' | 'è' | 'ë' | 'ê' => 'e',
@@ -93,7 +92,8 @@ fn pendiente_es_padre(padre: &str, p: &Value) -> bool {
         return false;
     }
     let t = p["payload"]["title"].as_str().unwrap_or("");
-    !t.is_empty() && (slug(&plano(t)) == slug(&plano(padre)) || format!("n-ag-{}", slug(t)) == padre)
+    !t.is_empty()
+        && (slug(&plano(t)) == slug(&plano(padre)) || format!("n-ag-{}", slug(t)) == padre)
 }
 
 pub(crate) fn slug(raw: &str) -> String {
@@ -128,7 +128,9 @@ pub(crate) fn slug(raw: &str) -> String {
 
 /// Escapa un string para meterlo entre comillas dobles en YAML/markdown.
 fn yaml_escape(raw: &str) -> String {
-    raw.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', " ")
+    raw.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', " ")
 }
 
 /// Resuelve la raíz del vault: config del usuario → bóveda de Obsidian → Documents\nodeflow.
@@ -144,7 +146,9 @@ fn resolve_root(data_dir: &Path) -> PathBuf {
         }
     }
     let home = std::env::var("USERPROFILE").unwrap_or_else(|_| ".".into());
-    let obsidian = PathBuf::from(&home).join("Documents").join("Obsidian Vault");
+    let obsidian = PathBuf::from(&home)
+        .join("Documents")
+        .join("Obsidian Vault");
     let root = if obsidian.is_dir() {
         obsidian.join("NodeFlow")
     } else {
@@ -159,7 +163,11 @@ fn resolve_root(data_dir: &Path) -> PathBuf {
         &cfg_path,
         serde_json::to_string_pretty(&cfg).unwrap_or_default(),
     );
-    log::info!("vault: config creada en {} → {}", cfg_path.display(), root.display());
+    log::info!(
+        "vault: config creada en {} → {}",
+        cfg_path.display(),
+        root.display()
+    );
     root
 }
 
@@ -239,20 +247,37 @@ impl Vault {
             .iter()
             .map(|n| {
                 let d = &n["data"];
-                let title = d["title"].as_str().or_else(|| d["label"].as_str()).unwrap_or("Concepto");
+                let title = d["title"]
+                    .as_str()
+                    .or_else(|| d["label"].as_str())
+                    .unwrap_or("Concepto");
                 let is_root = d["isRoot"].as_bool().unwrap_or(false);
-                let category = d["category"].as_str().unwrap_or(if is_root { "Núcleo Central" } else { "Concepto" });
+                let category = d["category"].as_str().unwrap_or(if is_root {
+                    "Núcleo Central"
+                } else {
+                    "Concepto"
+                });
                 let desc = d["description"].as_str().unwrap_or("");
                 let tags: Vec<String> = d["tags"]
                     .as_array()
                     .map(|a| {
                         a.iter()
                             .filter_map(|t| t.as_str())
-                            .map(|t| if t.starts_with('#') { t.to_string() } else { format!("#{t}") })
+                            .map(|t| {
+                                if t.starts_with('#') {
+                                    t.to_string()
+                                } else {
+                                    format!("#{t}")
+                                }
+                            })
                             .collect()
                     })
                     .unwrap_or_default();
-                let tags_txt = if tags.is_empty() { String::new() } else { format!("\n\n{}", tags.join(" ")) };
+                let tags_txt = if tags.is_empty() {
+                    String::new()
+                } else {
+                    format!("\n\n{}", tags.join(" "))
+                };
                 let text = format!("### [[{title}]]\n*{category}*\n\n{desc}{tags_txt}");
                 let height = (120 + desc.len() / 2).clamp(160, 320) as i64;
                 let color = d["colorAccent"]
@@ -337,14 +362,22 @@ impl Vault {
         md += "---\n\n";
         md += &format!("# {name}\n\n");
         md += "> [!warning] Archivo generado\n";
-        md += "> Este índice y `<mapa>.canvas` los regenera NodeFlow en cada guardado. Para editar\n";
+        md +=
+            "> Este índice y `<mapa>.canvas` los regenera NodeFlow en cada guardado. Para editar\n";
         md += "> contenido que la app respete, modificá las notas de la carpeta `nodos/`.\n\n";
         md += "## Nodos del grafo\n\n";
         for n in nodes {
             let d = &n["data"];
-            let title = d["title"].as_str().or_else(|| d["label"].as_str()).unwrap_or("Concepto");
+            let title = d["title"]
+                .as_str()
+                .or_else(|| d["label"].as_str())
+                .unwrap_or("Concepto");
             let is_root = d["isRoot"].as_bool().unwrap_or(false);
-            let category = d["category"].as_str().unwrap_or(if is_root { "Núcleo Central" } else { "Concepto" });
+            let category = d["category"].as_str().unwrap_or(if is_root {
+                "Núcleo Central"
+            } else {
+                "Concepto"
+            });
             md += &format!("### [[{title}]]\n");
             md += &format!("* **Tipo/Categoría:** {category}\n");
             if let Some(m) = d["maturity"].as_i64() {
@@ -354,7 +387,13 @@ impl Vault {
                 let t: Vec<String> = tags
                     .iter()
                     .filter_map(|x| x.as_str())
-                    .map(|x| if x.starts_with('#') { x.into() } else { format!("#{x}") })
+                    .map(|x| {
+                        if x.starts_with('#') {
+                            x.into()
+                        } else {
+                            format!("#{x}")
+                        }
+                    })
                     .collect();
                 if !t.is_empty() {
                     md += &format!("* **Tags:** {}\n", t.join(" "));
@@ -364,7 +403,10 @@ impl Vault {
             md += d["description"].as_str().unwrap_or("Sin descripción.");
             md += "\n\n";
             let id = n["id"].as_str().unwrap_or("");
-            let out: Vec<&Value> = edges.iter().filter(|e| e["source"].as_str() == Some(id)).collect();
+            let out: Vec<&Value> = edges
+                .iter()
+                .filter(|e| e["source"].as_str() == Some(id))
+                .collect();
             if !out.is_empty() {
                 md += "**Conexiones:**\n";
                 for e in out {
@@ -391,12 +433,24 @@ impl Vault {
     fn node_markdown(&self, node: &Value, nodes: &[Value], edges: &[Value], map: &str) -> String {
         let d = &node["data"];
         let id = node["id"].as_str().unwrap_or("");
-        let title = d["title"].as_str().or_else(|| d["label"].as_str()).unwrap_or("Concepto");
+        let title = d["title"]
+            .as_str()
+            .or_else(|| d["label"].as_str())
+            .unwrap_or("Concepto");
         let is_root = d["isRoot"].as_bool().unwrap_or(false);
-        let category = d["category"].as_str().unwrap_or(if is_root { "Núcleo Central" } else { "Concepto" });
+        let category = d["category"].as_str().unwrap_or(if is_root {
+            "Núcleo Central"
+        } else {
+            "Concepto"
+        });
         let mut tags: Vec<String> = d["tags"]
             .as_array()
-            .map(|a| a.iter().filter_map(|x| x.as_str()).map(|s| s.trim_start_matches('#').to_string()).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| x.as_str())
+                    .map(|s| s.trim_start_matches('#').to_string())
+                    .collect()
+            })
             .unwrap_or_default();
         if let Some(o) = d["aiOrigin"].as_str() {
             tags.push(format!("ai:{o}"));
@@ -410,7 +464,10 @@ impl Vault {
         md += &format!("id: \"{}\"\n", yaml_escape(id));
         md += &format!("title: \"{}\"\n", yaml_escape(title));
         md += &format!("categoria: \"{}\"\n", yaml_escape(category));
-        md += &format!("madurez: {}\n", d["maturity"].as_i64().unwrap_or(DEFAULT_MATURITY));
+        md += &format!(
+            "madurez: {}\n",
+            d["maturity"].as_i64().unwrap_or(DEFAULT_MATURITY)
+        );
         md += &format!("tags: {tags_json}\n");
         md += &format!("mapa: \"{}\"\n", yaml_escape(map));
         md += &format!("es_nucleo: {}\n", is_root);
@@ -552,7 +609,9 @@ impl Vault {
         });
         let state_txt = serde_json::to_string_pretty(&canonical).map_err(|e| e.to_string())?;
         let bytes_state = self.write_atomic(".nodeflow/state.json", &state_txt)?;
-        files.push(json!({"ruta": ".nodeflow/state.json", "bytes": bytes_state, "tipo": "canónico"}));
+        files.push(
+            json!({"ruta": ".nodeflow/state.json", "bytes": bytes_state, "tipo": "canónico"}),
+        );
 
         for n in nodes {
             let d = &n["data"];
@@ -665,8 +724,16 @@ impl Vault {
         // El lienzo ya devolvió estos ids: dejan de estar protegidos.
         {
             let mut conocidos: HashSet<String> = HashSet::new();
-            conocidos.extend(nodes.iter().filter_map(|n| n["id"].as_str().map(String::from)));
-            conocidos.extend(edges.iter().filter_map(|e| e["id"].as_str().map(String::from)));
+            conocidos.extend(
+                nodes
+                    .iter()
+                    .filter_map(|n| n["id"].as_str().map(String::from)),
+            );
+            conocidos.extend(
+                edges
+                    .iter()
+                    .filter_map(|e| e["id"].as_str().map(String::from)),
+            );
             self.inner
                 .lock()
                 .unwrap()
@@ -765,7 +832,10 @@ impl Vault {
         if let Some(h) = nodes.iter().find(|x| titulo(x).to_lowercase() == low) {
             return tid(h);
         }
-        if let Some(h) = nodes.iter().find(|x| titulo(x).to_lowercase().contains(&low)) {
+        if let Some(h) = nodes
+            .iter()
+            .find(|x| titulo(x).to_lowercase().contains(&low))
+        {
             return tid(h);
         }
         None
@@ -773,13 +843,19 @@ impl Vault {
 
     fn nuevo_id(&self, nodes: &[Value], title: &str) -> String {
         let base = format!("n-ag-{}", slug(title));
-        if !nodes.iter().any(|n| n["id"].as_str() == Some(base.as_str())) {
+        if !nodes
+            .iter()
+            .any(|n| n["id"].as_str() == Some(base.as_str()))
+        {
             return base;
         }
         let mut i = 2;
         loop {
             let cand = format!("{base}-{i}");
-            if !nodes.iter().any(|n| n["id"].as_str() == Some(cand.as_str())) {
+            if !nodes
+                .iter()
+                .any(|n| n["id"].as_str() == Some(cand.as_str()))
+            {
                 return cand;
             }
             i += 1;
@@ -788,9 +864,9 @@ impl Vault {
 
     /// Base para las operaciones del agente: estado canónico actual.
     fn estado_base(&self) -> Result<(Value, Vec<Value>, Vec<Value>, String), String> {
-        let state = self
-            .read_state()
-            .ok_or("todavía no hay estado en disco — abrí NodeFlow y esperá el primer autoguardado")?;
+        let state = self.read_state().ok_or(
+            "todavía no hay estado en disco — abrí NodeFlow y esperá el primer autoguardado",
+        )?;
         let nodes = state["nodes"].as_array().cloned().unwrap_or_default();
         let edges = state["edges"].as_array().cloned().unwrap_or_default();
         let map = state["name"].as_str().unwrap_or("nodeflow").to_string();
@@ -860,7 +936,11 @@ impl Vault {
             let mut res = self.write_all(&nodes, &edges, &appearance, &template_id, &map)?;
             {
                 let rev = res["revision"].as_u64().unwrap_or(0);
-                self.inner.lock().unwrap().agent_writes.insert(id.clone(), rev);
+                self.inner
+                    .lock()
+                    .unwrap()
+                    .agent_writes
+                    .insert(id.clone(), rev);
             }
             res["accion"] = json!("actualizado");
             res["id"] = json!(id);
@@ -877,7 +957,10 @@ impl Vault {
             + 340.0;
         let mut y = 120.0;
         if let Some(pid) = &parent_id {
-            if let Some(p) = nodes.iter().find(|n| n["id"].as_str() == Some(pid.as_str())) {
+            if let Some(p) = nodes
+                .iter()
+                .find(|n| n["id"].as_str() == Some(pid.as_str()))
+            {
                 x = p["position"]["x"].as_f64().unwrap_or(0.0) + 340.0;
                 y = p["position"]["y"].as_f64().unwrap_or(0.0) + 40.0;
             }
@@ -1006,10 +1089,9 @@ impl Vault {
         } else {
             (s.clone(), t.clone())
         };
-        if edges
-            .iter()
-            .any(|e| e["source"].as_str() == Some(a.as_str()) && e["target"].as_str() == Some(b.as_str()))
-        {
+        if edges.iter().any(|e| {
+            e["source"].as_str() == Some(a.as_str()) && e["target"].as_str() == Some(b.as_str())
+        }) {
             return Ok(json!({"ok": true, "accion": "ya_existia", "origen": a, "destino": b}));
         }
         let eid = format!("e-ag-{}-{}", slug(&a), slug(&b));
@@ -1028,7 +1110,11 @@ impl Vault {
         let mut res = self.write_all(&nodes, &edges, &appearance, &template_id, &map)?;
         {
             let rev = res["revision"].as_u64().unwrap_or(0);
-            self.inner.lock().unwrap().agent_writes.insert(eid.clone(), rev);
+            self.inner
+                .lock()
+                .unwrap()
+                .agent_writes
+                .insert(eid.clone(), rev);
         }
         res["accion"] = json!("conectados");
         res["id"] = json!(eid);
@@ -1065,7 +1151,8 @@ impl Vault {
         let aristas: Vec<Value> = edges
             .iter()
             .filter(|e| {
-                e["source"].as_str() != Some(id.as_str()) && e["target"].as_str() != Some(id.as_str())
+                e["source"].as_str() != Some(id.as_str())
+                    && e["target"].as_str() != Some(id.as_str())
             })
             .cloned()
             .collect();
@@ -1199,7 +1286,6 @@ impl Vault {
         })
     }
 
-
     pub fn read_state(&self) -> Option<Value> {
         let txt = std::fs::read_to_string(self.root.join(".nodeflow").join("state.json")).ok()?;
         serde_json::from_str(&txt).ok()
@@ -1238,7 +1324,10 @@ impl Vault {
             .filter(|s| !s.is_empty());
 
         let mut state = self.read_state().ok_or("no hay estado canónico")?;
-        let nodes = state["nodes"].as_array().cloned().ok_or("estado sin nodos")?;
+        let nodes = state["nodes"]
+            .as_array()
+            .cloned()
+            .ok_or("estado sin nodos")?;
 
         // Localizar el nodo: por id del frontmatter o, si falta, por el slug del archivo.
         let stem = Path::new(rel)
@@ -1292,7 +1381,9 @@ impl Vault {
             .or_else(|| fm.get("categoría"))
             .map(|s| s.trim().trim_matches('"').to_string())
             .filter(|s| !s.is_empty());
-        let tags = fm.get("tags").and_then(|v| serde_json::from_str::<Vec<String>>(v).ok());
+        let tags = fm
+            .get("tags")
+            .and_then(|v| serde_json::from_str::<Vec<String>>(v).ok());
 
         let mut cambios: Vec<String> = Vec::new();
         let mut nodes_mut = nodes.clone();
@@ -1309,7 +1400,8 @@ impl Vault {
                     cambios.push(format!("título → {t}"));
                 }
             }
-            if !desc.is_empty() && n["data"]["description"].as_str().unwrap_or("") != desc.as_str() {
+            if !desc.is_empty() && n["data"]["description"].as_str().unwrap_or("") != desc.as_str()
+            {
                 n["data"]["description"] = json!(desc);
                 cambios.push("descripción".into());
             }
@@ -1326,7 +1418,10 @@ impl Vault {
                 }
             }
             if let Some(t) = &tags {
-                let limpios: Vec<String> = t.iter().map(|s| s.trim_start_matches('#').to_string()).collect();
+                let limpios: Vec<String> = t
+                    .iter()
+                    .map(|s| s.trim_start_matches('#').to_string())
+                    .collect();
                 n["data"]["tags"] = json!(limpios);
                 cambios.push("tags".into());
             }
@@ -1407,8 +1502,6 @@ impl Vault {
     }
     // ── Fase 5a: el agente propone, el humano aprueba ───────────────────────────
 
-
-
     fn save_pending(&self) {
         let doc = {
             let inner = self.inner.lock().unwrap();
@@ -1425,7 +1518,10 @@ impl Vault {
     /// mayúsculas, acentos y puntuación.
     fn padre_pendiente(&self, padre: &str) -> bool {
         let inner = self.inner.lock().unwrap();
-        inner.pendientes.iter().any(|p| pendiente_es_padre(padre, p))
+        inner
+            .pendientes
+            .iter()
+            .any(|p| pendiente_es_padre(padre, p))
     }
 
     pub fn count_pending(&self) -> usize {
@@ -1522,7 +1618,10 @@ impl Vault {
 
         for p in pendientes {
             let pid = p["id"].as_str().unwrap_or("").to_string();
-            let elegido = todos || ids.iter().any(|x| x == &pid || x.trim_start_matches('#') == pid);
+            let elegido = todos
+                || ids
+                    .iter()
+                    .any(|x| x == &pid || x.trim_start_matches('#') == pid);
             if !elegido {
                 restantes.push(p);
                 continue;
@@ -1806,7 +1905,8 @@ impl Vault {
         let aristas = edges
             .iter()
             .filter(|e| {
-                e["source"].as_str() == Some(id.as_str()) || e["target"].as_str() == Some(id.as_str())
+                e["source"].as_str() == Some(id.as_str())
+                    || e["target"].as_str() == Some(id.as_str())
             })
             .count();
         Ok(json!({
@@ -1853,6 +1953,25 @@ impl Vault {
     }
 
     /// Grafo canónico actual (nodos, aristas). Lo usa el contexto de la IA para el sesgo espacial.
+    /// Raíz del vault en disco (donde viven `nodos/`, `expertos/` y `.nodeflow/`).
+    pub fn raiz(&self) -> std::path::PathBuf {
+        self.root.clone()
+    }
+
+    /// Busca un nodo del lienzo por id o por título (tolera mayúsculas, acentos y el prefijo `#`).
+    pub fn buscar_nodo(&self, needle: &str) -> Option<Value> {
+        let (nodes, _) = self.grafo_actual();
+        let n = needle.trim().trim_start_matches('#');
+        if n.is_empty() {
+            return None;
+        }
+        nodes.into_iter().find(|x| {
+            let id = crate::grafo::id_de(x);
+            let t = crate::grafo::titulo_de(x);
+            id == n || t.eq_ignore_ascii_case(n) || slug(&t) == slug(n)
+        })
+    }
+
     pub fn grafo_actual(&self) -> (Vec<Value>, Vec<Value>) {
         match self.estado_base() {
             Ok((_s, n, e, _m)) => (n, e),
@@ -1941,7 +2060,11 @@ impl Vault {
                 "resultado": r["accion"], "id_pendiente": r["id_pendiente"], "resumen": r["vista"]["resumen"]
             }));
         }
-        if diag["padrinos"].as_array().map(|a| !a.is_empty()).unwrap_or(false) {
+        if diag["padrinos"]
+            .as_array()
+            .map(|a| !a.is_empty())
+            .unwrap_or(false)
+        {
             motivos.push("conexiones sugeridas por afinidad".into());
         }
 
@@ -2076,7 +2199,8 @@ impl Vault {
         let abrir = match abierta["t0_ms"].as_u64() {
             None => true,
             Some(t0) => {
-                ahora.saturating_sub(abierta["ultima_ms"].as_u64().unwrap_or(t0)) > Self::SESION_GAP_MS
+                ahora.saturating_sub(abierta["ultima_ms"].as_u64().unwrap_or(t0))
+                    > Self::SESION_GAP_MS
             }
         };
         if abrir {
@@ -2185,7 +2309,10 @@ impl Vault {
     /// Captura: convierte candidatos (o texto crudo) en PROPUESTAS de nodo.
     pub fn conocimiento_capturar(&self, req: &Value) -> Result<Value, String> {
         let parent = req["parent"].as_str().unwrap_or("").trim().to_string();
-        let categoria = req["categoria"].as_str().unwrap_or("CONOCIMIENTO").to_string();
+        let categoria = req["categoria"]
+            .as_str()
+            .unwrap_or("CONOCIMIENTO")
+            .to_string();
         let madurez = req["madurez"].as_i64().unwrap_or(2);
         let nodos: Vec<Value> = match req["nodos"].as_array() {
             Some(a) => a.clone(),
@@ -2251,8 +2378,14 @@ impl Vault {
         let pos = crate::grafo::layout_jerarquico(&nodes, &edges);
         let mut orden: Vec<Value> = nodes.clone();
         orden.sort_by(|a, b| {
-            let pa = pos.get(&crate::grafo::id_de(a)).copied().unwrap_or((0.0, 0.0));
-            let pb = pos.get(&crate::grafo::id_de(b)).copied().unwrap_or((0.0, 0.0));
+            let pa = pos
+                .get(&crate::grafo::id_de(a))
+                .copied()
+                .unwrap_or((0.0, 0.0));
+            let pb = pos
+                .get(&crate::grafo::id_de(b))
+                .copied()
+                .unwrap_or((0.0, 0.0));
             pa.partial_cmp(&pb).unwrap_or(std::cmp::Ordering::Equal)
         });
         let grados = crate::grafo::grados(&nodes, &edges);
@@ -2321,7 +2454,11 @@ impl Vault {
                     let lab = e["label"].as_str().unwrap_or("");
                     Some(format!(
                         "- → {}{}",
-                        if lab.is_empty() { String::new() } else { format!("_({lab})_ ") },
+                        if lab.is_empty() {
+                            String::new()
+                        } else {
+                            format!("_({lab})_ ")
+                        },
                         crate::grafo::titulo_de(tdoc)
                     ))
                 })
@@ -2355,7 +2492,6 @@ impl Vault {
             "aristas": edges.len(),
         }))
     }
-
 }
 
 /// Separa el frontmatter YAML (plano, key: value) del cuerpo.
@@ -2388,8 +2524,8 @@ pub fn start_watcher(vault: Arc<Vault>) {
     let pending: Arc<Mutex<HashSet<PathBuf>>> = Arc::new(Mutex::new(HashSet::new()));
     let pending_cb = pending.clone();
     let root = vault.root.clone();
-    let mut watcher = match notify::recommended_watcher(
-        move |res: Result<notify::Event, notify::Error>| {
+    let mut watcher =
+        match notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
             if let Ok(ev) = res {
                 if matches!(ev.kind, notify::EventKind::Access(_)) {
                     return;
@@ -2400,14 +2536,13 @@ pub fn start_watcher(vault: Arc<Vault>) {
                     }
                 }
             }
-        },
-    ) {
-        Ok(w) => w,
-        Err(e) => {
-            log::warn!("vault: no pude crear el watcher ({e})");
-            return;
-        }
-    };
+        }) {
+            Ok(w) => w,
+            Err(e) => {
+                log::warn!("vault: no pude crear el watcher ({e})");
+                return;
+            }
+        };
     if let Err(e) = watcher.watch(&root, notify::RecursiveMode::Recursive) {
         log::warn!("vault: no pude observar {} ({e})", root.display());
         return;
@@ -2443,8 +2578,14 @@ mod tests_padre_pendiente {
 
     #[test]
     fn reconoce_el_padre_por_titulo_exacto() {
-        let p = propuesta("nodo", "Ecosistema creativo (lo que NodeFlow va a conectar)");
-        assert!(pendiente_es_padre("Ecosistema creativo (lo que NodeFlow va a conectar)", &p));
+        let p = propuesta(
+            "nodo",
+            "Ecosistema creativo (lo que NodeFlow va a conectar)",
+        );
+        assert!(pendiente_es_padre(
+            "Ecosistema creativo (lo que NodeFlow va a conectar)",
+            &p
+        ));
     }
 
     #[test]
@@ -2462,8 +2603,14 @@ mod tests_padre_pendiente {
 
     #[test]
     fn ignora_otros_tipos_y_titulos_distintos() {
-        assert!(!pendiente_es_padre("Puente MCP", &propuesta("arista", "Puente MCP")));
-        assert!(!pendiente_es_padre("Puente MCP", &propuesta("nodo", "Otra cosa")));
+        assert!(!pendiente_es_padre(
+            "Puente MCP",
+            &propuesta("arista", "Puente MCP")
+        ));
+        assert!(!pendiente_es_padre(
+            "Puente MCP",
+            &propuesta("nodo", "Otra cosa")
+        ));
         assert!(!pendiente_es_padre("Puente MCP", &propuesta("nodo", "")));
     }
 }

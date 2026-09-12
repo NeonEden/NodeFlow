@@ -1,4 +1,6 @@
+mod artefactos;
 mod conocimiento;
+mod expertos;
 mod grafo;
 mod memoria;
 mod server;
