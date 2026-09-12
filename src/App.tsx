@@ -68,6 +68,7 @@ import { fetchPendientes, type Propuesta } from './services/agentService';
 import type { Metricas } from './services/vaultService';
 import { AgentChangesPanel } from './components/AgentChangesPanel';
 import { MemoriaPanel } from './components/MemoriaPanel';
+import { ConocimientoPanel } from './components/ConocimientoPanel';
 import {
   CustomNode,
   EdgeAppearance,
@@ -205,6 +206,7 @@ export default function App() {
 
   // Fase 5b: memoria semántica de la bóveda
   const [isMemoriaOpen, setIsMemoriaOpen] = useState(false);
+  const [isConocimientoOpen, setIsConocimientoOpen] = useState(false);
 
   // Fase 7b: métrica de valor (T0 → T1)
   const [metricas, setMetricas] = useState<Metricas | null>(null);
@@ -2594,6 +2596,15 @@ export default function App() {
                 >
                   Memoria del vault
                 </button>
+                {/* Fase 8: capturar conocimiento y exportar el mapa */}
+                <button
+                  type="button"
+                  onClick={() => setIsConocimientoOpen(true)}
+                  title="Convertir texto en nodos propuestos y exportar el mapa"
+                  className="w-full mt-1.5 py-1.5 text-[10px] font-bold rounded-lg border uppercase tracking-tight transition-colors cursor-pointer bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-200 border-emerald-500/30"
+                >
+                  Conocimiento
+                </button>
                 <button
                   type="button"
                   onClick={handleManualSave}
@@ -2970,6 +2981,15 @@ export default function App() {
         isOpen={isMemoriaOpen}
         onClose={() => setIsMemoriaOpen(false)}
         onPropuestaCreada={() => {
+          void sincronizar();
+        }}
+        showToast={showToast}
+      />
+
+      <ConocimientoPanel
+        isOpen={isConocimientoOpen}
+        onClose={() => setIsConocimientoOpen(false)}
+        onPropuestasCreadas={() => {
           void sincronizar();
         }}
         showToast={showToast}

@@ -103,6 +103,11 @@ pub fn spawn(
             .route("/api/graph/garden", get(graph_garden))
             .route("/api/graph/garden/fix", post(graph_garden_fix))
             .route("/api/graph/tidy", post(graph_tidy))
+            // Fase 8 — captura de conocimiento y exportación
+            .route("/api/knowledge/preview", post(knowledge_preview))
+            .route("/api/knowledge/capture", post(knowledge_capture))
+            .route("/api/export/document", get(export_document))
+            .route("/api/export/json", get(export_json))
             // Fase 5a — el agente propone, el humano aprueba
             .route("/api/agent/pending", get(agent_pending))
             .route("/api/agent/approve", post(agent_approve))
@@ -1019,7 +1024,7 @@ fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
-fn now_iso() -> String {
+pub(crate) fn now_iso() -> String {
     // ISO-8601 UTC sin dependencias extra (formato suficiente para el cliente)
     let ms = now_ms();
     let secs = ms / 1000;
@@ -1274,4 +1279,40 @@ async fn graph_tidy(State(st): State<AppState>, Json(p): Json<Value>) -> impl In
 /// Métrica de valor: minutos entre el brain dump (T0) y el primer artefacto aprobado (T1).
 async fn metrics(State(st): State<AppState>) -> impl IntoResponse {
     Json(st.vault.metricas())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fase 8 — Captura de conocimiento y exportación
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Vista previa: texto crudo → candidatos a nodo (no propone nada).
+async fn knowledge_preview(State(st): State<AppState>, Json(p): Json<Value>) -> impl IntoResponse {
+    match st.vault.conocimiento_preview(&p) {
+        Ok(v) => (StatusCode::OK, Json(v)),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({"ok": false, "error": e}))),
+    }
+}
+
+/// Captura: convierte los candidatos en propuestas para aprobar.
+async fn knowledge_capture(State(st): State<AppState>, Json(p): Json<Value>) -> impl IntoResponse {
+    responder(st.vault.conocimiento_capturar(&p), "captura")
+}
+
+/// Entregable: el mapa como documento Markdown.
+async fn export_document(State(st): State<AppState>) -> impl IntoResponse {
+    match st.vault.exportar_documento() {
+        Ok(v) => (StatusCode::OK, Json(v)),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({"ok": false, "error": e}))),
+    }
+}
+
+/// Exportación portable: el estado canónico tal cual (re-importable).
+async fn export_json(State(st): State<AppState>) -> impl IntoResponse {
+    match st.vault.read_state() {
+        Some(s) => (StatusCode::OK, Json(json!({"ok": true, "estado": s}))),
+        None => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"ok": false, "error": "todavía no hay estado en disco"})),
+        ),
+    }
 }

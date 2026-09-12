@@ -18,3 +18,4 @@ npm-debug.log*
 
 # Datos locales de la app
 data/
+vp.js

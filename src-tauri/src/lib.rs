@@ -1,3 +1,4 @@
+mod conocimiento;
 mod grafo;
 mod memoria;
 mod server;

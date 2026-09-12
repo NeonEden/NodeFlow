@@ -2102,6 +2102,206 @@ impl Vault {
         })
     }
 
+    // ── Fase 8: captura de conocimiento y exportación ───────────────────────────
+
+    /// Vista previa de una captura: texto crudo → candidatos a nodo. NO propone nada.
+    /// La vista previa es la curaduría: capturar sin revisar es engordar la memoria que alimenta la IA.
+    pub fn conocimiento_preview(&self, req: &Value) -> Result<Value, String> {
+        let texto = req["texto"].as_str().unwrap_or("").trim();
+        if texto.chars().count() < 40 {
+            return Err("el texto es demasiado corto para extraer conocimiento".into());
+        }
+        let min = req["min_chars"].as_u64().map(|v| v as usize);
+        let max = req["max_nodos"].as_u64().map(|v| v as usize);
+        let candidatos = crate::conocimiento::segmentar(texto, min, max);
+        let (nodes, _) = self.grafo_actual();
+        let titulos: Vec<String> = nodes.iter().map(crate::grafo::titulo_de).collect();
+        let mut out: Vec<Value> = Vec::new();
+        for c in candidatos {
+            let mut cc = c.clone();
+            let t = c["titulo"].as_str().unwrap_or("");
+            cc["ya_en_el_lienzo"] = json!(titulos.iter().any(|x| x.eq_ignore_ascii_case(t)));
+            out.push(cc);
+        }
+        Ok(json!({
+            "ok": true,
+            "caracteres": texto.chars().count(),
+            "candidatos": out,
+            "total": out.len(),
+        }))
+    }
+
+    /// Captura: convierte candidatos (o texto crudo) en PROPUESTAS de nodo.
+    pub fn conocimiento_capturar(&self, req: &Value) -> Result<Value, String> {
+        let parent = req["parent"].as_str().unwrap_or("").trim().to_string();
+        let categoria = req["categoria"].as_str().unwrap_or("CONOCIMIENTO").to_string();
+        let madurez = req["madurez"].as_i64().unwrap_or(2);
+        let nodos: Vec<Value> = match req["nodos"].as_array() {
+            Some(a) => a.clone(),
+            None => crate::conocimiento::segmentar(req["texto"].as_str().unwrap_or(""), None, None),
+        };
+        if nodos.is_empty() {
+            return Err("no hay nada para capturar (el texto no produjo candidatos)".into());
+        }
+        if !parent.is_empty() && self.resolve(&self.grafo_actual().0, &parent).is_none() {
+            return Err(format!("no encontré el nodo padre: {parent}"));
+        }
+        let mut props: Vec<Value> = Vec::new();
+        for n in nodos {
+            let titulo = n["titulo"]
+                .as_str()
+                .or_else(|| n["title"].as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            if titulo.is_empty() {
+                continue;
+            }
+            let mut payload = json!({
+                "title": titulo,
+                "description": n["descripcion"].as_str()
+                    .or_else(|| n["description"].as_str())
+                    .unwrap_or(""),
+                "category": n["categoria"].as_str().unwrap_or(&categoria),
+                "maturity": n["madurez"].as_i64().unwrap_or(madurez),
+                "tags": ["conocimiento"],
+                "origen": "captura",
+                "motivo": req["motivo"].as_str().unwrap_or("Capturado desde el panel de conocimiento"),
+            });
+            if !parent.is_empty() {
+                payload["parent"] = json!(parent);
+                payload["link_label"] = json!("conocimiento");
+            }
+            let r = self.propose("nodo", &payload)?;
+            props.push(json!({
+                "titulo": titulo,
+                "resultado": r["accion"],
+                "id_pendiente": r["id_pendiente"],
+            }));
+        }
+        Ok(json!({
+            "ok": true,
+            "propuestos": props.len(),
+            "detalle": props,
+            "pendientes_totales": self.count_pending(),
+            "nota": "Nada entró al lienzo: son propuestas para aprobar en «Cambios del agente».",
+        }))
+    }
+
+    /// Entregable: el mapa como documento Markdown, en orden de lectura (para compartir o portafolio).
+    pub fn exportar_documento(&self) -> Result<Value, String> {
+        let (_state, nodes, edges, map) = self.estado_base()?;
+        if nodes.is_empty() {
+            return Err("el mapa no tiene nodos".into());
+        }
+        let pos = crate::grafo::layout_jerarquico(&nodes, &edges);
+        let mut orden: Vec<Value> = nodes.clone();
+        orden.sort_by(|a, b| {
+            let pa = pos.get(&crate::grafo::id_de(a)).copied().unwrap_or((0.0, 0.0));
+            let pb = pos.get(&crate::grafo::id_de(b)).copied().unwrap_or((0.0, 0.0));
+            pa.partial_cmp(&pb).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let grados = crate::grafo::grados(&nodes, &edges);
+        let madurez: Vec<i64> = nodes
+            .iter()
+            .filter_map(|n| n["data"]["maturity"].as_i64())
+            .collect();
+        let prom = if madurez.is_empty() {
+            0.0
+        } else {
+            (madurez.iter().sum::<i64>() as f64 / madurez.len() as f64 * 10.0).round() / 10.0
+        };
+
+        let mut md = String::new();
+        md += "---\n";
+        md += &format!("titulo: \"{}\"\n", map);
+        md += &format!("generado: {}\n", crate::server::now_iso());
+        md += &format!("nodos: {}\n", nodes.len());
+        md += &format!("conexiones: {}\n", edges.len());
+        md += "tags:\n  - nodeflow\n  - mapa\n";
+        md += "generador: NodeFlow\n";
+        md += "---\n\n";
+        md += &format!("# {map}\n\n");
+        md += "> Documento generado por NodeFlow a partir del lienzo. Ordenado en lectura de izquierda a\n";
+        md += "> derecha, con las conexiones de cada nodo.\n\n";
+        md += "## Resumen\n\n";
+        md += &format!("- **Nodos**: {}\n", nodes.len());
+        md += &format!("- **Conexiones**: {}\n", edges.len());
+        md += &format!("- **Madurez promedio**: {prom}/5\n\n");
+        md += "---\n\n";
+        for (i, n) in orden.iter().enumerate() {
+            let d = &n["data"];
+            let titulo = crate::grafo::titulo_de(n);
+            let cat = d["category"].as_str().unwrap_or("Concepto");
+            let mad = d["maturity"].as_i64();
+            md += &format!("### {}. {titulo}\n\n", i + 1);
+            md += &format!("`{cat}`");
+            if let Some(m) = mad {
+                md += &format!(" · madurez **{m}/5**");
+            }
+            if let Some(tags) = d["tags"].as_array() {
+                let t: Vec<String> = tags
+                    .iter()
+                    .filter_map(|x| x.as_str())
+                    .map(|x| format!("#{x}"))
+                    .collect();
+                if !t.is_empty() {
+                    md += &format!(" · {}", t.join(" "));
+                }
+            }
+            md += "\n\n";
+            let desc = crate::grafo::descripcion_de(n);
+            let cuerpo = if desc.trim().is_empty() {
+                "_Sin descripción._\n\n".to_string()
+            } else {
+                format!("{}\n\n", desc.trim())
+            };
+            md += &cuerpo;
+            let id = crate::grafo::id_de(n);
+            let salientes: Vec<String> = edges
+                .iter()
+                .filter(|e| e["source"].as_str() == Some(id.as_str()))
+                .filter_map(|e| {
+                    let t = e["target"].as_str().unwrap_or("");
+                    let tdoc = nodes.iter().find(|x| crate::grafo::id_de(x) == t)?;
+                    let lab = e["label"].as_str().unwrap_or("");
+                    Some(format!(
+                        "- → {}{}",
+                        if lab.is_empty() { String::new() } else { format!("_({lab})_ ") },
+                        crate::grafo::titulo_de(tdoc)
+                    ))
+                })
+                .collect();
+            let entrantes: Vec<String> = edges
+                .iter()
+                .filter(|e| e["target"].as_str() == Some(id.as_str()))
+                .filter_map(|e| {
+                    let s = e["source"].as_str().unwrap_or("");
+                    let sdoc = nodes.iter().find(|x| crate::grafo::id_de(x) == s)?;
+                    Some(format!("- ← {}", crate::grafo::titulo_de(sdoc)))
+                })
+                .collect();
+            if !salientes.is_empty() || !entrantes.is_empty() {
+                md += "**Conexiones**\n\n";
+                md += &salientes.join("\n");
+                if !salientes.is_empty() && !entrantes.is_empty() {
+                    md += "\n";
+                }
+                md += &entrantes.join("\n");
+                md += "\n\n";
+            }
+            let _ = grados.get(&id);
+        }
+        Ok(json!({
+            "ok": true,
+            "nombre": format!("{map}.md"),
+            "contenido": md,
+            "caracteres": md.chars().count(),
+            "nodos": nodes.len(),
+            "aristas": edges.len(),
+        }))
+    }
+
 }
 
 /// Separa el frontmatter YAML (plano, key: value) del cuerpo.

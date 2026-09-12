@@ -443,6 +443,52 @@ def t_valor_medido(args):
     return "\n".join(out)
 
 
+def t_capture_knowledge(args):
+    texto = str(args.get("texto") or "").strip()
+    if len(texto) < 40:
+        return "Falta `texto` (o es demasiado corto para extraer conocimiento)."
+    ok, prev = api("/api/knowledge/preview", {"texto": texto}, "POST")
+    if not ok:
+        return texto_error(prev)
+    nodos = prev.get("candidatos") or []
+    if not nodos:
+        return "El texto no produjo candidatos: los bloques son muy cortos o no tienen densidad suficiente."
+    payload = {
+        "nodos": nodos,
+        "parent": args.get("parent") or "",
+        "categoria": args.get("categoria") or "CONOCIMIENTO",
+        "madurez": args.get("madurez") or 2,
+        "motivo": args.get("motivo") or "Capturado desde el chat",
+    }
+    ok, d = api("/api/knowledge/capture", payload, "POST")
+    if not ok:
+        return texto_error(d)
+    out = [
+        f"CAPTURA: {d.get('propuestos')} nodo(s) propuesto(s) · cola total: {d.get('pendientes_totales')}",
+        f"(se extrajeron de {prev.get('caracteres')} caracteres)",
+    ]
+    for c in nodos:
+        marca = "  [ya está en el lienzo]" if c.get("ya_en_el_lienzo") else ""
+        out.append(f"  · «{c.get('titulo')}» ({c.get('caracteres')} car.){marca}")
+    out.append("\nNada entró al lienzo: el humano aprueba en «Cambios del agente».")
+    return "\n".join(out)
+
+
+def t_export_document(args):
+    ok, d = api("/api/export/document")
+    if not ok:
+        return texto_error(d)
+    contenido = d.get("contenido") or ""
+    if args.get("completo"):
+        return contenido
+    return (
+        f"DOCUMENTO LISTO: {d.get('nombre')} · {d.get('nodos')} nodos · {d.get('caracteres')} caracteres\n"
+        "Descargable desde el panel Conocimiento → Exportar. Vista previa:\n\n"
+        + contenido[:1500]
+        + "\n\n[…pedí completo=True para el texto entero]"
+    )
+
+
 def t_vault(args):
     ok, info = api("/api/vault/info")
     if not ok:
@@ -607,6 +653,37 @@ TOOLS = [
         },
     },
     {
+        "name": "capture_knowledge",
+        "description": (
+            "Convierte texto crudo (una lista de temas, apuntes, un documento pegado) en NODOS "
+            "PROPUESTOS para la bóveda y el lienzo. Segmenta localmente por secciones, descarta lo "
+            "que no tiene densidad y deja todo en la cola de aprobación: no escribe nada. Usalo para "
+            "alimentar la memoria del sistema sin engordarla."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "texto": {"type": "string", "description": "El texto a convertir en nodos."},
+                "parent": {"type": "string", "description": "id o título del nodo del que cuelgan (opcional)."},
+                "categoria": {"type": "string", "description": "Categoría por defecto (CONOCIMIENTO)."},
+                "madurez": {"type": "integer", "description": "Madurez por defecto (2)."},
+                "motivo": {"type": "string", "description": "Por qué se captura."},
+            },
+            "required": ["texto"],
+        },
+    },
+    {
+        "name": "export_document",
+        "description": (
+            "Genera el mapa como documento Markdown legible (en orden de lectura, con conexiones), "
+            "listo para compartir o para el portafolio."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"completo": {"type": "boolean", "description": "true = devolver el documento entero."}},
+        },
+    },
+    {
         "name": "pending_changes",
         "description": (
             "Lista las escrituras que propuse y todavía no fueron aprobadas ni rechazadas. "
@@ -706,6 +783,8 @@ HANDLERS = {
     "garden_scan": t_garden_scan,
     "garden_fix": t_garden_fix,
     "tidy_canvas": t_tidy,
+    "capture_knowledge": t_capture_knowledge,
+    "export_document": t_export_document,
     "search_vault": t_search_vault,
     "leer_nota": t_leer_nota,
     "pending_changes": t_pending,
