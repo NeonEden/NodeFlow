@@ -69,6 +69,7 @@ import type { Metricas } from './services/vaultService';
 import { AgentChangesPanel } from './components/AgentChangesPanel';
 import { MemoriaPanel } from './components/MemoriaPanel';
 import { ConocimientoPanel } from './components/ConocimientoPanel';
+import { JardinPanel } from './components/JardinPanel';
 import {
   CustomNode,
   EdgeAppearance,
@@ -207,6 +208,7 @@ export default function App() {
   // Fase 5b: memoria semántica de la bóveda
   const [isMemoriaOpen, setIsMemoriaOpen] = useState(false);
   const [isConocimientoOpen, setIsConocimientoOpen] = useState(false);
+  const [isJardinOpen, setIsJardinOpen] = useState(false);
 
   // Fase 7b: métrica de valor (T0 → T1)
   const [metricas, setMetricas] = useState<Metricas | null>(null);
@@ -2605,6 +2607,15 @@ export default function App() {
                 >
                   Conocimiento
                 </button>
+                {/* Fase 7a: el agente jardín, ahora con botón */}
+                <button
+                  type="button"
+                  onClick={() => setIsJardinOpen(true)}
+                  title="Diagnóstico del grafo: invariantes, islas, huérfanos y hubs inmaduros"
+                  className="w-full mt-1.5 py-1.5 text-[10px] font-bold rounded-lg border uppercase tracking-tight transition-colors cursor-pointer bg-lime-500/10 hover:bg-lime-500/20 text-lime-200 border-lime-500/30"
+                >
+                  Jardín del lienzo
+                </button>
                 <button
                   type="button"
                   onClick={handleManualSave}
@@ -2981,6 +2992,15 @@ export default function App() {
         isOpen={isMemoriaOpen}
         onClose={() => setIsMemoriaOpen(false)}
         onPropuestaCreada={() => {
+          void sincronizar();
+        }}
+        showToast={showToast}
+      />
+
+      <JardinPanel
+        isOpen={isJardinOpen}
+        onClose={() => setIsJardinOpen(false)}
+        onPropuestasCreadas={() => {
           void sincronizar();
         }}
         showToast={showToast}
