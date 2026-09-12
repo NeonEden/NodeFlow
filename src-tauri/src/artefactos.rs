@@ -53,10 +53,22 @@ pub fn schema(tipo: &str) -> Option<Value> {
                 "camara": { "type": "STRING" },
                 "aspect_ratio": { "type": "STRING", "enum": ["16:9", "9:16", "1:1", "4:3", "3:2", "21:9"] },
                 "negativo": { "type": "STRING" },
-                "notas": { "type": "STRING" }
+                "direccion_artistica": { "type": "STRING" },
+                "variaciones": {
+                    "type": "ARRAY",
+                    "items": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "enfoque": { "type": "STRING" },
+                            "prompt": { "type": "STRING" }
+                        },
+                        "required": ["enfoque", "prompt"]
+                    }
+                }
             },
             "required": ["titulo", "prompt_final", "sujeto", "ambiente", "estilo",
-                          "iluminacion", "camara", "aspect_ratio", "negativo"]
+                          "iluminacion", "camara", "aspect_ratio", "negativo",
+                          "direccion_artistica", "variaciones"]
         })),
         "brief_documento" => Some(json!({
             "type": "OBJECT",
@@ -127,10 +139,20 @@ pub fn schema(tipo: &str) -> Option<Value> {
 pub fn instruccion(tipo: &str) -> &'static str {
     match tipo {
         "prompt_visual" => {
-            "Devolvé un prompt de imagen en inglés para un generador de texto-a-imagen, más su \
-             desglose. `prompt_final` tiene que tener al menos 120 caracteres, ser autosuficiente \
-             (que no necesite contexto externo) y describir sujeto, ambiente, estilo, iluminación y \
-             cámara. `negativo` lista lo que NO debe aparecer. Respondé solo el JSON."
+            "Proceso obligatorio, en este orden:\n\
+             1) DESGLOSE: identificá la esencia temática, emocional y simbólica del concepto.\n\
+             2) RUPTURA: llevá la idea a vanguardia con yuxtaposición disruptiva y estética \
+             surrealista/futurista; evitá clichés visuales y estilos saturados.\n\
+             3) PROMPT TÉCNICO: `prompt_final` en inglés, autosuficiente (≥120 caracteres), con esta \
+             estructura interna: sujeto y metáfora central + ambiente y atmósfera + estilo y texturas \
+             + iluminación y paleta + cámara y detalle técnico.\n\
+             4) VARIACIONES: `variaciones` con EXACTAMENTE 2 direcciones distintas — una más \
+             abstracta/minimalista y otra más hiper-detallada o compleja — cada una con su `enfoque` \
+             (una línea que explica la intención) y su `prompt` completo en inglés (≥100 caracteres).\n\
+             `direccion_artistica` (≥80 caracteres) explica la decisión: qué esencia elegiste, qué \
+             cliché rompiste y por qué esa paleta y esa luz.\n\
+             `negativo` SIEMPRE nombra el riesgo de manos y anatomía (dedos fusionados, manos \
+             deformes, miembros extra) y el de cabeza sin rasgos. Respondé solo el JSON."
         }
         "brief_documento" => {
             "Devolvé un brief ejecutable para producir un documento o planilla. `secciones` necesita \
@@ -193,6 +215,34 @@ pub fn validar(tipo: &str, v: &Value) -> Vec<String> {
             exige("iluminacion", 3, &mut p);
             exige("camara", 3, &mut p);
             exige("negativo", 10, &mut p);
+            exige("direccion_artistica", 80, &mut p);
+            let neg = txt("negativo").to_lowercase();
+            if !["mano", "fingers", "dedos", "hand", "anatom"]
+                .iter()
+                .any(|x| neg.contains(x))
+            {
+                p.push("`negativo` no menciona el riesgo de manos/anatomía (el fallo nº1 de estos modelos)".into());
+            }
+            let vars = v["variaciones"].as_array().cloned().unwrap_or_default();
+            if vars.len() < 2 {
+                p.push(format!(
+                    "`variaciones` necesita 2 direcciones (hay {})",
+                    vars.len()
+                ));
+            }
+            for (i, var) in vars.iter().enumerate() {
+                if var["enfoque"].as_str().unwrap_or("").trim().len() < 5 {
+                    p.push(format!("la variación {} no tiene `enfoque`", i + 1));
+                }
+                let pr = var["prompt"].as_str().unwrap_or("").trim();
+                if pr.chars().count() < 100 {
+                    p.push(format!(
+                        "el prompt de la variación {} es muy corto ({} caracteres)",
+                        i + 1,
+                        pr.chars().count()
+                    ));
+                }
+            }
             let ar = txt("aspect_ratio");
             let validos = ["16:9", "9:16", "1:1", "4:3", "3:2", "21:9"];
             if !validos.contains(&ar.as_str()) {
@@ -295,7 +345,7 @@ pub fn validar(tipo: &str, v: &Value) -> Vec<String> {
 pub fn como_texto(tipo: &str, v: &Value) -> String {
     match tipo {
         "prompt_visual" => format!(
-            "{}\n\n--- desglose ---\nSujeto: {}\nAmbiente: {}\nEstilo: {}\nIluminación: {}\nCámara: {}\nAspect ratio: {}\nNegativo: {}",
+            "{}\n\n--- desglose ---\nSujeto: {}\nAmbiente: {}\nEstilo: {}\nIluminación: {}\nCámara: {}\nAspect ratio: {}\nNegativo: {}\n\n--- dirección artística ---\n{}\n\n--- 2 variaciones ---\n{}",
             v["prompt_final"].as_str().unwrap_or(""),
             v["sujeto"].as_str().unwrap_or(""),
             v["ambiente"].as_str().unwrap_or(""),
@@ -304,6 +354,22 @@ pub fn como_texto(tipo: &str, v: &Value) -> String {
             v["camara"].as_str().unwrap_or(""),
             v["aspect_ratio"].as_str().unwrap_or(""),
             v["negativo"].as_str().unwrap_or(""),
+            v["direccion_artistica"].as_str().unwrap_or(""),
+            v["variaciones"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .map(|x| {
+                            format!(
+                                "  [{}] {}",
+                                x["enfoque"].as_str().unwrap_or(""),
+                                x["prompt"].as_str().unwrap_or("")
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                })
+                .unwrap_or_default(),
         ),
         "brief_documento" => {
             let mut s = String::new();
@@ -408,8 +474,12 @@ mod tests {
             "iluminacion": "neón volumétrico, contraluz alto contraste",
             "camara": "anamórfica 35mm, f/1.8, plano medio",
             "aspect_ratio": "16:9",
-            "negativo": "texto, marca de agua, deformaciones, manos extra",
-            "notas": "paleta cian y magenta"
+            "negativo": "texto, marca de agua, manos deformes, dedos fusionados, miembros extra",
+            "direccion_artistica": "Se elige el cliché del bailarín romántico y se lo rompe con un traje espejado que refleja la ciudad en lugar del cuerpo, para que la metáfora sea el entorno y no el sujeto.",
+            "variaciones": [
+                {"enfoque": "abstracta y minimalista", "prompt": "Single mirrored figure dissolved into a flat plane of cyan neon, negative space dominant, ultra minimal composition, one continuous line of light, 35mm grain"},
+                {"enfoque": "hiper-detallada", "prompt": "Extreme macro detail on thousands of mirror shards forming a dancer mid-spin, each shard reflecting a different neon sign, volumetric fog, anamorphic bokeh, hyper detailed 8k texture"}
+            ]
         })
     }
 
