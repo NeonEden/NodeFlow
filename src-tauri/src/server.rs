@@ -901,6 +901,17 @@ fn resolve_key(st: &AppState, headers: &HeaderMap) -> Option<String> {
         .or_else(|| st.env_key.clone())
 }
 
+/// La cadena de proveedores también se puede fijar en `nodeflow.config.json` (`ai_chain`), para que
+/// la app instalada no dependa de variables de entorno.
+fn cadena_del_config(data_dir: &std::path::Path) -> Option<String> {
+    let txt = std::fs::read_to_string(data_dir.join("nodeflow.config.json")).ok()?;
+    let v: Value = serde_json::from_str(&txt).ok()?;
+    v["ai_chain"]
+        .as_str()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
 /// Llama al proveedor configurado siguiendo una cadena de intentos.
 ///
 /// Cadena por defecto: Ollama Cloud (gratis, vía el daemon local) → Gemini (fallback).
@@ -908,7 +919,9 @@ fn resolve_key(st: &AppState, headers: &HeaderMap) -> Option<String> {
 async fn call_model(st: &AppState, key: &str, prompt: &str, schema: &Value, system: Option<&str>) -> Option<(Value, String)> {
     let chain = std::env::var("NODEFLOW_AI_CHAIN")
         .or_else(|_| std::env::var("NODEFLOW_AI_PROVIDER"))
-        .unwrap_or_else(|_| "ollama,gemini".to_string());
+        .ok()
+        .or_else(|| cadena_del_config(&st.data_dir))
+        .unwrap_or_else(|| "ollama,gemini".to_string());
 
     for provider in chain.split(',').map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty()) {
         let attempt = match provider.as_str() {
