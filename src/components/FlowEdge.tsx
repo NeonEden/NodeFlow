@@ -6,7 +6,7 @@ import {
   getStraightPath,
 } from 'reactflow';
 import { focusStore, focusedNodeId } from '../state/focusStore';
-import { CANVAS_THEME } from '../state/canvasTheme';
+import { useTema } from '../state/canvasPrefs';
 
 export interface FlowEdgeData {
   /** Etiqueta textual de la arista (antes vivía en `edge.label`, que React Flow
@@ -22,9 +22,6 @@ export interface FlowEdgeData {
   targetColor?: string;
 }
 
-/** Aristas sin foco: apenas atenuadas para que la estructura siga legible.
- *  La opacidad base sale del tema del lienzo (en claro aguanta más). */
-const BASE_OPACITY = CANVAS_THEME.edgeOpacity;
 /** Aristas fuera del foco: casi invisibles. */
 const DIM_OPACITY = 0.1;
 
@@ -55,6 +52,8 @@ export const FlowEdge: React.FC<EdgeProps<FlowEdgeData>> = memo(
     style,
   }) => {
     const focus = useSyncExternalStore(focusStore.subscribe, focusStore.getState);
+    const tema = useTema();
+    const baseOpacity = tema.edgeOpacity;
     const focusId = focusedNodeId(focus);
 
     const isDirect = !!focusId && (source === focusId || target === focusId);
@@ -62,7 +61,7 @@ export const FlowEdge: React.FC<EdgeProps<FlowEdgeData>> = memo(
     const active = isDirect || isHovered || Boolean(selected);
     const dimmed = !!focusId && !active;
 
-    const opacity = dimmed ? DIM_OPACITY : active ? 1 : BASE_OPACITY;
+    const opacity = dimmed ? DIM_OPACITY : active ? 1 : baseOpacity;
 
     const curve = data?.curve || 'smoothstep';
     let path = '';

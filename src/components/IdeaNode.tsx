@@ -2,6 +2,7 @@ import React, { memo } from 'react';
 import { Handle, Position, NodeProps, useStore } from 'reactflow';
 import { GitBranch, Eye, Edit3, Trash2, Copy, Flame, HelpCircle } from 'lucide-react';
 import { IdeaNodeData, IdeaMaturityLevel, MATURITY_CONFIGS } from '../types';
+import { useTarjetas, useTema } from '../state/canvasPrefs';
 
 /**
  * Level of Detail por zoom (renderizado progresivo).
@@ -58,6 +59,8 @@ export const IdeaNode: React.FC<NodeProps<IdeaNodeData>> = memo(({ id, data, sel
   const categoryLabel = data.category || data.label || (data.isRoot ? 'NÚCLEO' : 'CONCEPTO');
   const isSearchMatch = data.isSearchMatch;
   const lod = useLod();
+  const tarjetas = useTarjetas();
+  const tema = useTema();
 
   const degree = data.degree ?? 0;
   const isHub = degree >= HUB_DEGREE;
@@ -167,6 +170,14 @@ export const IdeaNode: React.FC<NodeProps<IdeaNodeData>> = memo(({ id, data, sel
           : isHub
           ? `0 8px 20px -12px ${accentColor}55`
           : undefined,
+        // Superficie de la tarjeta: la clase `.nf-card` trae la del tema y el modo
+        // elegido en el HUD la sobrescribe (inline gana sobre la clase).
+        backgroundColor: tarjetas === 'cristal' ? tema.cardCristal : undefined,
+        backdropFilter: tarjetas === 'cristal' ? 'blur(7px)' : undefined,
+        backgroundImage:
+          tarjetas === 'tintada'
+            ? `linear-gradient(180deg, ${accentColor}16, ${accentColor}07)`
+            : undefined,
       }}
     >
       {/* Indicador de acento superior */}

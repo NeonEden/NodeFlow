@@ -420,7 +420,7 @@ export const HitlLearningModal: React.FC<HitlLearningModalProps> = ({
                 Así es exactamente como el backend inyecta la afinación continua de tu curaduría dentro del <code className="text-violet-300">systemInstruction</code> para las llamadas a Gemini:
               </p>
               <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 font-mono text-xs text-emerald-400/90 whitespace-pre-wrap leading-relaxed">
-{`Eres el motor cognitivo y analítico de NeuralMind con arquitectura HITL (Human-in-the-Loop Continuous Learning).
+{`Eres el motor cognitivo y analítico de NodeFlow con arquitectura HITL (Human-in-the-Loop Continuous Learning).
 
 PERFIL ADAPTATIVO DEL USUARIO:
 "${profile.learnedProfile}"

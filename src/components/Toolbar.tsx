@@ -135,7 +135,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         </div>
         <div className="flex items-center">
           <h1 className="text-lg md:text-xl font-bold tracking-tighter text-white">
-            NEURAL<span className="text-indigo-500">MIND</span>
+            NODE<span className="text-indigo-500">FLOW</span>
           </h1>
         </div>
 

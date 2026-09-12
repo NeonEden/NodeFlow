@@ -36,7 +36,7 @@ export const SynthesisModal: React.FC<SynthesisModalProps> = ({
 
   const handleCopyMarkdown = () => {
     if (!synthesis) return;
-    const md = `# Síntesis Estratégica NeuralMind (${nodeCount} Nodos)
+    const md = `# Síntesis Estratégica NodeFlow (${nodeCount} Nodos)
 Fecha: ${new Date().toLocaleDateString()}
 
 ## Resumen Ejecutivo

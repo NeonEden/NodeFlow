@@ -72,7 +72,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <Shield size={16} />
             </div>
             <div>
-              <h2 className="text-base font-semibold text-slate-100">Autenticación NeuralMind</h2>
+              <h2 className="text-base font-semibold text-slate-100">Autenticación NodeFlow</h2>
               <p className="text-xs text-slate-400">Gestión de sesión y mapas de usuario</p>
             </div>
           </div>
@@ -216,7 +216,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 <input
                   type="email"
                   required
-                  placeholder="ejemplo@neuralmind.ai"
+                  placeholder="ejemplo@nodeflow.app"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500"

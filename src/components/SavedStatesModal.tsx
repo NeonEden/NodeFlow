@@ -68,7 +68,7 @@ export const SavedStatesModal: React.FC<SavedStatesModalProps> = ({
 
   // Derive default map title from root node
   const rootNode = currentNodes.find((n) => n.data.isRoot);
-  const initialMapTitle = rootNode?.data.title || rootNode?.data.label || 'Mapa Conceptual NeuralMind';
+  const initialMapTitle = rootNode?.data.title || rootNode?.data.label || 'Mapa Conceptual NodeFlow';
   const [mapTitle, setMapTitle] = useState(initialMapTitle);
 
   useEffect(() => {
@@ -86,13 +86,13 @@ export const SavedStatesModal: React.FC<SavedStatesModalProps> = ({
   const currentObsidianMarkdown = parseGraphToObsidianMarkdown(
     currentNodes,
     currentEdges,
-    mapTitle.trim() || 'Mapa Conceptual NeuralMind'
+    mapTitle.trim() || 'Mapa Conceptual NodeFlow'
   );
 
   const currentObsidianCanvas = parseGraphToObsidianCanvas(
     currentNodes,
     currentEdges,
-    mapTitle.trim() || 'Mapa Conceptual NeuralMind'
+    mapTitle.trim() || 'Mapa Conceptual NodeFlow'
   );
 
   const handleCopyObsidianMd = () => {
@@ -108,11 +108,11 @@ export const SavedStatesModal: React.FC<SavedStatesModalProps> = ({
   };
 
   const handleDownloadObsidianMd = () => {
-    downloadObsidianMarkdown(currentNodes, currentEdges, mapTitle.trim() || 'Mapa Conceptual NeuralMind');
+    downloadObsidianMarkdown(currentNodes, currentEdges, mapTitle.trim() || 'Mapa Conceptual NodeFlow');
   };
 
   const handleDownloadObsidianCanvasFile = () => {
-    downloadObsidianCanvas(currentNodes, currentEdges, mapTitle.trim() || 'Mapa Conceptual NeuralMind');
+    downloadObsidianCanvas(currentNodes, currentEdges, mapTitle.trim() || 'Mapa Conceptual NodeFlow');
   };
 
   const handleSaveSubmit = (e: React.FormEvent) => {
@@ -124,7 +124,7 @@ export const SavedStatesModal: React.FC<SavedStatesModalProps> = ({
 
   const handleDownloadJSON = () => {
     const payload = {
-      app: 'NeuralMind',
+      app: 'NodeFlow',
       version: '1.0.0',
       exportedAt: new Date().toISOString(),
       metadata: {
@@ -141,7 +141,7 @@ export const SavedStatesModal: React.FC<SavedStatesModalProps> = ({
     downloadAnchor.setAttribute('href', dataStr);
     downloadAnchor.setAttribute(
       'download',
-      `neuralmind-map-${new Date().toISOString().slice(0, 10)}.json`
+      `nodeflow-map-${new Date().toISOString().slice(0, 10)}.json`
     );
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
@@ -368,7 +368,7 @@ export const SavedStatesModal: React.FC<SavedStatesModalProps> = ({
                   </span>
                 </div>
                 <p className="text-slate-300 text-[11px] leading-relaxed">
-                  Traduce la red visual de NeuralMind a formatos nativos de Obsidian: notas interconectadas con <strong>Frontmatter YAML</strong> y <strong>[[wikilinks]]</strong>, o el archivo <strong>.canvas</strong> espacial oficial con posiciones y flechas.
+                  Traduce la red visual de NodeFlow a formatos nativos de Obsidian: notas interconectadas con <strong>Frontmatter YAML</strong> y <strong>[[wikilinks]]</strong>, o el archivo <strong>.canvas</strong> espacial oficial con posiciones y flechas.
                 </p>
 
                 {/* Map Title Input */}

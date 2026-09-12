@@ -14,7 +14,7 @@ export const DEMO_ACCOUNTS: UserProfile[] = [
   {
     id: 'user-elena',
     name: 'Elena Rostova',
-    email: 'elena@neuralmind.ai',
+    email: 'elena@nodeflow.app',
     role: 'Arquitecta de Conocimiento',
     avatar: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?w=100&h=100&fit=crop&crop=faces',
   },

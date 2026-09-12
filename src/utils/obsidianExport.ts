@@ -17,15 +17,15 @@ export function parseGraphToObsidianMarkdown(
   let md = `---\n`;
   md += `título: "${mapTitle}"\n`;
   md += `fecha: ${dateStr}\n`;
-  md += `tags:\n  - neuralmind\n  - mapa-conceptual\n`;
+  md += `tags:\n  - nodeflow\n  - mapa-conceptual\n`;
   md += `nodos_totales: ${nodes.length}\n`;
   md += `conexiones_totales: ${edges.length}\n`;
-  md += `generador: NeuralMind\n`;
+  md += `generador: NodeFlow\n`;
   md += `---\n\n`;
 
   md += `# ${mapTitle}\n\n`;
   md += `## Resumen del Lienzo\n`;
-  md += `Sintetizado automáticamente desde **NeuralMind** con estructura de enlaces bidireccionales nativa para Obsidian.\n\n`;
+  md += `Sintetizado automáticamente desde **NodeFlow** con estructura de enlaces bidireccionales nativa para Obsidian.\n\n`;
 
   // 2. Transliterar Nodos
   md += `## Nodos del Grafo\n\n`;
@@ -192,7 +192,7 @@ export function triggerFileDownload(content: string, filename: string, mimeType:
 export function downloadObsidianMarkdown(
   nodes: CustomNode[],
   edges: Edge[],
-  mapTitle: string = 'NeuralMind-Mapa'
+  mapTitle: string = 'NodeFlow-Mapa'
 ): void {
   const md = parseGraphToObsidianMarkdown(nodes, edges, mapTitle);
   const safeFilename = sanitizeFilename(mapTitle);
@@ -205,7 +205,7 @@ export function downloadObsidianMarkdown(
 export function downloadObsidianCanvas(
   nodes: CustomNode[],
   edges: Edge[],
-  mapTitle: string = 'NeuralMind-Canvas'
+  mapTitle: string = 'NodeFlow-Canvas'
 ): void {
   const canvasJson = parseGraphToObsidianCanvas(nodes, edges, mapTitle);
   const safeFilename = sanitizeFilename(mapTitle);
@@ -217,5 +217,5 @@ function sanitizeFilename(name: string): string {
     .trim()
     .replace(/[\\/*?:"<>|]/g, '')
     .replace(/\s+/g, '-')
-    .toLowerCase() || 'neuralmind-mapa';
+    .toLowerCase() || 'nodeflow-mapa';
 }

@@ -48,7 +48,9 @@ import {
   setHoveredNode,
   setFocusSelection,
 } from './state/focusStore';
-import { CANVAS_THEME, temaVars } from './state/canvasTheme';
+import { temaVars } from './state/canvasTheme';
+import { useTema } from './state/canvasPrefs';
+import { AparienciaHud } from './components/AparienciaHud';
 import { calcularNiveles, acentoDeNivel } from './utils/zonas';
 import { Toolbar } from './components/Toolbar';
 import { AuthModal } from './components/AuthModal';
@@ -202,6 +204,9 @@ export default function App() {
   const [zoomPercent, setZoomPercent] = useState(100);
   // Zonas derivadas (marcos por nivel): sólo UI, no se guardan ni se sincronizan.
   const [zonasVisibles, setZonasVisibles] = useState(true);
+  // Apariencia del lienzo (fondo + superficie de tarjeta), preferencia local.
+  const tema = useTema();
+  const varsTema = useMemo(() => temaVars(tema), [tema]);
   const [lastSyncText, setLastSyncText] = useState('Reciente');
 
   // Módulo 2: Motor HITL Loop & Aprendizaje Continuo
@@ -2820,7 +2825,7 @@ export default function App() {
           ref={reactFlowWrapperRef}
           onDoubleClick={handleCanvasDoubleClick}
           className="flex-1 relative w-full h-full overflow-hidden"
-          style={{ ...temaVars(CANVAS_THEME), backgroundColor: CANVAS_THEME.canvasBg }}
+          style={{ ...varsTema, backgroundColor: tema.canvasBg }}
         >
           <ReactFlow
             nodes={processedNodes}
@@ -2857,21 +2862,21 @@ export default function App() {
             }}
           >
             {/* Background dot grid pattern (color y densidad desde el tema del lienzo) */}
-            <Background color={CANVAS_THEME.grid} gap={CANVAS_THEME.gridSize} size={1.2} />
+            <Background color={tema.grid} gap={tema.gridSize} size={1.2} />
 
             {/* Minimap radar in top-right */}
             <MiniMap
               className="!rounded-xl overflow-hidden shadow-lg"
               style={{
-                backgroundColor: CANVAS_THEME.minimapBg,
-                border: `1px solid ${CANVAS_THEME.hudBorder}`,
+                backgroundColor: tema.minimapBg,
+                border: `1px solid ${tema.hudBorder}`,
               }}
               nodeColor={(n) =>
                 n.type === 'zonaNode'
                   ? 'transparent'
                   : (n.data as IdeaNodeData)?.colorAccent || '#4f46e5'
               }
-              maskColor={CANVAS_THEME.minimapMask}
+              maskColor={tema.minimapMask}
             />
           </ReactFlow>
 
@@ -2921,6 +2926,8 @@ export default function App() {
               <Layers size={14} />
               <span className="text-[10px] hidden sm:inline font-mono">Zonas</span>
             </button>
+
+            <AparienciaHud />
 
             {/* Shortcuts help button */}
             <button

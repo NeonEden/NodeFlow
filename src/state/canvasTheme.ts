@@ -19,6 +19,8 @@ export interface CanvasTheme {
   gridSize: number;
   /** Tarjeta. */
   cardBg: string;
+  /** Superficie de tarjeta en modo cristal (semi-transparente + blur). */
+  cardCristal: string;
   cardBorderMuted: string;
   title: string;
   body: string;
@@ -54,6 +56,7 @@ export const PAPEL: CanvasTheme = {
   grid: '#dbe3ee',
   gridSize: 26,
   cardBg: 'rgba(255, 255, 255, 0.97)',
+  cardCristal: 'rgba(255, 255, 255, 0.62)',
   cardBorderMuted: '#cbd5e1',
   title: '#0f172a',
   body: '#51607a',
@@ -83,6 +86,7 @@ export const NOCHE: CanvasTheme = {
   canvasBg: '#020617',
   grid: '#1e293b',
   cardBg: 'rgba(15, 23, 42, 0.95)',
+  cardCristal: 'rgba(15, 23, 42, 0.6)',
   cardBorderMuted: '#64748b',
   title: '#f1f5f9',
   body: '#94a3b8',
@@ -108,6 +112,49 @@ export const NOCHE: CanvasTheme = {
 
 /** Cambiar acá para volver al lienzo oscuro. */
 export const CANVAS_THEME: CanvasTheme = PAPEL;
+
+/* --- Derivación de paletas: el usuario elige fondo y superficie de tarjeta ------- */
+
+function aRgb(hex: string): [number, number, number] {
+  const h = hex.replace('#', '');
+  const n = parseInt(h.length === 3 ? h.split('').map((c) => c + c).join('') : h, 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+/** Mezcla dos colores (t = peso del segundo). */
+export function mezclar(a: string, b: string, t: number): string {
+  const [r1, g1, b1] = aRgb(a);
+  const [r2, g2, b2] = aRgb(b);
+  const m = (x: number, y: number) => Math.round(x + (y - x) * t);
+  return `#${[m(r1, r2), m(g1, g2), m(b1, b2)]
+    .map((v) => v.toString(16).padStart(2, '0'))
+    .join('')}`;
+}
+
+/** Luminancia percibida (0 = negro, 1 = blanco). */
+export function luminancia(hex: string): number {
+  const [r, g, b] = aRgb(hex);
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+}
+
+/**
+ * Paleta completa a partir de un color de fondo: la grilla, la superficie de las
+ * tarjetas y los grises de texto se derivan según si el fondo es claro u oscuro.
+ * Es lo que permite ofrecer color libre sin dejar combinaciones ilegibles.
+ */
+export function temaDesdeFondo(bg: string, nombre = 'personalizado'): CanvasTheme {
+  const claro = luminancia(bg) > 0.5;
+  const base = claro ? PAPEL : NOCHE;
+  return {
+    ...base,
+    nombre,
+    canvasBg: bg,
+    grid: claro ? mezclar(bg, '#0f172a', 0.16) : mezclar(bg, '#ffffff', 0.2),
+    minimapBg: claro ? 'rgba(255,255,255,0.93)' : 'rgba(15,23,42,0.9)',
+    minimapMask: claro ? 'rgba(255,255,255,0.8)' : 'rgba(2,6,23,0.85)',
+    hudBg: claro ? 'rgba(255,255,255,0.85)' : 'rgba(15,23,42,0.85)',
+  };
+}
 
 /**
  * Expone la paleta como variables CSS en el contenedor del lienzo: así los

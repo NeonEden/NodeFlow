@@ -1,6 +1,6 @@
 import React, { memo } from 'react';
 import { NodeProps } from 'reactflow';
-import { CANVAS_THEME } from '../state/canvasTheme';
+import { useTema } from '../state/canvasPrefs';
 
 export interface ZonaNodeData {
   nivel: number;
@@ -19,7 +19,7 @@ export interface ZonaNodeData {
  */
 export const ZonaNode: React.FC<NodeProps<ZonaNodeData>> = memo(({ data }) => {
   const acento = data?.acento || '#6366f1';
-  const tema = CANVAS_THEME;
+  const tema = useTema();
 
   return (
     <div
