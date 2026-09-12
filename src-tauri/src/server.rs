@@ -97,6 +97,10 @@ pub fn spawn(
             .route("/api/graph/edge", post(graph_edge))
             .route("/api/graph/node/delete", post(graph_delete))
             .route("/api/graph/prune", post(graph_prune))
+            // Fase 7a — agente jardín: diagnóstico, arreglo propuesto y reacomodo por niveles
+            .route("/api/graph/garden", get(graph_garden))
+            .route("/api/graph/garden/fix", post(graph_garden_fix))
+            .route("/api/graph/tidy", post(graph_tidy))
             // Fase 5a — el agente propone, el humano aprueba
             .route("/api/agent/pending", get(agent_pending))
             .route("/api/agent/approve", post(agent_approve))
@@ -1181,4 +1185,23 @@ async fn vault_note(
         Ok(v) => (StatusCode::OK, Json(v)),
         Err(e) => (StatusCode::BAD_REQUEST, Json(json!({"ok": false, "error": e}))),
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fase 7a — Agente jardín
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Diagnóstico del grafo: invariantes + hallazgos (solo lectura, no toca nada).
+async fn graph_garden(State(st): State<AppState>) -> impl IntoResponse {
+    Json(st.vault.jardin_scan())
+}
+
+/// Convierte los hallazgos accionables en PROPUESTAS para aprobar en el panel.
+async fn graph_garden_fix(State(st): State<AppState>, Json(p): Json<Value>) -> impl IntoResponse {
+    responder(st.vault.jardin_proponer(&p), "jardín")
+}
+
+/// Propone reacomodar el lienzo en niveles (layout determinista sin solapamientos).
+async fn graph_tidy(State(st): State<AppState>, Json(p): Json<Value>) -> impl IntoResponse {
+    responder(st.vault.tidy(&p), "reacomodo")
 }

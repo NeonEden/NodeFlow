@@ -1,3 +1,4 @@
+mod grafo;
 mod memoria;
 mod server;
 mod vault;

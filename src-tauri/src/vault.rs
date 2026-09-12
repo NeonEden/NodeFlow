@@ -461,6 +461,38 @@ impl Vault {
         template_id: &Value,
         map: &str,
     ) -> Result<Value, String> {
+        // Reparación silenciosa en el borde de escritura: si algo llegó roto (una arista huérfana,
+        // un id repetido), se descarta ESA pieza y se escribe el resto. Nunca se pierde el trabajo
+        // del humano por un invariante; las mutaciones del AGENTE sí se rechazan antes (ver add_edge).
+        let mut ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let nodes_ok: Vec<Value> = nodes
+            .iter()
+            .filter(|n| {
+                let id = crate::grafo::id_de(n);
+                !id.is_empty() && ids.insert(id)
+            })
+            .cloned()
+            .collect();
+        let antes_aristas = edges.len();
+        let edges_ok: Vec<Value> = edges
+            .iter()
+            .filter(|e| {
+                let s = e["source"].as_str().unwrap_or("");
+                let t = e["target"].as_str().unwrap_or("");
+                !s.is_empty() && !t.is_empty() && ids.contains(s) && ids.contains(t)
+            })
+            .cloned()
+            .collect();
+        let reparadas = (nodes.len() - nodes_ok.len()) + (antes_aristas - edges_ok.len());
+        if reparadas > 0 {
+            log::warn!(
+                "integridad: descarté {reparadas} pieza(s) rota(s) al escribir ({} nodos huérfanos de id, {} aristas colgadas)",
+                nodes.len() - nodes_ok.len(),
+                antes_aristas - edges_ok.len()
+            );
+        }
+        let nodes: &[Value] = &nodes_ok;
+        let edges: &[Value] = &edges_ok;
         let mut files: Vec<Value> = Vec::new();
         let mut written_slugs: HashSet<String> = HashSet::new();
         {
@@ -555,6 +587,7 @@ impl Vault {
             "nodos": nodes.len(),
             "aristas": edges.len(),
             "notas_borradas": huerfanos,
+            "piezas_descartadas": reparadas,
             "archivos": files,
         }))
     }
@@ -813,14 +846,31 @@ impl Vault {
         if let Some(ry) = req["y"].as_f64() {
             y = ry;
         }
+        // Colocación por niveles (reemplaza el offset ciego): a la derecha del padre y debajo
+        // de sus hijos ya existentes, con padding constante. Si aún choca, baja en pasos de nivel.
+        if let Some(pid) = &parent_id {
+            let hijos_y: Vec<f64> = edges
+                .iter()
+                .filter(|e| e["source"].as_str() == Some(pid.as_str()))
+                .filter_map(|e| {
+                    let tid = e["target"].as_str().unwrap_or("");
+                    nodes.iter().find(|n| crate::grafo::id_de(n) == tid)
+                })
+                .map(|n| n["position"]["y"].as_f64().unwrap_or(0.0))
+                .collect();
+            let base = hijos_y.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            if base.is_finite() {
+                y = base + 380.0;
+            }
+        }
         let mut guard = 0;
-        while guard < 25
+        while guard < 40
             && nodes.iter().any(|n| {
-                (n["position"]["x"].as_f64().unwrap_or(-9999.0) - x).abs() < 80.0
-                    && (n["position"]["y"].as_f64().unwrap_or(-9999.0) - y).abs() < 80.0
+                (n["position"]["x"].as_f64().unwrap_or(-9999.0) - x).abs() < 100.0
+                    && (n["position"]["y"].as_f64().unwrap_or(-9999.0) - y).abs() < 200.0
             })
         {
-            y += 220.0;
+            y += 380.0;
             guard += 1;
         }
         let category = req["category"].as_str().unwrap_or("AGENTE").to_string();
@@ -905,6 +955,10 @@ impl Vault {
         if s == t {
             return Err("origen y destino son el mismo nodo".into());
         }
+        // Invariante preventivo: la arista se valida ANTES de tocar el grafo. El agente recibe
+        // el error acá y puede corregir la llamada; el camino humano nunca pasa por este punto.
+        crate::grafo::arista_valida(&nodes, &s, &t)?;
+
         let (a, b) = if req["direction"].as_str() == Some("<-") {
             (t.clone(), s.clone())
         } else {
@@ -1352,6 +1406,7 @@ impl Vault {
             "conectar" => self.preview_conectar(req)?,
             "borrar" => self.preview_borrar(req)?,
             "sanear" => self.preview_sanear()?,
+            "reacomodar" => self.preview_reacomodar(req)?,
             otro => return Err(format!("tipo de propuesta desconocido: {otro}")),
         };
         let resumen = vista["resumen"].as_str().unwrap_or("").to_string();
@@ -1433,6 +1488,7 @@ impl Vault {
                 "conectar" => self.add_edge(payload),
                 "borrar" => self.delete_node(payload),
                 "sanear" => self.prune(payload),
+                "reacomodar" => self.aplicar_layout(payload),
                 _ => Err(format!("tipo desconocido: {tipo}")),
             };
             match res {
@@ -1721,6 +1777,197 @@ impl Vault {
             "resumen": format!("Quitar {colgadas} arista(s) que apuntan a nodos inexistentes"),
             "aristas_quitadas": colgadas,
             "peligro": "medio",
+        }))
+    }
+
+    // ── Fase 7a: agente jardín (diagnóstico + arreglo propuesto) ────────────────
+
+    /// Diagnóstico del grafo: invariantes + hallazgos del jardín + padrinos sugeridos.
+    /// Solo lectura: no toca nada.
+    pub fn jardin_scan(&self) -> Value {
+        match self.estado_base() {
+            Ok((state, nodes, edges, _map)) => {
+                let mut d = crate::grafo::diagnostico(&nodes, &edges);
+                d["mapa"] = state["name"].clone();
+                d["vault"] = json!(self.root.to_string_lossy());
+                d["revision"] = json!(self.inner.lock().unwrap().revision);
+                d["pendientes"] = json!(self.count_pending());
+                d
+            }
+            Err(e) => json!({
+                "sano": false, "error": e, "problemas": [], "padrinos": [], "stats": {}
+            }),
+        }
+    }
+
+    /// Convierte los hallazgos accionables en PROPUESTAS. No toca el lienzo: encola.
+    pub fn jardin_proponer(&self, _req: &Value) -> Result<Value, String> {
+        let (_state, nodes, edges, _map) = self.estado_base()?;
+        let diag = crate::grafo::diagnostico(&nodes, &edges);
+        let problemas = diag["problemas"].as_array().cloned().unwrap_or_default();
+        let mut creadas: Vec<Value> = Vec::new();
+        let mut motivos: Vec<String> = Vec::new();
+
+        // 1) integridad (colgadas o duplicadas) → una sola propuesta de saneo
+        if problemas.iter().any(|p| p["accion"] == "podar") {
+            let r = self.propose(
+                "sanear",
+                &json!({"origen": "jardin", "motivo": "El jardín detectó aristas rotas o repetidas"}),
+            )?;
+            creadas.push(json!({"tipo": "sanear", "resultado": r["accion"], "id_pendiente": r["id_pendiente"], "resumen": r["vista"]["resumen"]}));
+            motivos.push("integridad del grafo".into());
+        }
+
+        // 2) basura (archivos generados importados como nodos) → borrado, uno por nodo
+        if let Some(p) = problemas.iter().find(|p| p["tipo"] == "nodos_basura") {
+            for id in p["ids"].as_array().cloned().unwrap_or_default() {
+                if let Some(id) = id.as_str() {
+                    let r = self.propose(
+                        "borrar",
+                        &json!({"id": id, "origen": "jardin",
+                                "motivo": "Es un archivo generado (índice o canvas), no un concepto"}),
+                    )?;
+                    creadas.push(json!({"tipo": "borrar", "id": id, "resultado": r["accion"], "id_pendiente": r["id_pendiente"], "resumen": r["vista"]["resumen"]}));
+                }
+            }
+            motivos.push("nodos que eran archivos generados".into());
+        }
+
+        // 3) huérfanos e islas → conectar con el padrino más afín (similitud de contenido)
+        for pad in diag["padrinos"].as_array().cloned().unwrap_or_default() {
+            let nodo = pad["nodo"].as_str().unwrap_or("");
+            let padre = pad["padre_sugerido"].as_str().unwrap_or("");
+            if nodo.is_empty() || padre.is_empty() {
+                continue;
+            }
+            let sim = pad["similitud"].as_f64().unwrap_or(0.0);
+            let confianza = pad["confianza"].as_str().unwrap_or("baja");
+            let r = self.propose(
+                "conectar",
+                &json!({
+                    "source": padre,
+                    "target": nodo,
+                    // La etiqueta no puede prometer más de lo que la evidencia sostiene.
+                    "label": if confianza == "alta" { "afín" } else { "revisar vínculo" },
+                    "origen": "jardin",
+                    "motivo": format!(
+                        "El jardín los emparejó por similitud de contenido ({sim}, confianza {confianza}){}",
+                        if confianza == "alta" { "" } else { " — verificá que la conexión tenga sentido" }
+                    ),
+                }),
+            )?;
+            creadas.push(json!({
+                "tipo": "conectar", "nodo": nodo, "padre": padre, "similitud": sim,
+                "resultado": r["accion"], "id_pendiente": r["id_pendiente"], "resumen": r["vista"]["resumen"]
+            }));
+        }
+        if diag["padrinos"].as_array().map(|a| !a.is_empty()).unwrap_or(false) {
+            motivos.push("conexiones sugeridas por afinidad".into());
+        }
+
+        Ok(json!({
+            "ok": true,
+            "creadas": creadas,
+            "cantidad": creadas.len(),
+            "motivos": motivos,
+            "pendientes_totales": self.count_pending(),
+            "nota": "Nada tocó el lienzo: son propuestas para aprobar en «Cambios del agente».",
+        }))
+    }
+
+    /// Calcula el layout por niveles y lo PROPONE (reemplaza el despeje de colisiones a mano).
+    pub fn tidy(&self, req: &Value) -> Result<Value, String> {
+        let (_state, nodes, edges, _map) = self.estado_base()?;
+        let pos = crate::grafo::layout_jerarquico(&nodes, &edges);
+        let mut cambios: Vec<Value> = Vec::new();
+        for n in &nodes {
+            let id = crate::grafo::id_de(n);
+            if let Some((x, y)) = pos.get(&id) {
+                let ox = n["position"]["x"].as_f64().unwrap_or(0.0);
+                let oy = n["position"]["y"].as_f64().unwrap_or(0.0);
+                if (ox - x).abs() > 8.0 || (oy - y).abs() > 8.0 {
+                    cambios.push(json!({"id": id, "x": x, "y": y}));
+                }
+            }
+        }
+        if cambios.is_empty() {
+            return Ok(json!({"ok": true, "accion": "ya_ordenado",
+                "mensaje": "El lienzo ya está en niveles: no hay nada que mover."}));
+        }
+        let mut payload = json!({
+            "posiciones": cambios,
+            "origen": req["origen"].as_str().unwrap_or("jardin"),
+            "motivo": req["motivo"].as_str().unwrap_or("Layout por niveles"),
+        });
+        payload["origen"] = json!(req["origen"].as_str().unwrap_or("jardin"));
+        let r = self.propose("reacomodar", &payload)?;
+        Ok(json!({
+            "ok": true,
+            "accion": r["accion"],
+            "id_pendiente": r["id_pendiente"],
+            "vista": r["vista"],
+            "moveria": cambios.len(),
+            "de_total": nodes.len(),
+        }))
+    }
+
+    /// Aplica el layout aprobado (una sola escritura con todas las posiciones).
+    pub fn aplicar_layout(&self, req: &Value) -> Result<Value, String> {
+        let (state, mut nodes, edges, map) = self.estado_base()?;
+        let appearance = state.get("appearance").cloned().unwrap_or(Value::Null);
+        let template_id = state.get("templateId").cloned().unwrap_or(Value::Null);
+        let mut movidos = 0usize;
+        for p in req["posiciones"].as_array().cloned().unwrap_or_default() {
+            let id = p["id"].as_str().unwrap_or("");
+            let (x, y) = (p["x"].as_f64(), p["y"].as_f64());
+            if id.is_empty() || x.is_none() || y.is_none() {
+                continue;
+            }
+            for n in nodes.iter_mut() {
+                if crate::grafo::id_de(n) == id {
+                    n["position"]["x"] = json!(x.unwrap());
+                    n["position"]["y"] = json!(y.unwrap());
+                    movidos += 1;
+                }
+            }
+        }
+        if movidos == 0 {
+            return Err("ninguna posición coincidió con un nodo".into());
+        }
+        let mut res = self.write_all(&nodes, &edges, &appearance, &template_id, &map)?;
+        res["accion"] = json!("reacomodado");
+        res["nodos_movidos"] = json!(movidos);
+        Ok(res)
+    }
+
+    /// Previsualización del reacomodo (para el panel): qué y cuánto se mueve.
+    fn preview_reacomodar(&self, req: &Value) -> Result<Value, String> {
+        let (_state, nodes, _edges, _map) = self.estado_base()?;
+        let cambios = req["posiciones"].as_array().cloned().unwrap_or_default();
+        if cambios.is_empty() {
+            return Err("no hay posiciones para aplicar".into());
+        }
+        let mut ejemplos: Vec<String> = Vec::new();
+        for c in cambios.iter().take(4) {
+            let id = c["id"].as_str().unwrap_or("");
+            let titulo = nodes
+                .iter()
+                .find(|n| crate::grafo::id_de(n) == id)
+                .map(crate::grafo::titulo_de)
+                .unwrap_or_else(|| id.to_string());
+            ejemplos.push(titulo);
+        }
+        Ok(json!({
+            "accion_legible": "Reacomodar lienzo",
+            "titulo": "Layout por niveles",
+            "resumen": format!(
+                "Mover {} de {} nodos a una grilla por niveles (el árbol se lee de izquierda a derecha, sin solapamientos)",
+                cambios.len(),
+                nodes.len()
+            ),
+            "cambios": ejemplos,
+            "peligro": "medio",
+            "nodos_movidos": cambios.len(),
         }))
     }
 

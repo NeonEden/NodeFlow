@@ -60,7 +60,7 @@ fn epoch_ms() -> u64 {
 }
 
 /// Minúscula + sin acentos + ñ→n. Necesario para que buscar `informacion` encuentre `información`.
-fn plegar(c: char) -> char {
+pub(crate) fn plegar(c: char) -> char {
     let l = c.to_lowercase().next().unwrap_or(c);
     match l {
         'á' | 'à' | 'ä' | 'â' | 'ã' => 'a',
@@ -74,7 +74,7 @@ fn plegar(c: char) -> char {
     }
 }
 
-fn tokenizar(texto: &str) -> Vec<String> {
+pub(crate) fn tokenizar(texto: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut cur = String::new();
     for ch in texto.chars() {

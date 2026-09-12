@@ -365,6 +365,64 @@ def t_leer_nota(args):
     )
 
 
+def t_garden_scan(args):
+    ok, d = api("/api/graph/garden")
+    if not ok:
+        return texto_error(d)
+    if d.get("error"):
+        return f"No pude leer el lienzo: {d['error']}"
+    st = d.get("stats") or {}
+    out = [
+        f"JARDÍN DEL LIENZO · {'SANO' if d.get('sano') else 'REQUIERE ATENCIÓN'} "
+        f"· {len(d.get('problemas') or [])} hallazgo(s), {d.get('bloqueantes', 0)} bloqueante(s)",
+        f"mapa: {d.get('mapa')} · {st.get('nodos')} nodos · {st.get('aristas')} aristas · "
+        f"huérfanos: {st.get('huerfanos')} · sin descripción: {st.get('sin_descripcion')} · "
+        f"sin madurez: {st.get('sin_madurez')}",
+    ]
+    orden = {"alta": 0, "media": 1, "baja": 2}
+    for p in sorted(d.get("problemas") or [], key=lambda x: orden.get(x.get("gravedad"), 3)):
+        out.append(f"\n[{p.get('gravedad').upper()}] {p.get('tipo')} → acción: {p.get('accion')}")
+        out.append(f"  {p.get('detalle')}")
+    pad = d.get("padrinos") or []
+    if pad:
+        out.append("\nPADRINOS SUGERIDOS (afinidad de contenido):")
+        for p in pad:
+            out.append(f"  · «{p.get('titulo')}» → colgar de «{p.get('padre_titulo')}» (similitud {p.get('similitud')})")
+    out.append("\nUsá garden_fix para proponer los arreglos (el humano los aprueba en el panel) o tidy_canvas para el layout.")
+    return "\n".join(out)
+
+
+def t_garden_fix(args):
+    ok, d = api("/api/graph/garden/fix", args or {}, "POST")
+    if not ok:
+        return texto_error(d)
+    if not d.get("cantidad"):
+        return "El jardín no encontró nada accionable: el grafo está limpio."
+    out = [f"PROPUESTAS DEL JARDÍN: {d.get('cantidad')} (total en cola: {d.get('pendientes_totales')})"]
+    for c in d.get("creadas") or []:
+        extra = f" → #{c.get('id')}" if c.get("id") else ""
+        out.append(f"  · {c.get('tipo')}{extra}: {c.get('resultado')} — {str(c.get('resumen'))[:110]}")
+    if d.get("motivos"):
+        out.append(f"motivos: {', '.join(d['motivos'])}")
+    out.append("\n" + str(d.get("nota", "")))
+    return "\n".join(out)
+
+
+def t_tidy(args):
+    ok, d = api("/api/graph/tidy", args or {}, "POST")
+    if not ok:
+        return texto_error(d)
+    if d.get("accion") == "ya_ordenado":
+        return d.get("mensaje", "El lienzo ya está en niveles.")
+    v = d.get("vista") or {}
+    return (
+        f"REACOMODO PROPUESTO ({d.get('accion')}):\n"
+        f"  {v.get('resumen')}\n"
+        f"  id={d.get('id_pendiente')} · peligro {v.get('peligro')}\n"
+        "El lienzo no se movió: aprobalo en «Cambios del agente»."
+    )
+
+
 def t_vault(args):
     ok, info = api("/api/vault/info")
     if not ok:
@@ -499,6 +557,36 @@ TOOLS = [
         },
     },
     {
+        "name": "garden_scan",
+        "description": (
+            "Diagnóstico del lienzo (solo lectura): invariantes (aristas colgadas, ids repetidos, "
+            "islas, nodos basura, sin madurez) y sugerencias de a quién conectar cada nodo huérfano "
+            "por afinidad de contenido. Es el punto de partida de una sesión de orden: escaneá antes "
+            "de proponer nada."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "garden_fix",
+        "description": (
+            "Convierte los hallazgos del jardín en PROPUESTAS listas para aprobar: saneo de "
+            "integridad, borrado de nodos que son archivos generados, y las conexiones sugeridas por "
+            "afinidad. No toca el lienzo."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "tidy_canvas",
+        "description": (
+            "Calcula un layout por niveles (el árbol se lee de izquierda a derecha, sin "
+            "solapamientos) y lo propone para aprobar. Reemplaza el apilado automático de nodos."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"motivo": {"type": "string", "description": "Por qué lo proponés."}},
+        },
+    },
+    {
         "name": "pending_changes",
         "description": (
             "Lista las escrituras que propuse y todavía no fueron aprobadas ni rechazadas. "
@@ -585,6 +673,9 @@ HANDLERS = {
     "delete_node": t_delete,
     "repair_canvas": t_repair,
     "vault_status": t_vault,
+    "garden_scan": t_garden_scan,
+    "garden_fix": t_garden_fix,
+    "tidy_canvas": t_tidy,
     "search_vault": t_search_vault,
     "leer_nota": t_leer_nota,
     "pending_changes": t_pending,
