@@ -1,12 +1,65 @@
 import React, { memo } from 'react';
-import { Handle, Position, NodeProps } from 'reactflow';
+import { Handle, Position, NodeProps, useStore } from 'reactflow';
 import { GitBranch, Eye, Edit3, Trash2, Copy, Flame, HelpCircle } from 'lucide-react';
 import { IdeaNodeData, IdeaMaturityLevel, MATURITY_CONFIGS } from '../types';
+
+/**
+ * Level of Detail por zoom (renderizado progresivo).
+ *
+ * El zoom se lee del store interno de React Flow con un selector que devuelve
+ * sólo tres valores posibles: el nodo se re-renderiza cuando CRUZA un umbral,
+ * no en cada frame de zoom. Con `useViewport()` cada uno de los 42 nodos
+ * re-renderizaría en cada rueda del mouse.
+ */
+type Lod = 'compacto' | 'medio' | 'completo';
+
+const COMPACT_ZOOM = 0.5;
+const FULL_ZOOM = 0.8;
+
+function useLod(): Lod {
+  return useStore((s) => {
+    const z = s.transform[2];
+    if (z < COMPACT_ZOOM) return 'compacto';
+    if (z > FULL_ZOOM) return 'completo';
+    return 'medio';
+  }) as Lod;
+}
+
+/** Umbral de grado para tratar un nodo como hub del lienzo. */
+const HUB_DEGREE = 5;
+
+interface ToolBtnProps {
+  title: string;
+  onClick: (e: React.MouseEvent) => void;
+  className: string;
+  children: React.ReactNode;
+}
+
+const ToolBtn: React.FC<ToolBtnProps> = ({ title, onClick, className, children }) => (
+  <button
+    type="button"
+    title={title}
+    onClick={onClick}
+    className={`flex items-center justify-center gap-1 text-[10px] font-medium px-1.5 py-1 rounded-md border transition-colors cursor-pointer nodrag ${className}`}
+  >
+    {children}
+  </button>
+);
+
+const Separator = () => <span className="w-px h-4 bg-slate-700/70 mx-0.5 shrink-0" />;
 
 export const IdeaNode: React.FC<NodeProps<IdeaNodeData>> = memo(({ id, data, selected }) => {
   const accentColor = data.colorAccent || '#6366f1';
   const categoryLabel = data.category || data.label || (data.isRoot ? 'NÚCLEO' : 'CONCEPTO');
   const isSearchMatch = data.isSearchMatch;
+  const lod = useLod();
+
+  const degree = data.degree ?? 0;
+  const isHub = degree >= HUB_DEGREE;
+  const isLeaf = degree <= 1;
+
+  const showBody = lod !== 'compacto';
+  const showFull = lod === 'completo';
 
   const currentMaturity: IdeaMaturityLevel =
     data.maturity || (data.isRoot ? 3 : data.aiOrigin?.actionType === 'hybrid' ? 3 : 1);
@@ -73,15 +126,29 @@ export const IdeaNode: React.FC<NodeProps<IdeaNodeData>> = memo(({ id, data, sel
     }
   };
 
+  const fire = (action: string) => (e: React.MouseEvent) => {
+    e.stopPropagation();
+    data.onAction?.(action as any, id, data);
+  };
+
+  // Jerarquía de escala: el hub del lienzo pesa más que una hoja.
+  const widthClass = isHub
+    ? 'min-w-[235px] max-w-[320px]'
+    : isLeaf
+    ? 'min-w-[190px] max-w-[240px]'
+    : 'min-w-[215px] max-w-[285px]';
+  const titleClass = isHub ? 'text-[15px] font-bold' : isLeaf ? 'text-[13px] font-semibold' : 'text-sm font-semibold';
+
   return (
     <div
       id={`node-${id}`}
       onDoubleClick={(e) => {
         e.stopPropagation();
-        // If double clicked anywhere on card that isn't the title input, open edit modal
         data.onAction?.('edit', id, data);
       }}
-      className={`relative group bg-slate-900/95 border-2 text-white p-4 rounded-xl shadow-2xl min-w-[220px] max-w-[290px] transition-all z-10 select-none cursor-grab active:cursor-grabbing ${
+      className={`relative group bg-slate-900/95 border-2 text-white rounded-xl shadow-2xl transition-[box-shadow,border-color,transform] z-10 select-none cursor-grab active:cursor-grabbing ${widthClass} ${
+        lod === 'compacto' ? 'p-3' : 'p-4'
+      } ${
         selected
           ? 'ring-2 shadow-lg scale-[1.02]'
           : isSearchMatch
@@ -89,8 +156,12 @@ export const IdeaNode: React.FC<NodeProps<IdeaNodeData>> = memo(({ id, data, sel
           : 'hover:border-slate-500'
       }`}
       style={{
-        borderColor: selected ? accentColor : isSearchMatch ? '#fbbf24' : `${accentColor}80`,
-        boxShadow: selected ? `0 10px 25px -5px ${accentColor}33` : undefined,
+        borderColor: selected ? accentColor : isSearchMatch ? '#fbbf24' : `${accentColor}${isHub ? 'cc' : '80'}`,
+        boxShadow: selected
+          ? `0 10px 25px -5px ${accentColor}33`
+          : isHub
+          ? `0 8px 20px -12px ${accentColor}55`
+          : undefined,
       }}
     >
       {/* Indicador de acento superior */}
@@ -133,59 +204,26 @@ export const IdeaNode: React.FC<NodeProps<IdeaNodeData>> = memo(({ id, data, sel
       />
 
       <div className="flex flex-col gap-2 pt-1">
-        {/* Encabezado: Categoría y botones de acción rápida */}
-        <div className="flex justify-between items-center gap-2">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <span
-              className="w-2 h-2 rounded-full shrink-0 animate-pulse"
-              style={{ backgroundColor: accentColor }}
-            />
-            <span
-              className="text-[10px] font-bold uppercase tracking-wider truncate"
-              style={{ color: accentColor }}
-            >
-              {categoryLabel}
+        {/* Encabezado: sólo categoría. Las acciones viven en la barra flotante. */}
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span
+            className={`w-2 h-2 rounded-full shrink-0 ${lod === 'compacto' ? '' : 'animate-pulse'}`}
+            style={{ backgroundColor: accentColor }}
+          />
+          <span
+            className="text-[10px] font-bold uppercase tracking-wider truncate"
+            style={{ color: accentColor }}
+          >
+            {categoryLabel}
+          </span>
+          {isHub && (
+            <span className="ml-auto text-[9px] font-mono text-slate-500 shrink-0" title={`${degree} conexiones`}>
+              {degree}
             </span>
-          </div>
-
-          <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity shrink-0">
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                data.onAction?.('edit', id, data);
-              }}
-              title="Editar nodo (Doble clic)"
-              className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors"
-            >
-              <Edit3 size={12} />
-            </button>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                data.onAction?.('duplicate', id, data);
-              }}
-              title="Duplicar nodo"
-              className="p-1 text-slate-400 hover:text-indigo-400 hover:bg-slate-800 rounded transition-colors"
-            >
-              <Copy size={12} />
-            </button>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                data.onAction?.('delete', id, data);
-              }}
-              title="Eliminar nodo (Delete)"
-              className="p-1 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded transition-colors"
-            >
-              <Trash2 size={12} />
-            </button>
-          </div>
+          )}
         </div>
 
-        {/* Título y Descripción con In-Place Editing */}
+        {/* Título (con In-Place Editing) */}
         {isInlineEditing ? (
           <div className="flex flex-col gap-1 nodrag cursor-default" onClick={(e) => e.stopPropagation()}>
             <input
@@ -220,19 +258,27 @@ export const IdeaNode: React.FC<NodeProps<IdeaNodeData>> = memo(({ id, data, sel
               data.onAction?.('inline-start', id, { ...data, isEditing: true });
             }}
             title="Doble clic para editar título directamente"
-            className="text-sm font-semibold text-slate-100 leading-snug break-words cursor-text hover:text-indigo-200 transition-colors"
+            className={`${titleClass} text-slate-100 leading-snug break-words cursor-text hover:text-indigo-200 transition-colors ${
+              lod === 'compacto' ? 'line-clamp-2' : ''
+            }`}
           >
             {data.title || <span className="text-slate-500 italic">Idea sin título...</span>}
           </div>
         )}
-        {data.description && !isInlineEditing && (
-          <p className="text-[11px] text-slate-400 leading-relaxed break-words line-clamp-3">
+
+        {/* Cuerpo: recién a partir del zoom medio */}
+        {showBody && data.description && !isInlineEditing && (
+          <p
+            className={`text-[11px] text-slate-400 leading-relaxed break-words ${
+              showFull ? 'line-clamp-3' : 'line-clamp-2'
+            }`}
+          >
             {data.description}
           </p>
         )}
 
-        {/* Tags */}
-        {data.tags && data.tags.length > 0 && (
+        {/* Tags: sólo en zoom de enfoque */}
+        {showFull && data.tags && data.tags.length > 0 && (
           <div className="flex flex-wrap gap-1 mt-0.5">
             {data.tags.map((tag, i) => (
               <span
@@ -250,109 +296,130 @@ export const IdeaNode: React.FC<NodeProps<IdeaNodeData>> = memo(({ id, data, sel
           </div>
         )}
 
-        {/* Calificador de Madurez Interactivo */}
-        <div
-          className="flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg bg-slate-950/70 border border-slate-800/80 my-0.5 select-none"
-          title="Calificador de Madurez de la Idea. Clic en el texto para rotar o en las barras para fijar nivel."
-        >
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleCycleMaturity();
-            }}
-            title="Clic para avanzar el nivel de madurez"
-            className="flex items-center gap-1.5 text-[10px] hover:opacity-90 transition-opacity cursor-pointer group/mat shrink-0"
-          >
-            <span className="text-slate-500 font-medium text-[9px] uppercase tracking-wider">Madurez:</span>
-            <span className={`font-bold flex items-center gap-1 text-[10px] ${maturityConfig.textColor}`}>
-              <span>{maturityConfig.icon}</span>
-              <span className="group-hover/mat:underline">{maturityConfig.label}</span>
-            </span>
-          </button>
-
-          {/* 4 Segmentos Progresivos de Madurez (1 a 4) */}
-          <div className="flex items-center gap-1 shrink-0">
+        {/* Madurez: en compacto queda como tira fina (indicador de color). */}
+        {lod === 'compacto' ? (
+          <div className="flex items-center gap-1 mt-0.5" title={`Madurez ${currentMaturity}/4 · ${maturityConfig.label}`}>
             {([1, 2, 3, 4] as IdeaMaturityLevel[]).map((lvl) => {
               const isReached = lvl <= currentMaturity;
-              const cfg = MATURITY_CONFIGS[lvl];
               return (
-                <button
+                <span
                   key={lvl}
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleSetMaturity(lvl);
-                  }}
-                  title={`Nivel ${lvl}: ${cfg.icon} ${cfg.label} — ${cfg.desc}`}
-                  className={`h-2 rounded-full transition-all cursor-pointer ${
-                    isReached
-                      ? `${maturityConfig.barBg} w-3.5 shadow-sm`
-                      : 'bg-slate-800 hover:bg-slate-700 w-2.5 opacity-50'
-                  }`}
+                  className={`h-1 flex-1 rounded-full ${isReached ? maturityConfig.barBg : 'bg-slate-800'}`}
                 />
               );
             })}
           </div>
-        </div>
+        ) : (
+          <div
+            className="flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg bg-slate-950/70 border border-slate-800/80 my-0.5 select-none"
+            title="Calificador de Madurez de la Idea. Clic en el texto para rotar o en las barras para fijar nivel."
+          >
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleCycleMaturity();
+              }}
+              title="Clic para avanzar el nivel de madurez"
+              className="flex items-center gap-1.5 text-[10px] hover:opacity-90 transition-opacity cursor-pointer group/mat shrink-0"
+            >
+              <span className={`font-bold flex items-center gap-1 text-[10px] ${maturityConfig.textColor}`}>
+                <span>{maturityConfig.icon}</span>
+                {showFull && <span className="group-hover/mat:underline">{maturityConfig.label}</span>}
+              </span>
+            </button>
 
-        {/* Botones de Acción de IA & Potenciación Cognitiva */}
-        <div className="flex flex-col gap-1.5 mt-2 border-t border-slate-800/80 pt-2">
-          {/* Fila 1: Expansión & Exploración */}
-          <div className="flex justify-between items-center gap-1.5">
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                data.onAction?.('branch', id, data);
-              }}
-              title="Generar 3 ramas lógicas con Gemini"
-              className="flex-1 flex items-center justify-center gap-1 text-[10px] font-medium bg-emerald-950/60 text-emerald-300 hover:bg-emerald-900/70 py-1 px-1.5 rounded border border-emerald-800/60 transition-colors cursor-pointer"
-            >
-              <GitBranch size={11} /> Ramificar
-            </button>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                data.onAction?.('explore', id, data);
-              }}
-              title="Analizar viabilidad, riesgos y estrategia"
-              className="flex-1 flex items-center justify-center gap-1 text-[10px] font-medium bg-amber-950/60 text-amber-300 hover:bg-amber-900/70 py-1 px-1.5 rounded border border-amber-800/60 transition-colors cursor-pointer"
-            >
-              <Eye size={11} /> Explorar
-            </button>
+            {/* 4 Segmentos Progresivos de Madurez (1 a 4) */}
+            <div className="flex items-center gap-1 shrink-0">
+              {([1, 2, 3, 4] as IdeaMaturityLevel[]).map((lvl) => {
+                const isReached = lvl <= currentMaturity;
+                const cfg = MATURITY_CONFIGS[lvl];
+                return (
+                  <button
+                    key={lvl}
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleSetMaturity(lvl);
+                    }}
+                    title={`Nivel ${lvl}: ${cfg.icon} ${cfg.label} — ${cfg.desc}`}
+                    className={`h-2 rounded-full transition-all cursor-pointer ${
+                      isReached
+                        ? `${maturityConfig.barBg} w-3.5 shadow-sm`
+                        : 'bg-slate-800 hover:bg-slate-700 w-2.5 opacity-50'
+                    }`}
+                  />
+                );
+              })}
+            </div>
           </div>
-
-          {/* Fila 2: Abogado del Diablo (Crítica) & Pensamiento Socrático */}
-          <div className="flex justify-between items-center gap-1.5">
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                data.onAction?.('critique', id, data);
-              }}
-              title="Abogado del Diablo: auditar riesgos, fallas y contraargumentos"
-              className="flex-1 flex items-center justify-center gap-1 text-[10px] font-medium bg-rose-950/60 text-rose-300 hover:bg-rose-900/70 py-1 px-1.5 rounded border border-rose-800/60 transition-colors cursor-pointer group/crit"
-            >
-              <Flame size={11} className="text-rose-400 group-hover/crit:animate-pulse" />
-              <span>Crítica</span>
-            </button>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                data.onAction?.('socratic', id, data);
-              }}
-              title="Preguntas Socráticas: formular desafíos profundos para destrabar el concepto"
-              className="flex-1 flex items-center justify-center gap-1 text-[10px] font-medium bg-cyan-950/60 text-cyan-300 hover:bg-cyan-900/70 py-1 px-1.5 rounded border border-cyan-800/60 transition-colors cursor-pointer"
-            >
-              <HelpCircle size={11} className="text-cyan-400" />
-              <span>Socrático</span>
-            </button>
-          </div>
-        </div>
+        )}
       </div>
+
+      {/* Barra flotante de acciones: sólo con el nodo seleccionado. Sacar estos
+          botones del cuerpo recorta ~40% de la altura de la tarjeta. */}
+      {selected && !isInlineEditing && (
+        <div
+          className="absolute -top-11 left-1/2 -translate-x-1/2 flex items-center gap-0.5 bg-slate-900/97 backdrop-blur-md border border-slate-700 rounded-xl px-1 py-1 shadow-2xl nodrag nowheel z-50 whitespace-nowrap"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <ToolBtn
+            title="Editar nodo (doble clic)"
+            onClick={fire('edit')}
+            className="text-slate-400 hover:text-white hover:bg-slate-800 border-transparent"
+          >
+            <Edit3 size={11} />
+          </ToolBtn>
+          <ToolBtn
+            title="Duplicar nodo"
+            onClick={fire('duplicate')}
+            className="text-slate-400 hover:text-indigo-300 hover:bg-slate-800 border-transparent"
+          >
+            <Copy size={11} />
+          </ToolBtn>
+
+          <Separator />
+
+          <ToolBtn
+            title="Generar 3 ramas lógicas"
+            onClick={fire('branch')}
+            className="bg-emerald-950/70 text-emerald-300 hover:bg-emerald-900/80 border-emerald-800/60"
+          >
+            <GitBranch size={11} /> Ramificar
+          </ToolBtn>
+          <ToolBtn
+            title="Analizar viabilidad, riesgos y estrategia"
+            onClick={fire('explore')}
+            className="bg-amber-950/70 text-amber-300 hover:bg-amber-900/80 border-amber-800/60"
+          >
+            <Eye size={11} /> Explorar
+          </ToolBtn>
+          <ToolBtn
+            title="Abogado del Diablo: auditar riesgos, fallas y contraargumentos"
+            onClick={fire('critique')}
+            className="bg-rose-950/70 text-rose-300 hover:bg-rose-900/80 border-rose-800/60 group/crit"
+          >
+            <Flame size={11} className="text-rose-400 group-hover/crit:animate-pulse" /> Crítica
+          </ToolBtn>
+          <ToolBtn
+            title="Preguntas Socráticas: desafíos profundos para destrabar el concepto"
+            onClick={fire('socratic')}
+            className="bg-cyan-950/70 text-cyan-300 hover:bg-cyan-900/80 border-cyan-800/60"
+          >
+            <HelpCircle size={11} className="text-cyan-400" /> Socrático
+          </ToolBtn>
+
+          <Separator />
+
+          <ToolBtn
+            title="Eliminar nodo (Delete)"
+            onClick={fire('delete')}
+            className="text-slate-400 hover:text-rose-300 hover:bg-slate-800 border-transparent"
+          >
+            <Trash2 size={11} />
+          </ToolBtn>
+        </div>
+      )}
 
       {/* Abajo y Derecha */}
       <Handle

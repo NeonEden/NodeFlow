@@ -68,6 +68,9 @@ export interface IdeaNodeData {
   isSearchMatch?: boolean;
   isEditing?: boolean;
   maturity?: IdeaMaturityLevel;
+  /** Grado del nodo (aristas que lo tocan). Se inyecta en el render: alimenta la
+   *  jerarquía de escala. No forma parte del estado persistido. */
+  degree?: number;
   aiOrigin?: {
     batchId: string;
     actionType: 'branch' | 'explore' | 'hybrid' | 'critique' | 'socratic' | 'braindump' | 'bridge' | 'manual';

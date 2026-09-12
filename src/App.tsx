@@ -40,6 +40,12 @@ import {
   Link2,
 } from 'lucide-react';
 import { IdeaNode } from './components/IdeaNode';
+import { FlowEdge } from './components/FlowEdge';
+import {
+  setHoveredEdge,
+  setHoveredNode,
+  setFocusSelection,
+} from './state/focusStore';
 import { Toolbar } from './components/Toolbar';
 import { AuthModal } from './components/AuthModal';
 import { SavedStatesModal } from './components/SavedStatesModal';
@@ -89,7 +95,7 @@ const NODE_TYPES = {
   ideaNode: IdeaNode,
 };
 
-const EDGE_TYPES = {};
+const EDGE_TYPES = { flowEdge: FlowEdge };
 
 const SAVED_STATES_STORAGE_KEY = 'neuralmind_saved_diagram_states';
 const ACTIVE_CANVAS_STORAGE_KEY = 'neuralmind_active_canvas_v2';
@@ -619,6 +625,9 @@ export default function App() {
   const onSelectionChange = useCallback((params: OnSelectionChangeParams) => {
     setSelectedNodes(params.nodes as CustomNode[]);
     setSelectedEdges(params.edges);
+    // La selección alimenta el mismo foco que el hover: elegir un nodo destaca
+    // sus conexiones sin tener que pasar el mouse por encima.
+    setFocusSelection(params.nodes.map((n) => n.id));
   }, []);
 
   // Connect two nodes with the customized Edge Appearance
@@ -1591,6 +1600,23 @@ export default function App() {
   }, [nodes]);
 
   // Attach the onAction handler dynamically to node data, and apply search highlights
+  // Grado de cada nodo: cuántas aristas lo tocan. Se deriva en el render (no se
+  // persiste) y alimenta la jerarquía de escala: los hubs pesan más que las hojas.
+  const degreeById = useMemo(() => {
+    const map = new Map<string, number>();
+    edges.forEach((e) => {
+      map.set(e.source, (map.get(e.source) || 0) + 1);
+      map.set(e.target, (map.get(e.target) || 0) + 1);
+    });
+    return map;
+  }, [edges]);
+
+  const accentById = useMemo(() => {
+    const map = new Map<string, string>();
+    nodes.forEach((n) => map.set(n.id, n.data?.colorAccent || '#6366f1'));
+    return map;
+  }, [nodes]);
+
   const processedNodes = useMemo(() => {
     const hasSearch = searchQuery.trim().length > 0;
     return nodes.map((node) => {
@@ -1601,11 +1627,42 @@ export default function App() {
         data: {
           ...node.data,
           isSearchMatch: isMatched,
+          degree: degreeById.get(node.id) || 0,
           onAction: (...args: any[]) => (handleAIAction as any)(...args),
         },
       };
     });
-  }, [nodes, searchQuery, searchMatchingNodeIds, handleAIAction]);
+  }, [nodes, searchQuery, searchMatchingNodeIds, handleAIAction, degreeById]);
+
+  /**
+   * Aristas de render. NO se toca el estado guardado (el vault sigue con las
+   * mismas aristas): acá se cambia sólo lo que necesita la vista —
+   *   · tipo propio `flowEdge` (etiqueta en hover + atenuación por foco),
+   *   · la etiqueta pasa de `edge.label` a `data.label`, porque React Flow
+   *     dibuja `label` SIEMPRE y era el mayor foco de ruido (52/53 aristas),
+   *   · `animated: false` en el grupo: el dash lo prendemos nosotros dentro del foco,
+   *   · el acento de los nodos que conecta, para pintar las aristas del foco.
+   */
+  const processedEdges = useMemo<Edge[]>(
+    () =>
+      edges.map((edge) => ({
+        ...edge,
+        type: 'flowEdge',
+        animated: false,
+        label: undefined,
+        data: {
+          ...(edge.data || {}),
+          label: (edge.label as string) || undefined,
+          curve: edge.type || edgeAppearance.type,
+          color: (edge.style?.stroke as string) || edgeAppearance.color,
+          strokeWidth: Number(edge.style?.strokeWidth ?? edgeAppearance.strokeWidth),
+          animated: edgeAppearance.animated,
+          sourceColor: accentById.get(edge.source) || edgeAppearance.color,
+          targetColor: accentById.get(edge.target) || edgeAppearance.color,
+        },
+      })),
+    [edges, edgeAppearance, accentById]
+  );
 
   // Auto Layout utility integration
   const handleAutoLayout = useCallback(() => {
@@ -2720,11 +2777,15 @@ export default function App() {
         >
           <ReactFlow
             nodes={processedNodes}
-            edges={edges}
+            edges={processedEdges}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onSelectionChange={onSelectionChange}
             onConnect={onConnect}
+            onNodeMouseEnter={(_, node) => setHoveredNode(node.id)}
+            onNodeMouseLeave={() => setHoveredNode(null)}
+            onEdgeMouseEnter={(_, edge) => setHoveredEdge(edge.id)}
+            onEdgeMouseLeave={() => setHoveredEdge(null)}
             nodeTypes={NODE_TYPES}
             edgeTypes={EDGE_TYPES}
             zoomOnDoubleClick={false}
@@ -2740,8 +2801,8 @@ export default function App() {
             minZoom={0.2}
             maxZoom={2}
             defaultEdgeOptions={{
-              type: edgeAppearance.type,
-              animated: edgeAppearance.animated,
+              type: 'flowEdge',
+              animated: false,
               style: {
                 stroke: edgeAppearance.color,
                 strokeWidth: edgeAppearance.strokeWidth,

@@ -53,3 +53,32 @@
   ry: 4px !important;
 }
 
+/* --- Arista propia (FlowEdge): foco, atenuación y etiqueta en hover ------- */
+
+/* El dash animado ya no vive en las 53 aristas: sólo se enciende dentro del foco. */
+.nf-edge-dash {
+  stroke-dasharray: 5;
+  animation: nf-dashdraw 0.5s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes nf-dashdraw {
+  to {
+    stroke-dashoffset: -10;
+  }
+}
+
+.nf-edge-label {
+  pointer-events: none;
+}
+
+.nf-edge-label text {
+  font-family: inherit;
+}
+
+/* Separación sutil del fondo para las aristas que están en foco. */
+.nf-edge--active .react-flow__edge-path {
+  filter: drop-shadow(0 0 3px rgba(2, 6, 23, 0.95));
+}
+
+
