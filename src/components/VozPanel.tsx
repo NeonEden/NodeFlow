@@ -182,11 +182,11 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
         {/* Cuerpo */}
         <div className="p-5 overflow-y-auto space-y-4 text-sm flex-1">
           {servicio && !servicio.configurada && (
-            <div className="flex gap-2.5 items-start bg-amber-950/40 border border-amber-700/50 rounded-xl p-3.5 text-xs text-amber-100">
+            <div className="flex gap-2.5 items-start bg-slate-800 border border-slate-700 rounded-xl p-3.5 text-xs">
               <AlertTriangle size={15} className="shrink-0 mt-0.5 text-amber-400" />
               <div>
-                <div className="font-semibold mb-0.5">Falta la clave de Speechmatics</div>
-                <div className="text-amber-200/90">{servicio.pista}</div>
+                <div className="font-semibold mb-0.5 text-amber-200">Falta la clave de Speechmatics</div>
+                <div className="text-slate-300">{servicio.pista}</div>
               </div>
             </div>
           )}
@@ -229,18 +229,18 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
           </div>
 
           {error && (
-            <div className="flex gap-2 items-start text-xs text-rose-200 bg-rose-950/40 border border-rose-800/60 rounded-xl p-3">
+            <div className="flex gap-2 items-start text-xs bg-slate-800 border border-slate-700 rounded-xl p-3">
               <AlertTriangle size={13} className="shrink-0 mt-0.5 text-rose-400" />
-              <span>{error}</span>
+              <span className="text-slate-200">{error}</span>
             </div>
           )}
 
           {/* Plan propuesto */}
           {plan && (
-            <div className="bg-slate-900/70 border border-violet-600/50 rounded-xl p-4 space-y-3" id="voz-plan">
+            <div className="bg-slate-900/70 border border-slate-700 rounded-xl p-4 space-y-3" id="voz-plan">
               <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-violet-300 font-bold">
                 <Sparkles size={12} /> Plan propuesto
-                <span className="px-1.5 py-0.5 rounded border border-violet-700/60 text-violet-200 font-mono normal-case tracking-normal">
+                <span className="px-1.5 py-0.5 rounded border border-slate-600 text-violet-200 font-mono normal-case tracking-normal">
                   {plan.intencion === 'capturar' ? 'agregar al lienzo' : 'operar sobre el lienzo'}
                 </span>
               </div>
@@ -252,7 +252,7 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
                   <div className="text-xs text-slate-400">No encontré nada aplicable en el lienzo para eso.</div>
                 )}
                 {plan.comandos.map((c, i) => (
-                  <div key={i} className="flex items-center gap-2 text-xs text-slate-200 bg-slate-800/60 rounded-lg px-2.5 py-1.5 border border-slate-700">
+                  <div key={i} className="flex items-center gap-2 text-xs text-slate-200 bg-slate-800 rounded-lg px-2.5 py-1.5 border border-slate-700">
                     <span className="text-violet-300">{ICONO[c.accion]}</span>
                     <span>{describirComando(c, tituloNodo)}</span>
                     {c.criterio && <span className="text-slate-500 truncate">· {c.criterio}</span>}
@@ -261,17 +261,20 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
               </div>
 
               {!!plan.descartados && (
-                <div className="text-[11px] text-amber-200/90">
+                <div className="text-[11px] text-slate-300">
                   Descarté {plan.descartados} operación(es) que no cerraban contra el lienzo.
                   {plan.motivo_descarte?.length ? ` (${plan.motivo_descarte.slice(0, 2).join('; ')})` : ''}
                 </div>
               )}
 
               {plan.comandos.length > 0 && (
-                <div className="flex items-start gap-2 text-[11px] text-amber-100 bg-amber-950/30 border border-amber-800/50 rounded-lg px-2.5 py-2">
+                <div
+                  id="voz-impacto"
+                  className="flex items-start gap-2 text-[11px] bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-2"
+                >
                   <AlertTriangle size={12} className="shrink-0 mt-0.5 text-amber-400" />
-                  <span>
-                    <span className="font-semibold">Va a pasar esto:</span> {onPrevisualizar(plan)}
+                  <span className="text-slate-200">
+                    <span className="font-semibold text-amber-200">Va a pasar esto:</span> {onPrevisualizar(plan)}
                   </span>
                 </div>
               )}
@@ -300,8 +303,8 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
           )}
 
           {resultado && (
-            <div className="flex items-center gap-2 text-xs text-emerald-200 bg-emerald-950/40 border border-emerald-800/60 rounded-xl p-3">
-              <Wand2 size={13} className="text-emerald-400" /> {resultado}
+            <div className="flex items-center gap-2 text-xs bg-slate-800 border border-slate-700 rounded-xl p-3">
+              <Wand2 size={13} className="text-emerald-400" /> <span className="text-slate-200">{resultado}</span>
             </div>
           )}
         </div>
