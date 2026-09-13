@@ -678,5 +678,44 @@
         "source": "gemini"
       }
     }
+  },
+  "condensar": {
+    "aliases": [],
+    "prompt": "Sos el Motor de Condensación de NodeFlow. Reducís un conjunto de ideas a UN macro-concepto ejecutable, sin perder de vista el objetivo.\n\nNORTE ESTRATÉGICO (lo que el usuario quiere lograr):\n\"{{objetivo}}\"\n\nIDEAS A CONDENSAR ({{cantidad}} nodos):\n{{listaNodos}}\n\nTarea:\n- Detectá lo redundante, lo ya resuelto y lo que NO aporta al Norte Estratégico.\n- Agrupá todo en un macro-concepto que capture el principio común y sea accionable (no un resumen: una síntesis que sirva para decidir o ejecutar).\n- 'match' es cuánto aporta al objetivo, de 0 a 1.\n- 'principio' es el principio sólido que queda después de la poda, en una oración.\n{{memoria}}",
+    "schema": {
+      "type": "OBJECT",
+      "properties": {
+        "title": {
+          "type": "STRING"
+        },
+        "description": {
+          "type": "STRING"
+        },
+        "resumen": {
+          "type": "STRING"
+        },
+        "principio": {
+          "type": "STRING"
+        },
+        "match": {
+          "type": "NUMBER"
+        },
+        "tags": {
+          "type": "ARRAY",
+          "items": {
+            "type": "STRING"
+          }
+        }
+      },
+      "required": [
+        "title",
+        "description",
+        "resumen",
+        "match"
+      ]
+    },
+    "response": {
+      "key": "condensar"
+    }
   }
 }

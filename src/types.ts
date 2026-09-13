@@ -73,9 +73,21 @@ export interface IdeaNodeData {
   degree?: number;
   /** true si la lente de categoría lo está marcando como miembro. Sólo render. */
   lente?: boolean;
+  /** Macro-nodo condensado: guarda el LINaje (poda sin pérdida). */
+  macro?: {
+    colapsados: number;
+    linaje: string[];
+    resumen?: string;
+    principio?: string;
+    match?: number;
+    objetivo?: string;
+    creadoEn?: string;
+    /** Los nodos y aristas originales, tal cual estaban: permiten restaurar el sub-grafo. */
+    datos?: { nodes: unknown[]; edges: unknown[] };
+  };
   aiOrigin?: {
     batchId: string;
-    actionType: 'branch' | 'explore' | 'hybrid' | 'critique' | 'socratic' | 'braindump' | 'bridge' | 'manual';
+    actionType: 'branch' | 'explore' | 'hybrid' | 'critique' | 'socratic' | 'braindump' | 'bridge' | 'manual' | 'condensar';
     promptOriginal: string;
     originalTitle: string;
     allBatchTitles: string[];

@@ -1015,6 +1015,28 @@ fn build_context(
         ctx.insert(format!("{alias}.description"), s(&data, "description"));
     }
 
+    // Condensación dirigida por objetivo (Fase A): la lista COMPLETA de seleccionados y el Norte
+    // Estratégico. El resto de las acciones siguen usando nodeA/nodeB (dos nodos).
+    let lista_nodos = selected
+        .iter()
+        .enumerate()
+        .map(|(i, n)| {
+            let d = if n["data"].is_object() { n["data"].clone() } else { n.clone() };
+            format!("{}. {} — {}", i + 1, s(&d, "title"), s(&d, "description"))
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    ctx.insert("listaNodos".into(), lista_nodos);
+    ctx.insert("cantidad".into(), selected.len().to_string());
+    ctx.insert(
+        "objetivo".into(),
+        body["objetivo"]
+            .as_str()
+            .unwrap_or("")
+            .trim()
+            .to_string(),
+    );
+
     // nodos: soporta tanto {id,data:{...}} como {id,title,...}
     let nodes = body["nodes"].as_array().cloned().unwrap_or_default();
     let norm = |n: &Value| -> (String, String, String, Vec<String>) {
