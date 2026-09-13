@@ -1,0 +1,31 @@
+# Actualizaciones de dependencias: semanales, agrupadas y sin ruido.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      npm-menores:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: cargo
+    directory: "/src-tauri"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      cargo-menores:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    ignore:
+      # glib sólo entra por la pila GTK de Linux (tauri -> gtk ^0.18) y no se compila en el
+      # build Windows que se distribuye. El parche (0.20) exige que Tauri migre a gtk-rs 0.20.
+      - dependency-name: "glib"
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
