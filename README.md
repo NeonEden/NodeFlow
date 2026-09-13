@@ -145,6 +145,8 @@ OLLAMA_HOST=http://localhost:11434
 ## Documentation
 
 - [`ROADMAP.md`](ROADMAP.md) — phases and next milestones.
+- [`docs/FLUJO.md`](docs/FLUJO.md) — workflow: verified auto-save checkpoints, devlog generated from the git history, versioned releases and backups.
+- [`docs/DEVLOG.md`](docs/DEVLOG.md) — development log, generated from the commit history.
 - [`docs/adr/`](docs/adr) — Architecture Decision Records (why Tauri over Electron, why a hash cache, why code-side validation, why hybrid routing).
 
 Commits follow [Conventional Commits](https://www.conventionalcommits.org/) and versions follow SemVer.
