@@ -17,6 +17,8 @@ interface LinajeModalProps {
  */
 export const LinajeModal: React.FC<LinajeModalProps> = ({ isOpen, onClose, node, onRestaurar }) => {
   if (!isOpen || !node) return null;
+  // Al restaurar se devuelven los nodos Y las aristas guardadas tal cual estaban: el sub-grafo
+  // vuelve idéntico, no una reconstrucción aproximada.
   const macro = node.data.macro;
   const hijos = (macro?.datos?.nodes ?? []) as CustomNode[];
 

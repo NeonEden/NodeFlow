@@ -58,3 +58,29 @@ versiones. El mensaje explica **qué** y **por qué**; los números medidos van 
 | Tags por versión | Punto de retorno exacto |
 | Bundle de respaldo | El historial completo, fuera del repositorio |
 | Backups rotativos de la app | El lienzo y las propuestas (`.nodeflow/backup-*.json`) |
+
+## Guardado automático de fondo (sin ventanas)
+
+Una tarea de Windows llamada **NodeFlow Checkpoint** corre cada **10 minutos**:
+
+```
+wscript.exe //B "scripts\auto-oculto.vbs"   →   bash scripts/auto.sh
+```
+
+- El lanzador `.vbs` existe por una razón concreta: llamar a `bash.exe` directamente **abría una
+  consola** cada vez. `WScript.Shell.Run` con estilo de ventana `0` la mantiene oculta.
+- `scripts/auto.sh` = respaldo diario (si corresponde) + punto de guardado.
+- **Sólo chequea lo que cambió**: si tocaste `.ts/.tsx/.json/.css` corre `tsc`; si tocaste
+  `.rs/.toml` corre los tests de Rust; si sólo hay docs, no corre nada. El mensaje del commit
+  dice qué se verificó.
+- Sin cambios → no hace nada (sólo deja la marca en `.git/checkpoint.ultima`).
+
+Comandos a mano:
+
+```bash
+bash scripts/checkpoint.sh           # verificar y guardar ahora
+bash scripts/checkpoint.sh --watch   # modo vigilante en primer plano
+schtasks -query -tn "NodeFlow Checkpoint"   # ver la tarea
+schtasks -end    -tn "NodeFlow Checkpoint"  # pausar el automático
+schtasks -run    -tn "NodeFlow Checkpoint"  # dispararlo ya
+```

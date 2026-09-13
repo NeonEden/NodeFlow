@@ -15,7 +15,7 @@ set -uo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO" || exit 1
 LOG="$REPO/.git/checkpoint.log"
-MIN="${NF_CHECKPOINT_MIN:-5}"
+MIN="${NF_CHECKPOINT_MIN:-10}"
 
 anotar() { printf '[%s] %s\n' "$(date '+%F %T')" "$1" >> "$LOG"; echo "$1"; }
 
@@ -24,16 +24,32 @@ anotar() { printf '[%s] %s\n' "$(date '+%F %T')" "$1" >> "$LOG"; echo "$1"; }
 marcar() { printf '%s · %s\n' "$(date '+%F %T')" "$1" > "$REPO/.git/checkpoint.ultima"; }
 
 verificar() {
-  if ! npx --no-install tsc --noEmit >/tmp/nf-tsc.log 2>&1; then
-    marcar "chequeos fallaron: no se guardó"
-    anotar "NO guardado: tsc falló → $(tail -3 /tmp/nf-tsc.log | tr '\n' ' ')"
-    return 1
+  # Corre sólo el chequeo que corresponde a lo que cambió: esto vive de fondo en tu máquina,
+  # así que no gasta CPU en tests que no pueden verse afectados.
+  local tocados hay_ts hay_rs
+  tocados="$(git status --porcelain | awk '{print $NF}')"
+  hay_ts="$(printf '%s\n' "$tocados" | grep -cE '\.(ts|tsx|js|jsx|json|css)$' || true)"
+  hay_rs="$(printf '%s\n' "$tocados" | grep -cE '\.(rs|toml)$' || true)"
+
+  if [ "${hay_ts:-0}" != "0" ]; then
+    if ! npx --no-install tsc --noEmit >/tmp/nf-tsc.log 2>&1; then
+      marcar "chequeos fallaron: no se guardó"
+      anotar "NO guardado: tsc falló → $(tail -3 /tmp/nf-tsc.log | tr '\n' ' ')"
+      return 1
+    fi
+    CHECKS="tsc OK"
   fi
-  if ! cargo test --manifest-path src-tauri/Cargo.toml --lib 2>&1 | grep -q "test result: ok"; then
-    marcar "chequeos fallaron: no se guardó"
-    anotar "NO guardado: los tests de Rust fallaron"
-    return 1
+
+  if [ "${hay_rs:-0}" != "0" ]; then
+    if ! cargo test --manifest-path src-tauri/Cargo.toml --lib 2>&1 | grep -q "test result: ok"; then
+      marcar "chequeos fallaron: no se guardó"
+      anotar "NO guardado: los tests de Rust fallaron"
+      return 1
+    fi
+    CHECKS="${CHECKS:+$CHECKS + }tests Rust OK"
   fi
+
+  [ -n "${CHECKS:-}" ] || CHECKS="sin chequeos aplicables (sólo docs)"
   return 0
 }
 
@@ -53,7 +69,7 @@ guardar() {
   git add -A
   git commit -q -m "$mensaje
 
-Verificado antes de guardar: tsc --noEmit 0 errores + cargo test --lib verde.
+Verificado antes de guardar: $CHECKS.
 Archivos: $resumen"
 
   if git push -q origin HEAD 2>/dev/null; then

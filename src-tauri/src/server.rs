@@ -1153,6 +1153,8 @@ fn build_context(
 /// El motor devuelve a veces el mismo contenido con otro nombre de campo (medido con
 /// `gpt-oss:120b-cloud`, que ignora la gramática: `macro_concept` en vez de `title`).
 /// Se lo lleva al contrato de la acción antes de que el frontend lo vea.
+/// Nota: se aplica SÓLO a `condensar`. El resto de las acciones conservan su contrato tal cual,
+/// porque ya vienen respetándolo (medido en cada corrida).
 fn normalizar_condensado(v: &mut serde_json::Value) {
     fn toma(v: &serde_json::Value, nombres: &[&str]) -> Option<String> {
         nombres
