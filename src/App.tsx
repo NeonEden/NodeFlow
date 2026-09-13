@@ -22,6 +22,12 @@ import 'reactflow/dist/style.css';
 
 import {
   Sparkles,
+  Inbox,
+  Database,
+  BookOpen,
+  Sprout,
+  WandSparkles,
+  Save,
   Check,
   AlertCircle,
   Info,
@@ -2499,7 +2505,7 @@ export default function App() {
       <div className="flex-1 flex overflow-hidden relative">
         {/* Left Sidebar from Sophisticated Dark Design */}
         {isSidebarOpen && (
-          <aside className="w-64 border-r border-slate-800/60 bg-slate-950/40 p-4 flex flex-col gap-5 shrink-0 backdrop-blur-sm z-10 transition-all overflow-y-auto">
+          <aside className="w-64 border-r border-slate-800/60 bg-slate-950/85 p-4 flex flex-col gap-5 shrink-0 backdrop-blur-sm z-10 transition-all overflow-y-auto">
             {/* Search Results Quick List (when searching) */}
             {searchQuery.trim() && (
               <section className="bg-slate-900/90 border border-amber-500/30 rounded-xl p-3">
@@ -2663,26 +2669,57 @@ export default function App() {
             </section>
 
             {/* Section 3: Active State & Persistence */}
-            <section>
+            <section className="space-y-1.5">
               <h3 className="text-[10px] uppercase tracking-widest text-slate-500 font-bold mb-2 flex items-center justify-between">
                 <span>Persistencia</span>
-                <span className="flex items-center gap-1 text-[9px] normal-case text-emerald-400 font-normal">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                  Local Activo
+                <span className="flex items-center gap-1.5">
+                  {propuestas.length > 0 && (
+                    <span className="text-[9px] normal-case text-amber-300 font-mono bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/30">
+                      {propuestas.length} por aprobar
+                    </span>
+                  )}
+                  <span className="flex items-center gap-1 text-[9px] normal-case text-emerald-400 font-normal">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                    Local Activo
+                  </span>
                 </span>
               </h3>
-              <div className="bg-slate-900/40 rounded-lg border border-slate-800 p-3">
+
+              {/* Fase 5a: el agente propone, vos aprobás. Va PRIMERO: era la acción enterrada más importante. */}
+              <button
+                type="button"
+                id="btn-cambios-del-agente"
+                onClick={() => setIsAgentPanelOpen(true)}
+                title="Propuestas del agente esperando aprobación"
+                className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold border transition-colors cursor-pointer ${
+                  propuestas.length
+                    ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-50 border-amber-500/50'
+                    : 'bg-slate-900/60 hover:bg-slate-800/70 text-slate-400 border-slate-800'
+                }`}
+              >
+                <Inbox size={14} className={propuestas.length ? 'text-amber-300' : 'text-slate-500'} />
+                <span>Cambios del agente</span>
+                <span className={`ml-auto text-[9px] font-mono px-1.5 py-0.5 rounded border ${
+                  propuestas.length
+                    ? 'text-amber-300 bg-amber-900/40 border-amber-700/50'
+                    : 'text-slate-400 bg-slate-800/60 border-slate-700/60'
+                }`}>
+                  {propuestas.length ? propuestas.length : 'al día'}
+                </span>
+              </button>
+
+              <div className="bg-slate-900/70 rounded-xl border border-slate-800 p-3">
                 <div className="flex justify-between items-center mb-1.5">
                   <span className="text-[10px] text-slate-400">Almacenamiento</span>
-                  <span className="text-[10px] text-indigo-400 font-mono">Persistente</span>
+                  <span className="text-[10px] text-indigo-300 font-mono">Persistente</span>
                 </div>
                 <div className="flex justify-between items-center mb-1.5">
-                  <span className="text-[10px] text-slate-400">Último Guardado</span>
-                  <span className="text-[10px] text-slate-300">{lastSyncText}</span>
+                  <span className="text-[10px] text-slate-400">Último guardado</span>
+                  <span className="text-[10px] text-slate-300 font-mono truncate max-w-[130px]">{lastSyncText}</span>
                 </div>
                 <div className="flex justify-between items-center mb-1.5">
-                  <span className="text-[10px] text-slate-400">Nodos / Conexiones</span>
-                  <span className="text-[10px] text-slate-300 font-mono">{nodes.length} / {edges.length}</span>
+                  <span className="text-[10px] text-slate-400">Nodos / conexiones</span>
+                  <span className="text-[10px] text-slate-300 font-mono tabular-nums">{nodes.length} / {edges.length}</span>
                 </div>
                 {/* Fase 3: el disco es la fuente de verdad */}
                 <div className="flex justify-between items-center mb-1.5">
@@ -2702,24 +2739,11 @@ export default function App() {
                     </span>
                   </div>
                 ) : null}
-                {/* Fase 5a: el agente propone, vos aprobás */}
-                <button
-                  type="button"
-                  onClick={() => setIsAgentPanelOpen(true)}
-                  title="Propuestas del agente esperando aprobación"
-                  className={`w-full mt-2 py-1.5 text-[10px] font-bold rounded-lg border uppercase tracking-tight transition-colors cursor-pointer ${
-                    propuestas.length
-                      ? 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-200 border-amber-500/40'
-                      : 'bg-slate-800/40 hover:bg-slate-800/70 text-slate-400 border-slate-700/60'
-                  }`}
-                >
-                  Cambios del agente{propuestas.length ? ` · ${propuestas.length}` : ''}
-                </button>
                 {/* Fase 7b: cronómetro de conversión (T0 → T1) */}
-                <div className="flex justify-between items-center mb-1.5" title="Minutos entre el brain dump y el primer artefacto aprobado (objetivo < 3)">
+                <div className="flex justify-between items-center" title="Minutos entre el brain dump y el primer artefacto aprobado (objetivo < 3)">
                   <span className="text-[10px] text-slate-400">Conversión T0→T1</span>
                   <span
-                    className={`text-[10px] font-mono ${
+                    className={`text-[10px] font-mono tabular-nums ${
                       metricas?.promedio_min == null
                         ? 'text-slate-500'
                         : metricas.promedio_min <= 3
@@ -2734,48 +2758,63 @@ export default function App() {
                       : `${metricas.promedio_min} min prom.`}
                   </span>
                 </div>
+              </div>
+
+              {/* Paneles: mismo lenguaje que las secciones de arriba — icono + etiqueta + chip */}
+              <p className="text-[10px] uppercase tracking-widest text-slate-500 font-bold pt-1">Paneles</p>
+              <div className="space-y-1.5">
                 {/* Fase 5b: buscar en toda la bóveda de Obsidian */}
                 <button
                   type="button"
                   onClick={() => setIsMemoriaOpen(true)}
                   title="Buscar en todas tus notas y traer una al lienzo"
-                  className="w-full mt-1.5 py-1.5 text-[10px] font-bold rounded-lg border uppercase tracking-tight transition-colors cursor-pointer bg-sky-500/10 hover:bg-sky-500/20 text-sky-200 border-sky-500/30"
+                  className="w-full flex items-center gap-2 px-3 py-2 bg-slate-900/70 hover:bg-slate-800/70 text-sky-200 border border-slate-800 hover:border-sky-700/60 rounded-xl text-xs font-medium transition-colors cursor-pointer group"
                 >
-                  Memoria del vault
+                  <Database size={14} className="text-sky-400 shrink-0" />
+                  <span className="truncate">Memoria del vault</span>
+                  <span className="ml-auto shrink-0 whitespace-nowrap text-[9px] text-sky-300 font-mono bg-sky-900/50 px-1.5 py-0.5 rounded border border-sky-700/50">BM25</span>
                 </button>
                 {/* Fase 8: capturar conocimiento y exportar el mapa */}
                 <button
                   type="button"
                   onClick={() => setIsConocimientoOpen(true)}
                   title="Convertir texto en nodos propuestos y exportar el mapa"
-                  className="w-full mt-1.5 py-1.5 text-[10px] font-bold rounded-lg border uppercase tracking-tight transition-colors cursor-pointer bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-200 border-emerald-500/30"
+                  className="w-full flex items-center gap-2 px-3 py-2 bg-slate-900/70 hover:bg-slate-800/70 text-emerald-200 border border-slate-800 hover:border-emerald-700/60 rounded-xl text-xs font-medium transition-colors cursor-pointer group"
                 >
-                  Conocimiento
+                  <BookOpen size={14} className="text-emerald-400 shrink-0" />
+                  <span className="truncate">Conocimiento</span>
+                  <span className="ml-auto shrink-0 whitespace-nowrap text-[9px] text-emerald-300 font-mono bg-emerald-900/50 px-1.5 py-0.5 rounded border border-emerald-700/50">captura</span>
                 </button>
-                {/* Fase 7a: el agente jardín, ahora con botón */}
+                {/* Fase 7a: el agente jardín */}
                 <button
                   type="button"
                   onClick={() => setIsJardinOpen(true)}
                   title="Diagnóstico del grafo: invariantes, islas, huérfanos y hubs inmaduros"
-                  className="w-full mt-1.5 py-1.5 text-[10px] font-bold rounded-lg border uppercase tracking-tight transition-colors cursor-pointer bg-lime-500/10 hover:bg-lime-500/20 text-lime-200 border-lime-500/30"
+                  className="w-full flex items-center gap-2 px-3 py-2 bg-slate-900/70 hover:bg-slate-800/70 text-lime-200 border border-slate-800 hover:border-lime-700/60 rounded-xl text-xs font-medium transition-colors cursor-pointer group"
                 >
-                  Jardín del lienzo
+                  <Sprout size={14} className="text-lime-400 shrink-0" />
+                  <span className="truncate">Jardín del lienzo</span>
+                  <span className="ml-auto shrink-0 whitespace-nowrap text-[9px] text-lime-300 font-mono bg-lime-900/50 px-1.5 py-0.5 rounded border border-lime-700/50">grafo</span>
                 </button>
                 {/* Slice 1: expertos y artefactos */}
                 <button
                   type="button"
                   onClick={() => setIsOrquestadorOpen(true)}
                   title="Ejecutar un experto sobre un nodo y obtener un artefacto validado"
-                  className="w-full mt-1.5 py-1.5 text-[10px] font-bold rounded-lg border uppercase tracking-tight transition-colors cursor-pointer bg-violet-500/10 hover:bg-violet-500/20 text-violet-200 border-violet-500/30"
+                  className="w-full flex items-center gap-2 px-3 py-2 bg-slate-900/70 hover:bg-slate-800/70 text-violet-200 border border-slate-800 hover:border-violet-700/60 rounded-xl text-xs font-medium transition-colors cursor-pointer group"
                 >
-                  Orquestador
+                  <WandSparkles size={14} className="text-violet-400 shrink-0" />
+                  <span className="truncate">Orquestador</span>
+                  <span className="ml-auto shrink-0 whitespace-nowrap text-[9px] text-violet-300 font-mono bg-violet-900/50 px-1.5 py-0.5 rounded border border-violet-700/50">experto</span>
                 </button>
                 <button
                   type="button"
                   onClick={handleManualSave}
-                  className="w-full py-1.5 bg-indigo-600/15 hover:bg-indigo-600/25 text-indigo-300 text-[10px] font-bold rounded-lg border border-indigo-500/30 uppercase tracking-tight transition-colors cursor-pointer"
+                  className="w-full flex items-center gap-2 px-3 py-2 bg-slate-900/70 hover:bg-slate-800/70 text-indigo-200 border border-slate-800 hover:border-indigo-700/60 rounded-xl text-xs font-medium transition-colors cursor-pointer group"
                 >
-                  Guardar Progreso Ahora
+                  <Save size={14} className="text-indigo-400 shrink-0" />
+                  <span className="truncate">Guardar progreso ahora</span>
+                  <span className="ml-auto shrink-0 whitespace-nowrap text-[9px] text-indigo-300 font-mono bg-indigo-900/50 px-1.5 py-0.5 rounded border border-indigo-700/50">disco</span>
                 </button>
               </div>
             </section>
@@ -2789,7 +2828,7 @@ export default function App() {
                   HITL Activo
                 </span>
               </h3>
-              <div className="bg-gradient-to-b from-violet-950/30 to-slate-900/60 rounded-xl border border-violet-800/40 p-3 space-y-2">
+              <div className="bg-violet-950/20 rounded-xl border border-violet-800/40 p-3 space-y-2">
                 <div className="flex justify-between items-center text-[11px]">
                   <span className="text-slate-400">Decisiones HITL</span>
                   <span className="text-violet-300 font-bold font-mono">{hitlProfile.totalDecisions}</span>
@@ -2798,16 +2837,16 @@ export default function App() {
                   <span className="text-slate-400">Aceptación</span>
                   <span className="text-emerald-400 font-bold font-mono">{hitlProfile.acceptanceRate}%</span>
                 </div>
-                <p className="text-[10px] text-slate-400 line-clamp-2 italic border-t border-slate-800/80 pt-1.5 leading-snug">
+                <p className="text-[10px] text-slate-300 line-clamp-2 italic border-t border-slate-800/80 pt-1.5 leading-snug">
                   "{hitlProfile.learnedProfile}"
                 </p>
                 <button
                   type="button"
                   id="btn-sidebar-hitl-open"
                   onClick={() => setIsHitlModalOpen(true)}
-                  className="w-full mt-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 bg-violet-600/20 hover:bg-violet-600/35 text-violet-300 border border-violet-500/30 rounded-lg text-xs font-medium transition-colors cursor-pointer"
+                  className="w-full mt-1 flex items-center justify-center gap-1.5 px-2.5 py-2 bg-violet-900/40 hover:bg-violet-900/60 text-violet-200 border border-violet-800/50 rounded-xl text-xs font-medium transition-colors cursor-pointer"
                 >
-                  <Brain size={13} className="text-violet-400" />
+                  <Brain size={14} className="text-violet-300" />
                   <span>Configurar Aprendizaje</span>
                 </button>
               </div>
