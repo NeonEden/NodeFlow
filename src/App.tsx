@@ -2498,6 +2498,7 @@ export default function App() {
         hasCustomApiKey={hasCustomApiKey}
         onOpenBrainDump={() => setIsBrainDumpOpen(true)}
         onOpenBridgesModal={handleOpenBridgesModal}
+        bridgesCount={bridges.length}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
       />
@@ -2578,85 +2579,12 @@ export default function App() {
               </div>
             </section>
 
-            {/* Cognitive AI & Quick Brain Dump */}
+            {/* Lienzo: lo que no vive en la barra superior (acción destructiva, lejos de las frecuentes) */}
             <section>
               <h3 className="text-[10px] uppercase tracking-widest text-slate-500 font-bold mb-2">
-                IA & Fluidez Mental
+                Lienzo
               </h3>
               <div className="flex flex-col gap-1.5">
-                <button
-                  type="button"
-                  id="btn-sidebar-braindump"
-                  onClick={() => setIsBrainDumpOpen(true)}
-                  className="w-full flex items-center justify-between px-3 py-2 bg-emerald-950/20 hover:bg-emerald-950/40 text-emerald-200 hover:text-white border border-emerald-800/40 hover:border-emerald-600/60 rounded-xl text-xs font-medium transition-colors cursor-pointer group"
-                  title="Descarga Mental Rápida (Ctrl+B)"
-                >
-                  <div className="flex items-center gap-2">
-                    <Zap size={14} className="text-emerald-400 group-hover:animate-pulse" />
-                    <span>Descarga Mental</span>
-                  </div>
-                  <span className="text-[9px] text-emerald-300 font-mono bg-emerald-900/50 px-1.5 py-0.5 rounded border border-emerald-700/50">
-                    Ctrl+B
-                  </span>
-                </button>
-
-                <button
-                  type="button"
-                  id="btn-sidebar-bridges"
-                  onClick={handleOpenBridgesModal}
-                  className="w-full flex items-center justify-between px-3 py-2 bg-violet-950/20 hover:bg-violet-950/40 text-violet-200 hover:text-white border border-violet-800/40 hover:border-violet-600/60 rounded-xl text-xs font-medium transition-colors cursor-pointer group"
-                  title="Detector de Conexiones Ocultas"
-                >
-                  <div className="flex items-center gap-2">
-                    <Network size={14} className="text-violet-400 group-hover:scale-110 transition-transform" />
-                    <span>Conexiones Ocultas</span>
-                  </div>
-                  <span className="text-[9px] text-violet-300 font-mono bg-violet-900/50 px-1.5 py-0.5 rounded border border-violet-700/50">
-                    {bridges.length > 0 ? `${bridges.length}` : 'IA'}
-                  </span>
-                </button>
-              </div>
-            </section>
-
-            {/* Section 2: Templates & Canvas Management */}
-            <section>
-              <h3 className="text-[10px] uppercase tracking-widest text-slate-500 font-bold mb-2">
-                Lienzo & Plantillas
-              </h3>
-              <div className="flex flex-col gap-1.5">
-                <button
-                  type="button"
-                  id="btn-sidebar-open-templates"
-                  onClick={() => setIsTemplatesModalOpen(true)}
-                  className="w-full flex items-center justify-between px-3 py-2 bg-slate-900/80 hover:bg-slate-800 text-slate-200 border border-slate-800 hover:border-indigo-500/40 rounded-xl text-xs font-medium transition-colors cursor-pointer"
-                >
-                  <div className="flex items-center gap-2">
-                    <LayoutTemplate size={14} className="text-indigo-400" />
-                    <span>Nuevos Núcleos de Ideas</span>
-                  </div>
-                  <span className="text-[10px] text-slate-500 bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800">
-                    7
-                  </span>
-                </button>
-
-                <button
-                  type="button"
-                  id="btn-sidebar-obsidian-export"
-                  onClick={() => {
-                    setStatesModalTab('obsidian');
-                    setIsStatesModalOpen(true);
-                  }}
-                  className="w-full flex items-center justify-between px-3 py-2 bg-purple-950/20 hover:bg-purple-950/40 text-purple-200 hover:text-white border border-purple-800/40 hover:border-purple-600/60 rounded-xl text-xs font-medium transition-colors cursor-pointer"
-                >
-                  <div className="flex items-center gap-2">
-                    <Sparkles size={14} className="text-purple-400" />
-                    <span>Exportar a Obsidian</span>
-                  </div>
-                  <span className="text-[9px] text-purple-300 font-mono bg-purple-900/50 px-1.5 py-0.5 rounded border border-purple-700/50">
-                    .md / .canvas
-                  </span>
-                </button>
-
                 <button
                   type="button"
                   id="btn-sidebar-clear-canvas"

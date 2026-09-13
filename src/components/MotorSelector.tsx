@@ -136,7 +136,7 @@ export function MotorSelector() {
           value={elegido}
           onChange={(e) => elegir(e.target.value)}
           disabled={cargando}
-          className="bg-transparent text-[11px] text-slate-200 outline-none cursor-pointer max-w-[190px]"
+          className="bg-transparent text-[11px] text-slate-200 outline-none cursor-pointer max-w-[120px] xl:max-w-[150px]"
         >
           <option value="auto:local" className="bg-slate-900">
             Automático: local{grupoActual?.donde === 'local' && nombreEfectivo ? ` (${nombreEfectivo})` : ''}

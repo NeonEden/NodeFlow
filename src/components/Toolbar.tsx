@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Sparkles,
   Combine,
@@ -22,6 +22,8 @@ import {
   Key,
   Zap,
   RefreshCw,
+  ChevronDown,
+  MoreHorizontal,
 } from 'lucide-react';
 import { MotorSelector } from './MotorSelector';
 import { ColorPickerMenu } from './ColorPickerMenu';
@@ -66,9 +68,32 @@ interface ToolbarProps {
   hasCustomApiKey?: boolean;
   onOpenBrainDump?: () => void;
   onOpenBridgesModal?: () => void;
+  bridgesCount?: number;
   searchQuery?: string;
   onSearchChange?: (q: string) => void;
 }
+
+interface MenuItemProps {
+  id?: string;
+  icon: React.ComponentType<{ size?: number; className?: string }>;
+  label: string;
+  hint?: string;
+  onClick: () => void;
+}
+
+/** Ítem de menú: icono, etiqueta y una pista corta a la derecha. */
+const MenuItemP: React.FC<MenuItemProps> = ({ id, icon: Icono, label, hint, onClick }) => (
+  <button
+    type="button"
+    id={id}
+    onClick={onClick}
+    className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-slate-800 text-slate-300 hover:text-white flex items-center gap-2 transition-colors cursor-pointer"
+  >
+    <Icono size={13} className="text-slate-400 shrink-0" />
+    <span className="truncate">{label}</span>
+    {hint && <span className="ml-auto text-[10px] font-mono text-slate-500 shrink-0">{hint}</span>}
+  </button>
+);
 
 export const Toolbar: React.FC<ToolbarProps> = ({
   canUndo,
@@ -106,9 +131,30 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   hasCustomApiKey = false,
   onOpenBrainDump,
   onOpenBridgesModal,
+  bridgesCount = 0,
   searchQuery = '',
   onSearchChange,
 }) => {
+  // Un solo menú abierto por vez; se cierra al hacer click afuera o con Escape.
+  const [menuAbierto, setMenuAbierto] = useState<'salida' | 'mas' | null>(null);
+  const refSalida = useRef<HTMLDivElement>(null);
+  const refMas = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!menuAbierto) return;
+    const alClick = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (refSalida.current?.contains(t) || refMas.current?.contains(t)) return;
+      setMenuAbierto(null);
+    };
+    const alTecla = (e: KeyboardEvent) => e.key === 'Escape' && setMenuAbierto(null);
+    document.addEventListener('mousedown', alClick);
+    document.addEventListener('keydown', alTecla);
+    return () => {
+      document.removeEventListener('mousedown', alClick);
+      document.removeEventListener('keydown', alTecla);
+    };
+  }, [menuAbierto]);
+
   // Preset quick dots from the design: Emerald, Indigo, Rose, Amber
   const quickColors = [
     { hex: '#10b981', title: 'Emerald' },
@@ -140,20 +186,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           </h1>
         </div>
 
-        {/* Autosave persistence status indicator */}
-        <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-900/70 border border-slate-800/80 text-[11px] text-slate-400">
-          {saveStatus === 'saving' ? (
-            <>
-              <Loader2 size={11} className="text-indigo-400 animate-spin" />
-              <span>Guardando...</span>
-            </>
-          ) : (
-            <>
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400/50" />
-              <span>Persistido</span>
-            </>
-          )}
-        </div>
+        {/* Estado de guardado: la barra lo muestra sólo en pantallas muy anchas; el sidebar
+            ya informa "Local Activo" y el último guardado en disco, así que acá es redundante */}
+        <span className="hidden 2xl:flex items-center gap-1.5 bg-slate-900/60 border border-slate-800 rounded-lg px-2 py-1 text-[10px] text-slate-400 font-mono">
+          <span className={`w-1.5 h-1.5 rounded-full ${saveStatus === 'saving' ? 'bg-amber-400 animate-pulse' : saveStatus === 'unsaved' ? 'bg-rose-400' : 'bg-emerald-400'}`} />
+          {saveStatus === 'saving' ? 'Guardando' : saveStatus === 'unsaved' ? 'Sin guardar' : 'Persistido'}
+        </span>
 
         {/* Quick Search Bar */}
         {onSearchChange && (
@@ -214,12 +252,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             title="Auto-organizar nodos en jerarquía limpia (evita solapamiento)"
           >
             <Network size={14} className="text-indigo-400" />
-            <span className="hidden xl:inline">Organizar</span>
+            <span className="hidden 2xl:inline">Organizar</span>
           </button>
         )}
 
         {/* Quick Color Dots */}
-        <div className="hidden xl:flex items-center gap-1.5 bg-slate-900/60 p-1 rounded-lg border border-slate-800">
+        <div className="hidden 2xl:flex items-center gap-1.5 bg-slate-900/60 p-1 rounded-lg border border-slate-800">
           {quickColors.map((qc) => {
             const isActive = edgeAppearance.color.toLowerCase() === qc.hex.toLowerCase();
             return (
@@ -246,18 +284,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         />
       </div>
 
-      {/* Right Controls: inferencia, Nodo Raíz, Hibridador IA, Síntesis, Exportar, and Profile */}
-      <div className="flex items-center gap-1.5 md:gap-2">
-        {/* Fase 12 — motor global de inferencia: un solo lugar decide dónde corre la IA */}
+      {/* Right Controls — un solo lugar por acción, agrupado y sin repetir el sidebar */}
+      <div className="flex items-center gap-1 md:gap-1.5">
+        {/* Fase 12 — motor global de inferencia */}
         <MotorSelector />
-        <button
-          type="button"
-          onClick={() => onAddNode(true)}
-          className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors border border-slate-700 text-slate-200 cursor-pointer"
-          title="Crear un nuevo nodo raíz (Ctrl+N)"
-        >
-          <Plus size={14} /> <span className="hidden sm:inline">Nodo Raíz</span>
-        </button>
 
         <button
           type="button"
@@ -271,7 +301,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           title="Descubrir sinergias y fusionar ideas seleccionadas con IA"
         >
           <Combine size={14} className={isAiProcessing ? 'animate-spin' : ''} />
-          <span>Hibridador IA</span>
+          <span className="hidden xl:inline">Hibridador IA</span>
           {selectedNodesCount >= 2 && (
             <span className="bg-indigo-900 text-indigo-200 text-[10px] px-1.5 py-0.2 rounded-full font-mono">
               {selectedNodesCount}
@@ -279,7 +309,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           )}
         </button>
 
-        {/* Brain Dump Rapid Input Button */}
         {onOpenBrainDump && (
           <button
             type="button"
@@ -289,201 +318,93 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             title="Descarga Mental Rápida: convierte notas o viñetas en un mapa completo (Ctrl+B)"
           >
             <Zap size={14} className="text-emerald-400 group-hover:animate-pulse" />
-            <span className="hidden lg:inline">Descarga Mental</span>
+            <span className="hidden 2xl:inline">Descarga</span>
           </button>
         )}
 
-        {/* Semantic Bridges (Hidden Connections) Button */}
-        {onOpenBridgesModal && (
+        {/* Salida: exportar tiene un solo punto de entrada */}
+        <div className="relative" ref={refSalida}>
           <button
             type="button"
-            id="btn-toolbar-bridges"
-            onClick={onOpenBridgesModal}
-            className="flex items-center gap-1.5 bg-violet-950/40 hover:bg-violet-900/60 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors border border-violet-500/40 text-violet-300 hover:text-white cursor-pointer group"
-            title="Detector de Conexiones Ocultas: halla sinergias no obvias entre ideas distantes"
+            id="btn-toolbar-exportar"
+            onClick={() => setMenuAbierto(menuAbierto === 'salida' ? null : 'salida')}
+            className="flex items-center gap-1.5 bg-purple-950/40 hover:bg-purple-900/60 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors border border-purple-500/40 text-purple-200 hover:text-white cursor-pointer"
+            title="Exportar el mapa: Obsidian, JSON o estados guardados"
           >
-            <Network size={14} className="text-violet-400 group-hover:scale-110 transition-transform" />
-            <span className="hidden lg:inline">Puentes</span>
+            <Download size={14} className="text-purple-400" />
+            <span className="hidden xl:inline">Exportar</span>
+            <ChevronDown size={12} className="opacity-70" />
           </button>
-        )}
-
-        {/* AI Whole-Map Synthesis */}
-        {onOpenSynthesis && (
-          <button
-            type="button"
-            onClick={onOpenSynthesis}
-            className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors border border-indigo-500/30 text-indigo-300 hover:text-white cursor-pointer"
-            title="Generar resumen ejecutivo y plan de acción de la red"
-          >
-            <Compass size={14} className="text-emerald-400" />
-            <span className="hidden md:inline">Síntesis</span>
-          </button>
-        )}
-
-        <button
-          type="button"
-          onClick={onOpenStatesModal}
-          className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors border border-slate-700 text-slate-200 cursor-pointer"
-          title="Exportar diseño JSON y administrar estados"
-        >
-          <Download size={14} /> <span className="hidden sm:inline">Exportar</span>
-        </button>
-
-        <button
-          type="button"
-          id="btn-toolbar-obsidian"
-          onClick={onOpenObsidianModal || onOpenStatesModal}
-          className="flex items-center gap-1.5 bg-purple-950/40 hover:bg-purple-900/60 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors border border-purple-500/40 text-purple-200 hover:text-white cursor-pointer"
-          title="Exportar directamente a Obsidian (.md con frontmatter o .canvas)"
-        >
-          <Sparkles size={14} className="text-purple-400" />
-          <span className="hidden md:inline">Obsidian</span>
-        </button>
-
-        {/* HITL Continuous Learning Engine Button */}
-        {onOpenHitlModal && (
-          <button
-            type="button"
-            id="btn-toolbar-hitl"
-            onClick={onOpenHitlModal}
-            className="flex items-center gap-1.5 bg-violet-950/40 hover:bg-violet-900/60 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors border border-violet-500/40 text-violet-200 hover:text-white cursor-pointer group"
-            title="Motor de Auto-Mejora y Aprendizaje Continuo (HITL Loop)"
-          >
-            <Brain size={14} className="text-violet-400 group-hover:animate-pulse" />
-            <span className="hidden md:inline">Auto-Mejora</span>
-            {hitlDecisionsCount !== undefined && (
-              <span className="px-1.5 py-0.2 bg-violet-500/20 text-violet-300 rounded-full text-[10px] font-mono border border-violet-400/30">
-                {hitlDecisionsCount}
-              </span>
-            )}
-          </button>
-        )}
-
-        {/* Templates Gallery & Dropdown */}
-        <div className="relative group">
-          <button
-            type="button"
-            id="btn-templates-menu"
-            onClick={onOpenTemplatesModal}
-            className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white px-2.5 py-1.5 rounded-lg text-xs font-medium border border-slate-800 hover:border-slate-700 transition-colors cursor-pointer"
-            title="Explorar plantillas y nuevos núcleos de ideas"
-          >
-            <LayoutTemplate size={14} className="text-indigo-400" />
-            <span className="hidden md:inline">Plantillas</span>
-          </button>
-          <div className="absolute right-0 top-full mt-1.5 w-64 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl p-1.5 hidden group-hover:block z-50 text-xs text-slate-200 max-h-96 overflow-y-auto">
-            <div className="px-2 py-1 text-[10px] uppercase font-bold text-slate-500 tracking-wider flex items-center justify-between">
-              <span>Núcleos de Ideas</span>
-              {templates && <span className="text-indigo-400 font-mono text-[9px]">{templates.length} disponibles</span>}
+          {menuAbierto === 'salida' && (
+            <div className="absolute right-0 top-full mt-1.5 w-60 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl p-1.5 z-50 text-xs">
+              <MenuItemP
+                id="btn-toolbar-obsidian"
+                icon={Sparkles}
+                label="Exportar a Obsidian"
+                hint=".md / .canvas"
+                onClick={() => { setMenuAbierto(null); (onOpenObsidianModal || onOpenStatesModal)(); }}
+              />
+              <MenuItemP
+                icon={Download}
+                label="Diseño JSON y estados"
+                onClick={() => { setMenuAbierto(null); onOpenStatesModal(); }}
+              />
             </div>
-
-            {onRefreshTemplates && (
-              <button
-                type="button"
-                id="btn-toolbar-refresh-templates"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onRefreshTemplates();
-                }}
-                disabled={isRefreshingTemplates}
-                className="w-full text-left px-2.5 py-1.5 mb-1 rounded-lg bg-indigo-950/60 hover:bg-indigo-900/90 text-indigo-300 hover:text-white border border-indigo-500/30 transition-all font-medium flex items-center justify-between cursor-pointer disabled:opacity-50 group/ref"
-                title="Generar nuevos núcleos de ideas frescas manteniendo los tópicos"
-              >
-                <span className="flex items-center gap-1.5">
-                  <RefreshCw
-                    size={12}
-                    className={`text-indigo-400 ${
-                      isRefreshingTemplates ? 'animate-spin' : 'group-hover/ref:rotate-180 duration-500'
-                    }`}
-                  />
-                  <span>{isRefreshingTemplates ? 'Generando...' : 'Refrescar Núcleos'}</span>
-                </span>
-                <Sparkles size={11} className="text-amber-400 animate-pulse" />
-              </button>
-            )}
-
-            {(templates && templates.length > 0
-              ? templates
-              : [
-                  { id: 'ai-startup', title: '🤖 Ecosistema IA', nodeCount: 5 },
-                  { id: 'saas-launch', title: '🚀 Startup SaaS B2B', nodeCount: 5 },
-                  { id: 'design-thinking', title: '💡 Design Thinking', nodeCount: 5 },
-                  { id: 'microservices', title: '⚡ Microservicios Cloud', nodeCount: 5 },
-                  { id: 'research-thesis', title: '📚 Tesis / Investigación', nodeCount: 5 },
-                  { id: 'growth-marketing', title: '📈 Growth & Marketing', nodeCount: 5 },
-                  { id: 'blank', title: '🌱 Núcleo Minimalista', nodeCount: 1 },
-                ]
-            ).map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => onSelectTemplate(t.id)}
-                className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-slate-800 transition-colors text-slate-300 hover:text-white flex items-center justify-between"
-              >
-                <span className="truncate pr-2">{t.title}</span>
-                <span className="text-[10px] text-slate-500 shrink-0">{t.nodeCount} {t.nodeCount === 1 ? 'nodo' : 'nodos'}</span>
-              </button>
-            ))}
-
-            {onOpenTemplatesModal && (
-              <>
-                <div className="my-1 border-t border-slate-800" />
-                <button
-                  type="button"
-                  onClick={onOpenTemplatesModal}
-                  className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-indigo-950/40 text-indigo-400 hover:text-indigo-300 transition-colors font-medium flex items-center gap-1.5"
-                >
-                  <LayoutTemplate size={12} />
-                  <span>Ver Galería Completa...</span>
-                </button>
-              </>
-            )}
-          </div>
+          )}
         </div>
 
-        {/* Clear All Nodes / Reset Canvas Button */}
-        <button
-          type="button"
-          id="btn-clear-canvas"
-          onClick={onOpenClearModal || onResetCanvas}
-          className="flex items-center gap-1.5 bg-rose-950/20 hover:bg-rose-950/50 text-rose-300 hover:text-rose-200 border border-rose-900/40 hover:border-rose-700/60 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer"
-          title="Borrar todos los nodos o reiniciar el lienzo"
-        >
-          <Trash2 size={13} className="text-rose-400" />
-          <span className="hidden sm:inline">Limpiar</span>
-        </button>
-
-        {/* Quick Keyboard Shortcuts Guide */}
-        {onOpenShortcuts && (
+        {/* Todo lo demás, ordenado por tema en un menú */}
+        <div className="relative" ref={refMas}>
           <button
             type="button"
-            id="btn-toolbar-shortcuts"
-            onClick={onOpenShortcuts}
-            className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white px-2.5 py-1.5 rounded-lg text-xs font-medium border border-slate-800 hover:border-slate-700 transition-colors cursor-pointer group"
-            title="Ver todos los atajos de teclado permitidos (Tecla ? o Ctrl+/)"
+            id="btn-toolbar-mas"
+            onClick={() => setMenuAbierto(menuAbierto === 'mas' ? null : 'mas')}
+            className="flex items-center gap-1 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-white px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer"
+            title="Más herramientas: inteligencia, núcleos de ideas y sistema"
           >
-            <Keyboard size={14} className="text-indigo-400 group-hover:text-indigo-300" />
-            <span className="hidden lg:inline">Atajos</span>
-            <kbd className="px-1.5 py-0.2 bg-slate-800 text-indigo-300 rounded text-[10px] font-mono border border-slate-700/80">
-              ?
-            </kbd>
+            <MoreHorizontal size={15} />
+            <span className="hidden xl:inline">Más</span>
           </button>
-        )}
+          {menuAbierto === 'mas' && (
+            <div className="absolute right-0 top-full mt-1.5 w-64 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl p-1.5 z-50 text-xs">
+              <div className="px-2 py-1 text-[10px] uppercase font-bold text-slate-500 tracking-wider">Inteligencia</div>
+              {onOpenBridgesModal && (
+                <MenuItemP id="btn-toolbar-bridges" icon={Network} label="Puentes"
+                  hint={bridgesCount > 0 ? `${bridgesCount} sinergias` : 'conexiones ocultas'}
+                  onClick={() => { setMenuAbierto(null); onOpenBridgesModal(); }} />
+              )}
+              {onOpenSynthesis && (
+                <MenuItemP icon={Compass} label="Síntesis del mapa" hint="resumen y plan"
+                  onClick={() => { setMenuAbierto(null); onOpenSynthesis(); }} />
+              )}
 
-        {/* Bring Your Own Key (BYOK) Button */}
-        {onOpenApiKeyModal && (
-          <button
-            type="button"
-            id="btn-toolbar-apikey"
-            onClick={onOpenApiKeyModal}
-            className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white px-2.5 py-1.5 rounded-lg text-xs font-medium border border-slate-800 hover:border-slate-700 transition-colors cursor-pointer group"
-            title={hasCustomApiKey ? "API Key personal activa (usando tu cuota de Gemini)" : "Configurar API Key propia (opcional)"}
-          >
-            <Key size={14} className={hasCustomApiKey ? "text-emerald-400" : "text-slate-400 group-hover:text-slate-200"} />
-            <span className="hidden xl:inline">API Key</span>
-            <span className={`w-1.5 h-1.5 rounded-full ${hasCustomApiKey ? 'bg-emerald-400' : 'bg-slate-600'}`} />
-          </button>
-        )}
+              <div className="my-1 border-t border-slate-800" />
+              <div className="px-2 py-1 text-[10px] uppercase font-bold text-slate-500 tracking-wider">Núcleos de ideas</div>
+              {onOpenTemplatesModal && (
+                <MenuItemP id="btn-templates-menu" icon={LayoutTemplate} label="Plantillas y galería"
+                  onClick={() => { setMenuAbierto(null); onOpenTemplatesModal(); }} />
+              )}
+              {onRefreshTemplates && (
+                <MenuItemP id="btn-toolbar-refresh-templates" icon={RefreshCw}
+                  label={isRefreshingTemplates ? 'Generando núcleos...' : 'Refrescar núcleos'}
+                  onClick={() => { setMenuAbierto(null); onRefreshTemplates(); }} />
+              )}
+
+              <div className="my-1 border-t border-slate-800" />
+              <div className="px-2 py-1 text-[10px] uppercase font-bold text-slate-500 tracking-wider">Sistema</div>
+              {onOpenHitlModal && (
+                <MenuItemP id="btn-toolbar-hitl" icon={Brain} label="Auto-Mejora (HITL)"
+                  hint={hitlDecisionsCount !== undefined ? String(hitlDecisionsCount) : undefined}
+                  onClick={() => { setMenuAbierto(null); onOpenHitlModal(); }} />
+              )}
+              {onOpenApiKeyModal && (
+                <MenuItemP id="btn-toolbar-apikey" icon={Key} label="API Key propia"
+                  hint={hasCustomApiKey ? 'activa' : 'sin configurar'}
+                  onClick={() => { setMenuAbierto(null); onOpenApiKeyModal(); }} />
+              )}
+            </div>
+          )}
+        </div>
 
         {/* User Account / Profile Button */}
         <div className="flex items-center border-l border-slate-800 pl-1.5 md:pl-2">
