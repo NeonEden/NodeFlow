@@ -103,6 +103,8 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
             .route("/api/hitl/reset", post(hitl_reset))
             .route("/api/ai/action", post(ai_action))
             .route("/api/ai/cache", get(ai_cache))
+            .route("/api/ai/motores", get(ai_motores))
+            .route("/api/ai/motor", post(ai_motor))
             // Fase 10 — el modelo local propone, el código valida
             .route("/api/knowledge/draft", post(knowledge_draft))
             // Fase 3 — vault en disco
@@ -1171,7 +1173,26 @@ fn cadena_por_modo(modo: Option<&str>, base: Vec<String>) -> Vec<String> {
     }
 }
 
-/// Llama a UN proveedor concreto (lo usa la cadena y también el escalado por contrato).
+/// Clave del motor: la propia del proveedor (variable de entorno o config). Nunca sale de acá.
+fn clave_del_motor(st: &AppState, m: &crate::motores::Motor) -> Option<String> {
+    match m.proveedor.as_str() {
+        "gemini" => st.env_key.clone(),
+        "openai" | "ollama" => {
+            let nombre = m.clave_ref.clone()?;
+            if let Ok(v) = std::env::var(&nombre) {
+                if !v.trim().is_empty() {
+                    return Some(v);
+                }
+            }
+            let txt = std::fs::read_to_string(st.data_dir.join("nodeflow.config.json")).ok()?;
+            let cfg: Value = serde_json::from_str(&txt).ok()?;
+            cfg[&nombre].as_str().map(|s| s.to_string()).filter(|s| !s.trim().is_empty())
+        }
+        _ => None,
+    }
+}
+
+/// Llama a UN motor concreto (el elegido globalmente o el que pida una tarea).
 async fn call_provider(
     st: &AppState,
     key: &str,
@@ -1181,12 +1202,12 @@ async fn call_provider(
     system: Option<&str>,
 ) -> Option<crate::costo::Respuesta> {
     match provider {
-        "ollama" => call_ollama(st, prompt, system).await,
+        "ollama" => call_ollama(st, None, prompt, system).await,
         "gemini" => {
             if key.is_empty() {
                 None
             } else {
-                call_gemini(st, key, prompt, schema, system).await
+                call_gemini(st, key, None, prompt, schema, system).await
             }
         }
         other => {
@@ -1202,12 +1223,15 @@ async fn call_provider(
 async fn call_provider_cached(
     st: &AppState,
     key: &str,
-    provider: &str,
+    motor: &crate::motores::Motor,
     prompt: &str,
     schema: &Value,
     system: Option<&str>,
     nodo: &str,
 ) -> Option<crate::costo::Llamada> {
+    // La caché se identifica por **motor** (proveedor@modelo): cambiar de motor no reusa nada.
+    let etiqueta = format!("{}@{}", motor.proveedor, motor.modelo);
+    let provider = etiqueta.as_str();
     let clave = crate::costo::clave_cache(nodo, prompt, provider, schema);
     if let Some(e) = st.cache.get(&clave) {
         log::info!(
@@ -1229,7 +1253,7 @@ async fn call_provider_cached(
     }
 
     let t = std::time::Instant::now();
-    let r = call_provider(st, key, provider, prompt, schema, system).await?;
+    let r = call_motor(st, key, motor, prompt, schema, system).await?;
     // Medido si el proveedor reporta `usage`; estimado —y declarado como estimado— si no.
     let (consumo, estimado) = match r.consumo.clone() {
         Some(c) => (c, false),
@@ -1268,6 +1292,142 @@ async fn call_provider_cached(
     Some(llamada)
 }
 
+/// Llama al motor elegido (o al que pida la tarea con `modo`).
+async fn call_motor(
+    st: &AppState,
+    key: &str,
+    m: &crate::motores::Motor,
+    prompt: &str,
+    schema: &Value,
+    system: Option<&str>,
+) -> Option<crate::costo::Respuesta> {
+    match m.proveedor.as_str() {
+        "ollama" => {
+            let base = m.base_url.clone().unwrap_or_else(|| "http://localhost:11434/v1".to_string());
+            call_ollama(st, Some((base, m.modelo.clone())), prompt, system).await
+        }
+        "gemini" => {
+            // La clave del WebView (BYOK) tiene prioridad sobre la del entorno.
+            let clave = if !key.trim().is_empty() { key.to_string() } else { clave_del_motor(st, m).unwrap_or_default() };
+            if clave.trim().is_empty() {
+                log::warn!("motor «{}» sin clave de API", m.id);
+                return None;
+            }
+            call_gemini(st, &clave, Some(&m.modelo), prompt, schema, system).await
+        }
+        "openai" => {
+            let Some(clave) = clave_del_motor(st, m) else {
+                log::warn!("motor «{}» sin clave de API", m.id);
+                return None;
+            };
+            let Some(base) = m.base_url.clone() else {
+                log::warn!("motor «{}» sin base_url", m.id);
+                return None;
+            };
+            call_openai(st, &base, &clave, &m.modelo, prompt, system).await
+        }
+        otro => {
+            log::warn!("proveedor desconocido en el motor «{}»: {otro}", m.id);
+            None
+        }
+    }
+}
+
+/// Catálogo real de motores: lo que el daemon local ofrece + la nube configurada.
+async fn catalogo(st: &AppState) -> Vec<crate::motores::Motor> {
+    use crate::motores::Motor;
+    let ollama_url = std::env::var("NODEFLOW_OLLAMA_URL")
+        .unwrap_or_else(|_| "http://localhost:11434/v1".to_string());
+    let raiz_ollama = ollama_url.trim_end_matches("/v1").trim_end_matches('/').to_string();
+
+    let mut v: Vec<Motor> = Vec::new();
+    match st.http.get(format!("{raiz_ollama}/api/tags")).send().await {
+        Ok(r) if r.status().is_success() => {
+            let tags: Vec<String> = r
+                .json::<Value>()
+                .await
+                .ok()
+                .and_then(|j| j["models"].as_array().map(|a| a.iter().filter_map(|m| m["name"].as_str().map(String::from)).collect()))
+                .unwrap_or_default();
+            v.extend(crate::motores::motores_de_tags(&tags, &ollama_url));
+        }
+        Ok(r) => log::warn!("Ollama /api/tags respondió HTTP {}", r.status()),
+        Err(e) => {
+            v.push(Motor {
+                id: "ollama:daemon".into(),
+                etiqueta: "Ollama no responde".into(),
+                proveedor: "ollama".into(),
+                modelo: String::new(),
+                donde: crate::motores::EN_TU_PLACA.into(),
+                base_url: Some(ollama_url.clone()),
+                disponible: false,
+                nota: Some(format!("el daemon local no responde ({e})")),
+                clave_ref: None,
+            });
+        }
+    }
+
+    // Nube: el proveedor de Gemini, con clave o sin ella (declarado, para que se vea por qué no está)
+    let con_clave = st.env_key.is_some();
+    v.push(Motor {
+        disponible: con_clave,
+        nota: (!con_clave).then(|| "falta la clave (config o .env)".to_string()),
+        ..Motor::nuevo("gemini", CANDIDATE_MODELS[0], crate::motores::NUBE_PAGA, None, None)
+    });
+
+    // Proveedores compatibles con OpenAI declarados en el config (`proveedores`).
+    if let Ok(txt) = std::fs::read_to_string(st.data_dir.join("nodeflow.config.json")) {
+        if let Ok(cfg) = serde_json::from_str::<Value>(&txt) {
+            for p in cfg["proveedores"].as_array().into_iter().flatten() {
+                let (Some(modelo), Some(base)) = (p["modelo"].as_str(), p["base_url"].as_str()) else { continue };
+                let clave_ref = p["clave_env"].as_str().map(String::from);
+                let propia = clave_ref.clone().map(|n| std::env::var(&n).is_ok()).unwrap_or(false)
+                    || p["clave_config"].as_str().and_then(|k| cfg[k].as_str()).is_some();
+                v.push(Motor {
+                    id: format!("openai:{}", p["id"].as_str().unwrap_or(modelo)),
+                    etiqueta: p["etiqueta"].as_str().map(String::from)
+                        .unwrap_or_else(|| format!("{modelo} · {}", p["id"].as_str().unwrap_or("api"))),
+                    proveedor: "openai".into(),
+                    modelo: modelo.to_string(),
+                    donde: p["donde"].as_str().unwrap_or(crate::motores::NUBE_PAGA).to_string(),
+                    base_url: Some(base.to_string()),
+                    disponible: propia,
+                    nota: (!propia).then(|| "falta la clave".to_string()),
+                    clave_ref: p["clave_config"].as_str().map(String::from).or(clave_ref),
+                });
+            }
+        }
+    }
+    v
+}
+
+/// Plan de esta llamada: catálogo real + elección guardada + `modo` opcional de la tarea.
+/// Elección efectiva del motor: la guardada por el usuario, o el modelo configurado cuando todavía
+/// no eligió (así el default es el de siempre, no uno nuevo que sorprenda).
+fn seleccion_efectiva(st: &AppState, cat: &[crate::motores::Motor]) -> Option<String> {
+    if let Some(elegido) = crate::motores::seleccionado(&st.data_dir) {
+        return Some(elegido);
+    }
+    let preferido = std::env::var("NODEFLOW_OLLAMA_MODEL")
+        .unwrap_or_else(|_| "nemotron-3-nano:30b-cloud".to_string());
+    cat.iter()
+        .find(|m| m.modelo == preferido && m.disponible)
+        .map(|m| m.id.clone())
+}
+
+async fn plan_de_motores(st: &AppState, modo: Option<&str>) -> Vec<crate::motores::Motor> {
+    let cat = catalogo(st).await;
+    let mut sel = crate::motores::seleccionado(&st.data_dir);
+    if sel.is_none() && modo.is_none() {
+        sel = seleccion_efectiva(st, &cat);
+    }
+    let plan = crate::motores::plan(&cat, sel.as_deref(), modo);
+    if plan.is_empty() {
+        log::warn!("no hay ningún motor disponible (Ollama apagado y sin clave de nube)");
+    }
+    plan
+}
+
 async fn call_model(
     st: &AppState,
     key: &str,
@@ -1277,15 +1437,50 @@ async fn call_model(
     nodo: &str,
     modo: Option<&str>,
 ) -> Option<crate::costo::Llamada> {
-    for provider in cadena_por_modo(modo, cadena_de_proveedores(st)) {
+    for m in plan_de_motores(st, modo).await {
         if let Some(llamada) =
-            call_provider_cached(st, key, &provider, prompt, schema, system, nodo).await
+            call_provider_cached(st, key, &m, prompt, schema, system, nodo).await
         {
             return Some(llamada);
         }
-        log::warn!("proveedor '{provider}' no respondió; paso al siguiente de la cadena");
+        log::warn!("el motor «{}» no respondió; no hay otro en el plan", m.id);
     }
     None
+}
+
+/// `GET /api/ai/motores` — catálogo real de motores y cuál está elegido.
+///
+/// El catálogo se arma con lo que existe en la máquina (tags del daemon de Ollama, nube configurada,
+/// proveedores compatibles con OpenAI declarados en el config) y **declara lo que falta** en vez de
+/// esconderlo: un motor sin clave o con el daemon apagado aparece como no disponible y con el motivo.
+async fn ai_motores(State(st): State<AppState>) -> impl IntoResponse {
+    let cat = catalogo(&st).await;
+    let elegido = crate::motores::seleccionado(&st.data_dir);
+    let efectivo = crate::motores::plan(&cat, seleccion_efectiva(&st, &cat).as_deref(), None)
+        .first()
+        .map(|m| m.id.clone());
+    (
+        StatusCode::OK,
+        Json(json!({
+            "ok": true,
+            "seleccionado": elegido,
+            "efectivo": efectivo,
+            "motores": cat,
+        })),
+    )
+}
+
+/// `POST /api/ai/motor` — elige el motor de **toda la app** (o `auto` para volver a la cadena).
+async fn ai_motor(State(st): State<AppState>, Json(body): Json<Value>) -> impl IntoResponse {
+    let id = body["id"].as_str();
+    match crate::motores::guardar_seleccion(&st.data_dir, id) {
+        Ok(_) => {
+            let elegido = crate::motores::seleccionado(&st.data_dir);
+            log::info!("motor de la app: {:?}", elegido.as_deref().unwrap_or("auto (cadena configurada)"));
+            (StatusCode::OK, Json(json!({ "ok": true, "seleccionado": elegido })))
+        }
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "ok": false, "error": e }))),
+    }
 }
 
 /// `GET /api/ai/cache` — el ahorro medido por la propia app: entradas, hits y tokens evitados.
@@ -1303,11 +1498,23 @@ async fn ai_cache(State(st): State<AppState>) -> impl IntoResponse {
 async fn call_gemini(
     st: &AppState,
     key: &str,
+    modelo: Option<&str>,
     prompt: &str,
     schema: &Value,
     system: Option<&str>,
 ) -> Option<crate::costo::Respuesta> {
-    for model in CANDIDATE_MODELS {
+    // El motor elegido va primero; los candidatos quedan como respaldo si ese modelo no existe.
+    let mut modelos: Vec<String> = Vec::new();
+    if let Some(m) = modelo.filter(|m| !m.trim().is_empty()) {
+        modelos.push(m.to_string());
+    }
+    for m in CANDIDATE_MODELS {
+        if !modelos.iter().any(|x| x == m) {
+            modelos.push(m.to_string());
+        }
+    }
+    for model in modelos {
+        let model = model.as_str();
         let url = format!(
             "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
         );
@@ -1353,15 +1560,24 @@ async fn call_gemini(
     None
 }
 
+/// Llama a un modelo servido por el daemon de Ollama (o por su nube gratuita, vía el daemon).
 async fn call_ollama(
     st: &AppState,
+    base_y_modelo: Option<(String, String)>,
     prompt: &str,
     system: Option<&str>,
 ) -> Option<crate::costo::Respuesta> {
-    let base = std::env::var("NODEFLOW_OLLAMA_URL")
-        .unwrap_or_else(|_| "http://localhost:11434/v1".to_string());
-    let model = std::env::var("NODEFLOW_OLLAMA_MODEL")
-        .unwrap_or_else(|_| "nemotron-3-nano:30b-cloud".to_string());
+    let base = base_y_modelo
+        .as_ref()
+        .map(|(b, _)| b.clone())
+        .unwrap_or_else(|| {
+            std::env::var("NODEFLOW_OLLAMA_URL").unwrap_or_else(|_| "http://localhost:11434/v1".to_string())
+        });
+    let model = base_y_modelo
+        .map(|(_, m)| m)
+        .unwrap_or_else(|| {
+            std::env::var("NODEFLOW_OLLAMA_MODEL").unwrap_or_else(|_| "nemotron-3-nano:30b-cloud".to_string())
+        });
     let mut messages = Vec::new();
     if let Some(s) = system {
         messages.push(json!({ "role": "system", "content": s }));
@@ -1397,6 +1613,49 @@ async fn call_ollama(
         }
         Err(e) => {
             log::warn!("Ollama error de red: {e}");
+            None
+        }
+    }
+}
+
+/// Proveedor **compatible con OpenAI**: el mismo formato para DeepSeek, vLLM, Fireworks, etc.
+/// La clave la resuelve el motor (`clave_ref`), nunca viaja al frontend.
+async fn call_openai(
+    st: &AppState,
+    base: &str,
+    clave: &str,
+    modelo: &str,
+    prompt: &str,
+    system: Option<&str>,
+) -> Option<crate::costo::Respuesta> {
+    let mut messages = Vec::new();
+    if let Some(s) = system {
+        messages.push(json!({ "role": "system", "content": s }));
+    }
+    messages.push(json!({ "role": "user", "content": prompt }));
+    let body = json!({
+        "model": modelo,
+        "messages": messages,
+        "response_format": { "type": "json_object" },
+        "temperature": 0.7
+    });
+    let url = format!("{}/chat/completions", base.trim_end_matches('/'));
+    match st.http.post(&url).bearer_auth(clave).json(&body).send().await {
+        Ok(resp) if resp.status().is_success() => {
+            let v: Value = resp.json().await.ok()?;
+            let text = v["choices"][0]["message"]["content"].as_str().unwrap_or("");
+            parse_json_text(text).map(|p| crate::costo::Respuesta {
+                valor: p,
+                modelo: modelo.to_string(),
+                consumo: crate::costo::consumo_openai(&v),
+            })
+        }
+        Ok(resp) => {
+            log::warn!("{modelo}: HTTP {} en {url}", resp.status());
+            None
+        }
+        Err(e) => {
+            log::warn!("{modelo}: error de red — {e}");
             None
         }
     }
@@ -2109,22 +2368,32 @@ Todo artefacto tiene que distinguir lo establecido de lo propuesto, y lo medido 
     // Si el experto declara su proveedor, va primero (y el resto de la cadena queda de respaldo).
     // Motivo medido: Ollama es gratis pero no aplica el schema, así que un artefacto estricto gasta
     // 50-60 s hasta que el validador lo rechaza y recién ahí escala. Lo decide el experto.
-    let mut cadena = cadena_de_proveedores(&st);
-    let preferido = exp["proveedor"]
-        .as_str()
-        .unwrap_or("")
-        .trim()
-        .to_lowercase();
+    // El plan sale del catálogo de motores. Si el experto declara su proveedor, sus motores van
+    // primero; después el motor elegido por el usuario y, al final, el resto disponible. Con tope de
+    // 3 intentos: cada escalada cuesta tokens y segundos.
+    let cat = catalogo(&st).await;
+    let mut plan: Vec<crate::motores::Motor> = Vec::new();
+    let preferido = exp["proveedor"].as_str().unwrap_or("").trim().to_lowercase();
     if !preferido.is_empty() {
-        cadena.retain(|p| p != &preferido);
-        cadena.insert(0, preferido.clone());
+        plan.extend(cat.iter().filter(|m| m.disponible && m.proveedor == preferido).cloned());
     }
-    for prov in cadena {
+    if let Some(sel) = seleccion_efectiva(&st, &cat) {
+        if let Some(m) = cat.iter().find(|m| m.id == sel && m.disponible) {
+            plan.push(m.clone());
+        }
+    }
+    for m in cat.iter().filter(|m| m.disponible) {
+        if !plan.iter().any(|x| x.id == m.id) {
+            plan.push(m.clone());
+        }
+    }
+    plan.truncate(3);
+    for m in plan {
         let t = std::time::Instant::now();
         let Some(llamada) =
-            call_provider_cached(&st, &key, &prov, &prompt, &schema, Some(&system), &id).await
+            call_provider_cached(&st, &key, &m, &prompt, &schema, Some(&system), &id).await
         else {
-            traza.push(json!({"proveedor": prov, "resultado": "sin respuesta", "ms": t.elapsed().as_millis()}));
+            traza.push(json!({"motor": m.id, "proveedor": m.proveedor, "resultado": "sin respuesta", "ms": t.elapsed().as_millis()}));
             continue;
         };
         respondio_alguno = true;
@@ -2144,7 +2413,7 @@ Todo artefacto tiene que distinguir lo establecido de lo propuesto, y lo medido 
                 p.join("\n")
             );
             if let Some(segunda) =
-                call_provider_cached(&st, &key, &prov, &reintento, &schema, Some(&system), &id).await
+                call_provider_cached(&st, &key, &m, &reintento, &schema, Some(&system), &id).await
             {
                 let p2 = crate::artefactos::validar(&tipo, &segunda.valor);
                 intentos += 1;
@@ -2165,19 +2434,19 @@ Todo artefacto tiene que distinguir lo establecido de lo propuesto, y lo medido 
         estimado_total = estimado_total || estimado;
         tokens_evitados += evitados;
         traza.push(json!({
-            "proveedor": prov, "modelo": llamada.modelo, "valido": valido,
+            "motor": m.id, "proveedor": m.proveedor, "modelo": llamada.modelo, "valido": valido,
             "problemas": p.clone(), "ms": t.elapsed().as_millis(),
             "tokens": consumo.json(), "estimado": estimado,
-            "costo_usd": st.tarifas.costo(&llamada.modelo, &prov, &consumo),
+            "costo_usd": st.tarifas.costo(&llamada.modelo, &m.proveedor, &consumo),
             "cache": if llamada.cache { "hit" } else { "miss" },
             "tokens_evitados": evitados,
         }));
         if proveedor.is_empty() || p.len() < problemas.len() {
             artefacto = v;
             problemas = p.clone();
-            proveedor = format!("{} ({prov})", llamada.modelo);
+            proveedor = format!("{} ({})", llamada.modelo, m.proveedor);
             modelo_final = llamada.modelo.clone();
-            prov_final = prov.clone();
+            prov_final = m.proveedor.clone();
         }
         if valido {
             break; // cumple el contrato: no gastamos un llamado más

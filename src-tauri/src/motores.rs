@@ -1,0 +1,232 @@
+//! Fase 12 — **selector global de motor de inferencia**.
+//!
+//! El usuario elige UN motor (dónde corre y con qué modelo) y esa elección vale para toda la app:
+//! no se configura función por función. El catálogo se arma con lo que hay de verdad en la máquina:
+//! los modelos del daemon local de Ollama (`/api/tags`), el proveedor de nube configurado y los
+//! proveedores compatibles con OpenAI declarados en `nodeflow.config.json`.
+//!
+//! Reglas de diseño:
+//! - **Nada inventado**: si un motor no está disponible (daemon apagado, sin clave), el catálogo lo
+//!   dice en vez de ofrecerlo.
+//! - **La elección persiste** en el config y la respetan la UI, la API y los tests.
+//! - **El ruteo sigue siendo determinista** (ADR 0005): se usa el motor elegido. Si falla, la acción
+//!   cae al fallback heurístico — nunca a otro modelo por sorpresa.
+
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::path::Path;
+
+/// Dónde corre el motor, de cara al usuario.
+pub const EN_TU_PLACA: &str = "local";
+pub const NUBE_GRATIS: &str = "gratis";
+pub const NUBE_PAGA: &str = "pago";
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Motor {
+    /// Identificador estable: `proveedor:modelo`.
+    pub id: String,
+    /// Nombre para mostrar.
+    pub etiqueta: String,
+    /// `ollama` | `gemini` | `openai`
+    pub proveedor: String,
+    pub modelo: String,
+    /// `local` | `gratis` | `pago`
+    pub donde: String,
+    /// Base URL para proveedores compatibles con OpenAI (Ollama `/v1`, DeepSeek, etc.).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
+    pub disponible: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nota: Option<String>,
+    /// **Nombre** de la variable de entorno o del campo del config que guarda la clave.
+    /// Nunca el valor: el catálogo que ve la UI no puede llevar credenciales.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub clave_ref: Option<String>,
+}
+
+impl Motor {
+    pub fn nuevo(proveedor: &str, modelo: &str, donde: &str, etiqueta: Option<String>, base_url: Option<String>) -> Motor {
+        Motor {
+            id: format!("{proveedor}:{modelo}"),
+            etiqueta: etiqueta.unwrap_or_else(|| match donde {
+                EN_TU_PLACA => format!("{modelo} · en tu placa"),
+                NUBE_GRATIS => format!("{modelo} · nube gratuita"),
+                _ => format!("{modelo} · nube"),
+            }),
+            proveedor: proveedor.to_string(),
+            modelo: modelo.to_string(),
+            donde: donde.to_string(),
+            base_url,
+            disponible: true,
+            nota: None,
+            clave_ref: None,
+        }
+    }
+}
+
+/// Clasifica un modelo del daemon local: los `-cloud`/`:cloud` son nube gratuita servida por el
+/// daemon; el resto corre en el hardware del usuario.
+pub fn donde_corre(nombre_modelo: &str) -> &'static str {
+    let n = nombre_modelo.to_lowercase();
+    if n.contains("-cloud") || n.contains(":cloud") {
+        NUBE_GRATIS
+    } else {
+        EN_TU_PLACA
+    }
+}
+
+/// Orden de presentación: primero lo que corre en la máquina del usuario, después la nube gratuita
+/// y al final la que se paga. Determinista, para que el catálogo no cambie de orden entre corridas.
+pub fn rango(donde: &str) -> u8 {
+    match donde {
+        EN_TU_PLACA => 0,
+        NUBE_GRATIS => 1,
+        _ => 2,
+    }
+}
+
+/// Motores que ofrece un daemon de Ollama a partir de su listado de tags.
+pub fn motores_de_tags(tags: &[String], base_url: &str) -> Vec<Motor> {
+    let mut v: Vec<Motor> = tags
+        .iter()
+        .filter(|t| !t.trim().is_empty())
+        .map(|t| Motor::nuevo("ollama", t.trim(), donde_corre(t), None, Some(base_url.to_string())))
+        .collect();
+    v.sort_by(|a, b| (rango(&a.donde), a.modelo.clone()).cmp(&(rango(&b.donde), b.modelo.clone())));
+    v
+}
+
+/// Plan de ejecución para una llamada: **un solo motor**, el elegido.
+///
+/// `modo` (opcional, por tarea) restringe el grupo: `local` → sólo hardware del usuario,
+/// `nube` → nube gratuita o paga. Dentro del grupo manda el motor seleccionado si pertenece a él.
+pub fn plan(catalogo: &[Motor], seleccionado: Option<&str>, modo: Option<&str>) -> Vec<Motor> {
+    let grupo: Option<Vec<&str>> = match modo.map(|m| m.trim().to_lowercase()).as_deref() {
+        Some("local") | Some("edge") => Some(vec![EN_TU_PLACA]),
+        Some("nube") | Some("cloud") => Some(vec![NUBE_GRATIS, NUBE_PAGA]),
+        _ => None,
+    };
+    let disponible = |m: &&Motor| m.disponible && grupo.as_ref().map(|g| g.contains(&m.donde.as_str())).unwrap_or(true);
+
+    // 1) el elegido, si existe y entra en el grupo pedido
+    if let Some(id) = seleccionado {
+        if let Some(m) = catalogo.iter().find(|m| m.id == id).filter(disponible) {
+            return vec![m.clone()];
+        }
+    }
+    // 2) el primero disponible del grupo (determinista por orden del catálogo)
+    catalogo.iter().find(disponible).cloned().into_iter().collect()
+}
+
+/// Lee la selección guardada (`motor_activo`) del config de la app.
+pub fn seleccionado(data_dir: &Path) -> Option<String> {
+    let txt = std::fs::read_to_string(data_dir.join("nodeflow.config.json")).ok()?;
+    let v: Value = serde_json::from_str(&txt).ok()?;
+    v["motor_activo"].as_str().map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+}
+
+/// Guarda la selección **conservando el resto del config** (la clave de API incluida).
+/// `None` o "auto" borra la selección y vuelve a la cadena configurada.
+pub fn guardar_seleccion(data_dir: &Path, id: Option<&str>) -> Result<(), String> {
+    let ruta = data_dir.join("nodeflow.config.json");
+    let mut cfg: Value = std::fs::read_to_string(&ruta)
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+    let obj = cfg.as_object_mut().ok_or_else(|| "el config no es un objeto JSON".to_string())?;
+    match id.map(|s| s.trim()).filter(|s| !s.is_empty() && *s != "auto") {
+        Some(id) => {
+            obj.insert("motor_activo".into(), Value::String(id.to_string()));
+        }
+        None => {
+            obj.remove("motor_activo");
+        }
+    }
+    let txt = serde_json::to_string_pretty(&cfg).map_err(|e| e.to_string())?;
+    std::fs::write(&ruta, txt).map_err(|e| format!("no pude escribir {}: {e}", ruta.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cat() -> Vec<Motor> {
+        let mut v = motores_de_tags(
+            &["granite3.3:2b".into(), "qwen2.5vl:7b".into(), "nemotron-3-nano:30b-cloud".into()],
+            "http://localhost:11434/v1",
+        );
+        v.push(Motor::nuevo("gemini", "gemini-3.6-flash", NUBE_PAGA, None, None));
+        v
+    }
+
+    #[test]
+    fn clasifica_cloud_y_placa() {
+        assert_eq!(donde_corre("nemotron-3-nano:30b-cloud"), NUBE_GRATIS);
+        assert_eq!(donde_corre("glm-5.3:cloud"), NUBE_GRATIS);
+        assert_eq!(donde_corre("granite3.3:2b"), EN_TU_PLACA);
+        assert_eq!(donde_corre("qwen2.5vl:7b"), EN_TU_PLACA);
+    }
+
+    #[test]
+    fn el_catalogo_marca_donde_corre_cada_modelo() {
+        let c = cat();
+        let ids: Vec<&str> = c.iter().map(|m| m.id.as_str()).collect();
+        assert!(ids.contains(&"ollama:granite3.3:2b"));
+        assert!(ids.contains(&"ollama:nemotron-3-nano:30b-cloud"));
+        assert_eq!(c.iter().find(|m| m.modelo == "granite3.3:2b").unwrap().donde, EN_TU_PLACA);
+        assert_eq!(c.iter().find(|m| m.modelo == "nemotron-3-nano:30b-cloud").unwrap().donde, NUBE_GRATIS);
+    }
+
+    #[test]
+    fn sin_seleccion_usa_el_primero_del_catalogo() {
+        let c = cat();
+        let p = plan(&c, None, None);
+        assert_eq!(p.len(), 1);
+        assert_eq!(p[0].id, c[0].id);
+    }
+
+    #[test]
+    fn el_elegido_gana_si_esta_disponible() {
+        let c = cat();
+        let p = plan(&c, Some("gemini:gemini-3.6-flash"), None);
+        assert_eq!(p[0].modelo, "gemini-3.6-flash");
+    }
+
+    #[test]
+    fn el_modo_restringe_el_grupo_y_el_elegido_no_lo_viola() {
+        let c = cat();
+        // Elegido en la nube, pero la tarea pide local: se usa un motor de la placa.
+        let p = plan(&c, Some("gemini:gemini-3.6-flash"), Some("local"));
+        assert_eq!(p[0].donde, EN_TU_PLACA);
+        // Elegido en la placa, pero la tarea pide nube: se usa uno de nube.
+        let p = plan(&c, Some("ollama:granite3.3:2b"), Some("nube"));
+        assert_ne!(p[0].donde, EN_TU_PLACA);
+    }
+
+    #[test]
+    fn un_motor_no_disponible_no_se_elige() {
+        let mut c = cat();
+        c.push(Motor { disponible: false, ..Motor::nuevo("ollama", "fantasma:7b", EN_TU_PLACA, None, None) });
+        let p = plan(&c, Some("ollama:fantasma:7b"), Some("local"));
+        assert_ne!(p[0].modelo, "fantasma:7b", "no debe elegir un motor marcado como no disponible");
+    }
+
+    #[test]
+    fn guardar_y_leer_la_seleccion_conserva_el_resto_del_config() {
+        let dir = std::env::temp_dir().join(format!("nf-motores-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let ruta = dir.join("nodeflow.config.json");
+        std::fs::write(&ruta, r#"{"gemini_api_key":"NO_TOCAR","vault_path":"X"}"#).unwrap();
+
+        guardar_seleccion(&dir, Some("ollama:granite3.3:2b")).unwrap();
+        assert_eq!(seleccionado(&dir).as_deref(), Some("ollama:granite3.3:2b"));
+        let txt = std::fs::read_to_string(&ruta).unwrap();
+        assert!(txt.contains("NO_TOCAR"), "la clave de API no se toca");
+        assert!(txt.contains("vault_path"), "el resto del config sigue ahí");
+
+        guardar_seleccion(&dir, None).unwrap();
+        assert_eq!(seleccionado(&dir), None);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+}

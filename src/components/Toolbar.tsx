@@ -23,7 +23,7 @@ import {
   Zap,
   RefreshCw,
 } from 'lucide-react';
-import { InferenceSwitch } from './InferenceSwitch';
+import { MotorSelector } from './MotorSelector';
 import { ColorPickerMenu } from './ColorPickerMenu';
 import { EdgeAppearance, UserProfile } from '../types';
 import { TemplateDefinition } from '../data/templates';
@@ -248,8 +248,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
       {/* Right Controls: inferencia, Nodo Raíz, Hibridador IA, Síntesis, Exportar, and Profile */}
       <div className="flex items-center gap-1.5 md:gap-2">
-        {/* Fase 11 — dónde corre la inferencia de esta tarea (local / auto / nube) */}
-        <InferenceSwitch />
+        {/* Fase 12 — motor global de inferencia: un solo lugar decide dónde corre la IA */}
+        <MotorSelector />
         <button
           type="button"
           onClick={() => onAddNode(true)}

@@ -21,20 +21,13 @@ export async function postAiAction(payload: Record<string, any>): Promise<Respon
     // Gracefully handle any localStorage access restriction in sandboxed iframes
   }
 
-  // Fase 11: el modo de inferencia elegido en el interruptor viaja con cada acción.
-  let modo = 'auto';
-  try {
-    const guardado = localStorage.getItem('nodeflow_modo_inferencia');
-    if (guardado === 'local' || guardado === 'nube') modo = guardado;
-  } catch {
-    /* almacenamiento restringido: se usa la cadena configurada */
-  }
-
+  // Fase 12: el motor lo decide el selector global (se guarda en el backend), así que la petición
+  // no lleva preferencia: todas las funciones de la app usan el mismo motor elegido.
   const inicio = performance.now();
   const respuesta = await fetch(apiUrl('/api/ai/action'), {
     method: 'POST',
     headers,
-    body: JSON.stringify({ ...payload, modo }),
+    body: JSON.stringify(payload),
   });
 
   // Traza real de la corrida para el interruptor (proveedor, tokens, costo, caché y latencia).
@@ -47,7 +40,7 @@ export async function postAiAction(payload: Record<string, any>): Promise<Respon
         window.dispatchEvent(
           new CustomEvent('nodeflow:traza', {
             detail: {
-              modo: d?.modo ?? modo,
+              modo: d?.modo ?? 'global',
               proveedor: uso.proveedor ?? d?.source ?? 'sin respuesta',
               modelo: uso.modelo ?? d?.modelUsed ?? '',
               ms: Math.round(uso.ms ?? performance.now() - inicio),

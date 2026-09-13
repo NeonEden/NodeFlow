@@ -25,7 +25,8 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Versión del contrato de la caché. Subila para invalidar todas las entradas guardadas.
-pub const CACHE_VER: u32 = 1;
+/// v2: la clave ahora incluye el **motor** (proveedor@modelo), no sólo el proveedor.
+pub const CACHE_VER: u32 = 2;
 
 /// Tope de entradas en disco (una entrada ≈ un artefacto generado).
 pub const CACHE_TOPE: usize = 300;
@@ -195,8 +196,15 @@ impl Tarifas {
         mejor.map(|(_, t)| t)
     }
 
+    /// `proveedor` puede venir como `proveedor@modelo` (la etiqueta del motor): alcanza con que
+    /// empiece con un proveedor declarado como gratuito. Sin esto, un motor de Ollama quedaba con
+    /// costo `None` en vez de `$0`.
     pub fn es_gratis(&self, proveedor: &str) -> bool {
-        self.gratis.iter().any(|p| proveedor.to_lowercase() == *p)
+        let p = proveedor.to_lowercase();
+        self.gratis.iter().any(|g| {
+            let g = g.to_lowercase();
+            p == g || p.starts_with(&format!("{g}@")) || p.starts_with(&format!("{g}:"))
+        })
     }
 
     /// Costo en USD. `None` = no declarado (ni tarifa ni gratis).
@@ -552,6 +560,18 @@ mod tests {
         assert!(c.get("k0").is_none(), "la más vieja se fue");
         assert!(c.get("k3").is_some(), "la última entró");
         let _ = std::fs::remove_file(&ruta);
+    }
+
+    #[test]
+    fn un_motor_gratuito_cuesta_cero_aunque_la_etiqueta_lleve_el_modelo() {
+        let mut tarifas = Tarifas::default();
+        tarifas.gratis = vec!["ollama".to_string()];
+        assert!(tarifas.es_gratis("ollama"));
+        assert!(tarifas.es_gratis("ollama@granite3.3:2b"));
+        assert!(tarifas.es_gratis("OLLAMA@qwen2.5vl:7b"));
+        assert!(!tarifas.es_gratis("gemini@gemini-3.6-flash"));
+        let c = Consumo { prompt: 1000, completion: 1000 };
+        assert_eq!(tarifas.costo("granite3.3:2b", "ollama@granite3.3:2b", &c), Some(0.0));
     }
 
     #[test]
