@@ -19,3 +19,9 @@ npm-debug.log*
 # Datos locales de la app (solo en la raíz; src/data/ es código fuente)
 /data/
 vp.js
+
+# Voz local (Kokoro): modelo y entorno, fuera del repo (~340 MB)
+tools/tts/.venv/
+tools/tts/*.onnx
+tools/tts/voices-*.bin
+tools/tts/*.wav
