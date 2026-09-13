@@ -140,14 +140,14 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
             .with_state(state)
             .layer(cors);
 
-        match tokio::net::TcpListener::bind(("127.0.0.1", API_PORT)).await {
+        match bind_con_reintentos().await {
             Ok(listener) => {
                 log::info!("NodeFlow API escuchando en http://127.0.0.1:{API_PORT}");
                 if let Err(e) = axum::serve(listener, app).await {
                     log::error!("Servidor API detenido: {e}");
                 }
             }
-            Err(e) => log::error!("No pude bindear el puerto {API_PORT}: {e}"),
+            Err(e) => log::error!("No pude bindear el puerto {API_PORT} tras los reintentos: {e}"),
         }
     });
 }
@@ -2272,4 +2272,41 @@ mod tests_modo {
         assert_eq!(cadena_por_modo(Some(" LOCAL "), vec![]), v(&["ollama"]));
         assert_eq!(cadena_por_modo(Some("Cloud"), vec![]), v(&["gemini"]));
     }
+}
+
+/// Intentos y espera del bind del puerto de la API.
+const INTENTOS_BIND: u32 = 20;
+const ESPERA_BIND_SEG: u64 = 6;
+
+/// Bindeo con reintentos.
+///
+/// Al cerrar la app y reabrirla enseguida, Windows deja el puerto en `TIME_WAIT` (medido: 110 s
+/// hasta quedar libre) y el bind falla con `os error 10048`. Con un solo intento la ventana
+/// quedaba abierta pero **sin API**: parecía un cuelgue de la UI. Ahora reintenta hasta 2 minutos,
+/// que cubre la espera medida, y deja el motivo en el log si igual no puede.
+async fn bind_con_reintentos() -> std::io::Result<tokio::net::TcpListener> {
+    let mut ultimo: Option<std::io::Error> = None;
+    for intento in 1..=INTENTOS_BIND {
+        match tokio::net::TcpListener::bind(("127.0.0.1", API_PORT)).await {
+            Ok(listener) => {
+                if intento > 1 {
+                    log::info!(
+                        "API: puerto {API_PORT} liberado en el intento {intento} ({}s de espera)",
+                        ((intento - 1) as u64) * ESPERA_BIND_SEG
+                    );
+                }
+                return Ok(listener);
+            }
+            Err(e) => {
+                if intento == 1 {
+                    log::warn!(
+                        "puerto {API_PORT} ocupado ({e}); reintento cada {ESPERA_BIND_SEG}s hasta {INTENTOS_BIND} veces (TIME_WAIT tras cerrar la app)"
+                    );
+                }
+                ultimo = Some(e);
+                tokio::time::sleep(std::time::Duration::from_secs(ESPERA_BIND_SEG)).await;
+            }
+        }
+    }
+    Err(ultimo.unwrap_or_else(|| std::io::Error::other("bind: sin intentos ejecutados")))
 }
