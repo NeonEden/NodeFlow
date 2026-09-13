@@ -2760,11 +2760,19 @@ export default function App() {
               <div className="bg-violet-950/20 rounded-xl border border-violet-800/40 p-3 space-y-2">
                 <div className="flex justify-between items-center text-[11px]">
                   <span className="text-slate-400">Decisiones HITL</span>
-                  <span className="text-violet-300 font-bold font-mono">{hitlProfile.totalDecisions}</span>
+                  <span className="text-violet-200 font-bold font-mono">{hitlProfile.totalDecisions}</span>
                 </div>
                 <div className="flex justify-between items-center text-[11px]">
                   <span className="text-slate-400">Aceptación</span>
                   <span className="text-emerald-400 font-bold font-mono">{hitlProfile.acceptanceRate}%</span>
+                </div>
+                <div className="flex justify-between items-center text-[11px]">
+                  <span className="text-slate-400">Aprendizaje automático</span>
+                  {hitlProfile.autoAprendizaje?.activo ? (
+                    <span className="text-violet-200 font-mono">cada {hitlProfile.autoAprendizaje.cada}</span>
+                  ) : (
+                    <span className="text-slate-500 font-mono">apagado</span>
+                  )}
                 </div>
                 <p className="text-[10px] text-slate-300 line-clamp-2 italic border-t border-slate-800/80 pt-1.5 leading-snug">
                   "{hitlProfile.learnedProfile}"
@@ -2775,7 +2783,7 @@ export default function App() {
                   onClick={() => setIsHitlModalOpen(true)}
                   className="w-full mt-1 flex items-center justify-center gap-1.5 px-2.5 py-2 bg-violet-900/40 hover:bg-violet-900/60 text-violet-200 border border-violet-800/50 rounded-xl text-xs font-medium transition-colors cursor-pointer"
                 >
-                  <Brain size={14} className="text-violet-300" />
+                  <Brain size={14} className="text-violet-400" />
                   <span>Configurar Aprendizaje</span>
                 </button>
               </div>
@@ -2789,7 +2797,7 @@ export default function App() {
                     <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" fill="none" strokeWidth="2" className="text-indigo-400">
                       <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
                     </svg>
-                    <span className="text-[10px] font-bold text-white uppercase tracking-tighter">AI Copilot</span>
+                    <span className="text-[10px] font-bold text-slate-200 uppercase tracking-tighter">AI Copilot</span>
                   </div>
                   <p className="text-[10px] text-slate-400 leading-normal mb-2.5 italic">
                     "Selecciona ideas y descubre sinergias con la IA, o genera una síntesis global de toda la red."

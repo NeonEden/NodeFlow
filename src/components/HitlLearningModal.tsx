@@ -16,7 +16,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { UserHitlProfile, FeedbackEvent } from '../types';
-import { updateHitlProfile, recalibrateHitlProfile, resetHitlProfile } from '../services/hitlService';
+import { updateHitlProfile, recalibrateHitlProfile, resetHitlProfile, updateHitlAuto } from '../services/hitlService';
 
 interface HitlLearningModalProps {
   isOpen: boolean;
@@ -38,6 +38,7 @@ export const HitlLearningModal: React.FC<HitlLearningModalProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [isRecalibrating, setIsRecalibrating] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
+  const [isAutoSaving, setIsAutoSaving] = useState(false);
 
   // Sync state if profile prop changes
   React.useEffect(() => {
@@ -65,13 +66,13 @@ export const HitlLearningModal: React.FC<HitlLearningModalProps> = ({
 
   const handleRecalibrate = async () => {
     setIsRecalibrating(true);
-    showToast('Analizando telemetría y recalibrando perfil con Gemini...', 'info');
+    showToast('Analizando telemetría y corrigiendo tu perfil con IA...', 'info');
     try {
       const updated = await recalibrateHitlProfile();
       if (updated) {
         onProfileUpdated(updated);
         setEditedPrompt(updated.learnedProfile);
-        showToast('¡Perfil cognitivo recalibrado con éxito por Gemini!', 'success');
+        showToast('¡Perfil cognitivo corregido con IA!', 'success');
       } else {
         showToast('No se pudo recalibrar el perfil', 'error');
       }
@@ -79,6 +80,35 @@ export const HitlLearningModal: React.FC<HitlLearningModalProps> = ({
       showToast('Error al recalibrar perfil', 'error');
     } finally {
       setIsRecalibrating(false);
+    }
+  };
+
+  // Aprendizaje automático: el perfil se corrige solo cada N decisiones (esto es un interruptor,
+  // no una acción: la idea del motor de auto-mejora es que no tengas que apretar nada).
+  const auto = profile.autoAprendizaje ?? { activo: false, cada: 10, ultimaMs: null };
+
+  const hace = (ms?: number | null) => {
+    if (!ms) return '';
+    const min = Math.floor((Date.now() - ms) / 60000);
+    if (min < 1) return 'recién';
+    if (min < 60) return `hace ${min} min`;
+    const h = Math.floor(min / 60);
+    return h < 24 ? `hace ${h} h` : `hace ${Math.floor(h / 24)} d`;
+  };
+
+  const handleAuto = async (activo: boolean, cada: number) => {
+    setIsAutoSaving(true);
+    try {
+      const updated = await updateHitlAuto(activo, cada);
+      if (updated) {
+        onProfileUpdated(updated);
+        showToast(
+          activo ? `Aprendizaje automático activado: cada ${cada} decisiones` : 'Aprendizaje automático desactivado',
+          'success'
+        );
+      }
+    } finally {
+      setIsAutoSaving(false);
     }
   };
 
@@ -108,14 +138,14 @@ export const HitlLearningModal: React.FC<HitlLearningModalProps> = ({
         className="relative w-full max-w-3xl bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-5 border-b border-slate-800 bg-slate-950/60">
+        <div className="flex items-center justify-between px-6 py-5 border-b border-slate-800 bg-slate-900">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-violet-500/20 border border-violet-500/30 flex items-center justify-center text-violet-400">
               <Brain className="w-6 h-6" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-lg font-semibold text-white">Motor de Auto-Mejora y Aprendizaje Continuo</h2>
+                <h2 className="text-lg font-semibold text-slate-200">Motor de Auto-Mejora y Aprendizaje Continuo</h2>
                 <span className="px-2 py-0.5 text-xs font-semibold uppercase tracking-wider bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-full flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                   HITL Activo
@@ -129,7 +159,7 @@ export const HitlLearningModal: React.FC<HitlLearningModalProps> = ({
           <button
             id="close-hitl-modal-btn"
             onClick={onClose}
-            className="p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
+            className="p-2 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-800 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -137,39 +167,39 @@ export const HitlLearningModal: React.FC<HitlLearningModalProps> = ({
 
         {/* Metrics Ribbon */}
         <div className="grid grid-cols-3 gap-3 px-6 py-4 bg-slate-900/90 border-b border-slate-800/80">
-          <div className="flex items-center gap-3 p-3 bg-slate-950/40 border border-slate-800/80 rounded-xl">
+          <div className="flex items-center gap-3 p-3 bg-slate-900/70 border border-slate-800/80 rounded-xl">
             <div className="p-2 bg-indigo-500/10 rounded-lg text-indigo-400">
               <History className="w-4 h-4" />
             </div>
             <div>
-              <div className="text-xl font-bold text-white">{profile.totalDecisions}</div>
+              <div className="text-xl font-bold text-slate-200">{profile.totalDecisions}</div>
               <div className="text-[11px] text-slate-400">Decisiones HITL</div>
             </div>
           </div>
 
-          <div className="flex items-center gap-3 p-3 bg-slate-950/40 border border-slate-800/80 rounded-xl">
+          <div className="flex items-center gap-3 p-3 bg-slate-900/70 border border-slate-800/80 rounded-xl">
             <div className="p-2 bg-emerald-500/10 rounded-lg text-emerald-400">
               <CheckCircle2 className="w-4 h-4" />
             </div>
             <div>
-              <div className="text-xl font-bold text-white">{profile.acceptanceRate}%</div>
+              <div className="text-xl font-bold text-slate-200">{profile.acceptanceRate}%</div>
               <div className="text-[11px] text-slate-400">Tasa de Aceptación</div>
             </div>
           </div>
 
-          <div className="flex items-center gap-3 p-3 bg-slate-950/40 border border-slate-800/80 rounded-xl">
+          <div className="flex items-center gap-3 p-3 bg-slate-900/70 border border-slate-800/80 rounded-xl">
             <div className="p-2 bg-purple-500/10 rounded-lg text-purple-400">
               <Database className="w-4 h-4" />
             </div>
             <div>
-              <div className="text-sm font-semibold text-white">data/user_preferences.json</div>
+              <div className="text-sm font-semibold text-slate-200">user_preferences.json</div>
               <div className="text-[11px] text-slate-400">Persistencia RAG Local</div>
             </div>
           </div>
         </div>
 
         {/* Navigation Tabs */}
-        <div className="flex border-b border-slate-800 px-6 bg-slate-950/30">
+        <div className="flex border-b border-slate-800 px-6 bg-slate-900">
           <button
             id="hitl-tab-profile"
             onClick={() => setActiveTab('profile')}
@@ -204,7 +234,7 @@ export const HitlLearningModal: React.FC<HitlLearningModalProps> = ({
             }`}
           >
             <Sparkles className="w-4 h-4" />
-            Inyección de Prompt Gemini
+            Inyección de Contexto en el Prompt
           </button>
         </div>
 
@@ -221,18 +251,18 @@ export const HitlLearningModal: React.FC<HitlLearningModalProps> = ({
                   rows={4}
                   value={editedPrompt}
                   onChange={(e) => setEditedPrompt(e.target.value)}
-                  className="w-full bg-slate-950/80 border border-slate-700/80 rounded-xl p-3.5 text-sm text-slate-200 focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 transition-all font-mono leading-relaxed"
+                  className="w-full bg-slate-900 border border-slate-700/80 rounded-xl p-3.5 text-sm text-slate-200 focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 transition-all font-mono leading-relaxed"
                   placeholder="Escribe el perfil de estilo para la IA..."
                 />
                 <p className="text-xs text-slate-400 mt-1.5 flex items-center gap-1.5">
                   <Info className="w-3.5 h-3.5 text-violet-400" />
-                  Este texto se inyecta en el <code className="text-violet-300">systemInstruction</code> de cada ramificación, exploración e hibridación con Gemini.
+                  Este texto se inyecta en el <code className="text-violet-200">systemInstruction</code> de cada ramificación, exploración e hibridación.
                 </p>
               </div>
 
               {/* Curated taxonomy chips */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="bg-slate-950/50 border border-slate-800 p-4 rounded-xl">
+                <div className="bg-slate-900/70 border border-slate-800 p-4 rounded-xl">
                   <div className="flex items-center gap-2 mb-2.5 text-xs font-semibold text-emerald-400 uppercase tracking-wider">
                     <CheckCircle2 className="w-4 h-4" />
                     Conceptos Aceptados Frecuentemente
@@ -241,7 +271,7 @@ export const HitlLearningModal: React.FC<HitlLearningModalProps> = ({
                     {profile.categoriesAccepted.map((cat, idx) => (
                       <span
                         key={idx}
-                        className="px-2.5 py-1 bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 rounded-md text-xs"
+                        className="px-2.5 py-1 bg-emerald-500/10 text-emerald-200 border border-emerald-500/20 rounded-md text-xs"
                       >
                         {cat}
                       </span>
@@ -249,7 +279,7 @@ export const HitlLearningModal: React.FC<HitlLearningModalProps> = ({
                   </div>
                 </div>
 
-                <div className="bg-slate-950/50 border border-slate-800 p-4 rounded-xl">
+                <div className="bg-slate-900/70 border border-slate-800 p-4 rounded-xl">
                   <div className="flex items-center gap-2 mb-2.5 text-xs font-semibold text-rose-400 uppercase tracking-wider">
                     <XCircle className="w-4 h-4" />
                     Patrones Descartados por el Usuario
@@ -258,13 +288,60 @@ export const HitlLearningModal: React.FC<HitlLearningModalProps> = ({
                     {profile.topicsRejected.map((top, idx) => (
                       <span
                         key={idx}
-                        className="px-2.5 py-1 bg-rose-500/10 text-rose-300 border border-rose-500/20 rounded-md text-xs"
+                        className="px-2.5 py-1 bg-rose-500/10 text-rose-200 border border-rose-500/20 rounded-md text-xs"
                       >
                         {top}
                       </span>
                     ))}
                   </div>
                 </div>
+              </div>
+
+              {/* Interruptor: la app aprende de lo que aceptás y descartás sin que aprietes nada */}
+              <div className="bg-slate-900/70 border border-slate-700 rounded-xl p-4 flex items-start justify-between gap-4">
+                <div className="flex items-start gap-3">
+                  <div className="p-2 bg-violet-500/10 rounded-lg text-violet-400 shrink-0">
+                    <Brain className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="text-sm font-medium text-slate-200">Aprendizaje automático</div>
+                    <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">
+                      Cada{' '}
+                      <select
+                        id="hitl-auto-cada"
+                        value={auto.cada}
+                        onChange={(e) => handleAuto(auto.activo, Number(e.target.value))}
+                        disabled={isAutoSaving}
+                        className="bg-slate-900 border border-slate-700 rounded px-1 py-0.5 text-xs text-slate-200 outline-none focus:border-violet-500"
+                      >
+                        {[5, 10, 25, 50].map((n) => (
+                          <option key={n} value={n} className="bg-slate-900">{n}</option>
+                        ))}
+                      </select>{' '}
+                      decisiones, relee lo que aceptaste, lo que borraste y lo que te interesó, y corrige
+                      tu perfil solo. Sin botones.
+                      {auto.ultimaMs ? ` Última corrección: ${hace(auto.ultimaMs)}.` : ''}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  id="hitl-auto-switch"
+                  role="switch"
+                  aria-checked={auto.activo}
+                  onClick={() => handleAuto(!auto.activo, auto.cada)}
+                  disabled={isAutoSaving}
+                  title={auto.activo ? 'Aprendizaje automático encendido' : 'Encender el aprendizaje automático'}
+                  className={`relative shrink-0 rounded-full border transition-colors cursor-pointer ${
+                    auto.activo ? 'bg-emerald-500/80 border-emerald-400/60' : 'bg-slate-700 border-slate-600'
+                  } disabled:opacity-50`}
+                  style={{ width: 44, height: 24 }}
+                >
+                  <span
+                    className="absolute rounded-full bg-white shadow transition-all"
+                    style={{ width: 18, height: 18, top: 2, left: auto.activo ? 23 : 2 }}
+                  />
+                </button>
               </div>
 
               {/* Action buttons */}
@@ -286,7 +363,7 @@ export const HitlLearningModal: React.FC<HitlLearningModalProps> = ({
                     className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-medium transition-colors border border-slate-700 flex items-center gap-2"
                   >
                     {isRecalibrating ? <RefreshCw className="w-3.5 h-3.5 animate-spin text-violet-400" /> : <Sparkles className="w-3.5 h-3.5 text-violet-400" />}
-                    Recalibrar Perfil con Gemini
+                    Corregir perfil con IA
                   </button>
                 </div>
 
@@ -294,7 +371,7 @@ export const HitlLearningModal: React.FC<HitlLearningModalProps> = ({
                   id="hitl-reset-btn"
                   onClick={handleReset}
                   disabled={isResetting}
-                  className="px-3 py-2 text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 rounded-xl text-xs transition-colors flex items-center gap-1.5"
+                  className="px-3 py-2 text-rose-400 hover:text-rose-200 hover:bg-rose-500/10 rounded-xl text-xs transition-colors flex items-center gap-1.5"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
                   Restablecer
@@ -320,7 +397,7 @@ export const HitlLearningModal: React.FC<HitlLearningModalProps> = ({
                   {profile.recentFeedback.map((event: FeedbackEvent) => (
                     <div
                       key={event.id}
-                      className="p-4 bg-slate-950/60 border border-slate-800/90 rounded-xl space-y-2.5 text-xs"
+                      className="p-4 bg-slate-900 border border-slate-800/90 rounded-xl space-y-2.5 text-xs"
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
@@ -369,7 +446,7 @@ export const HitlLearningModal: React.FC<HitlLearningModalProps> = ({
                             </span>
                             <div className="flex flex-wrap gap-1">
                               {event.human_decision.accepted.map((acc, i) => (
-                                <span key={i} className="px-1.5 py-0.5 bg-emerald-500/10 text-emerald-300 rounded text-[11px]">
+                                <span key={i} className="px-1.5 py-0.5 bg-emerald-500/10 text-emerald-200 rounded text-[11px]">
                                   {acc}
                                 </span>
                               ))}
@@ -384,7 +461,7 @@ export const HitlLearningModal: React.FC<HitlLearningModalProps> = ({
                             </span>
                             <div className="flex flex-wrap gap-1">
                               {event.human_decision.rejected.map((rej, i) => (
-                                <span key={i} className="px-1.5 py-0.5 bg-rose-500/10 text-rose-300 rounded text-[11px]">
+                                <span key={i} className="px-1.5 py-0.5 bg-rose-500/10 text-rose-200 rounded text-[11px]">
                                   {rej}
                                 </span>
                               ))}
@@ -417,7 +494,7 @@ export const HitlLearningModal: React.FC<HitlLearningModalProps> = ({
           {activeTab === 'systemPrompt' && (
             <div className="space-y-4">
               <p className="text-xs text-slate-400">
-                Así es exactamente como el backend inyecta la afinación continua de tu curaduría dentro del <code className="text-violet-300">systemInstruction</code> para las llamadas a Gemini:
+                Así es exactamente como el backend inyecta la afinación continua de tu curaduría dentro del <code className="text-violet-200">systemInstruction</code> para las llamadas a la IA:
               </p>
               <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 font-mono text-xs text-emerald-400/90 whitespace-pre-wrap leading-relaxed">
 {`Eres el motor cognitivo y analítico de NodeFlow con arquitectura HITL (Human-in-the-Loop Continuous Learning).
@@ -440,7 +517,7 @@ REGLAS DE GENERACIÓN ESTRICTAS:
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-slate-800 bg-slate-950/60 flex items-center justify-between text-xs text-slate-400">
+        <div className="px-6 py-4 border-t border-slate-800 bg-slate-900 flex items-center justify-between text-xs text-slate-400">
           <div className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-emerald-400" />
             <span>Sincronizado con base de datos local y backend Express</span>

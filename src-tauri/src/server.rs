@@ -106,6 +106,37 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
             motores_caidos: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         };
 
+        // Aprendizaje automático: revisa cada 2 minutos si juntó suficientes decisiones nuevas como
+        // para recalibrar el perfil solo. La idea del motor de auto-mejora es que la app aprenda de
+        // lo que aceptás, lo que descartás y lo que te interesa sin que aprietes nada.
+        {
+            let st_auto = state.clone();
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(120)).await;
+                    let p = get_profile(&st_auto.data_dir);
+                    let auto = p.get("autoAprendizaje").cloned().unwrap_or(Value::Null);
+                    if !auto["activo"].as_bool().unwrap_or(false) {
+                        continue;
+                    }
+                    let cada = auto["cada"].as_i64().unwrap_or(10).max(1);
+                    let hechas = auto["decisionesEnLaUltima"].as_i64().unwrap_or(0);
+                    let total = p["totalDecisions"].as_i64().unwrap_or(0);
+                    if total - hechas < cada {
+                        continue;
+                    }
+                    let Some(key) = st_auto.env_key.clone() else {
+                        log::warn!("aprendizaje automático activo pero sin clave de nube: no puedo recalibrar");
+                        continue;
+                    };
+                    log::info!("aprendizaje automático: {total} decisiones ({cada} nuevas desde la última) → recalibro");
+                    if recalibrar_perfil_con_ia(&st_auto, &key).await.is_none() {
+                        log::warn!("aprendizaje automático: el motor no devolvió perfil; reintento en el próximo ciclo");
+                    }
+                }
+            });
+        }
+
         let cors = CorsLayer::new()
             .allow_origin(Any)
             .allow_methods(Any)
@@ -115,6 +146,7 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
             .route("/api/health", get(health))
             .route("/api/hitl/preferences", get(hitl_preferences))
             .route("/api/hitl/feedback", post(hitl_feedback))
+            .route("/api/hitl/auto", post(hitl_auto))
             .route("/api/hitl/profile", post(hitl_set_profile))
             .route("/api/hitl/recalibrate", post(hitl_recalibrate))
             .route("/api/hitl/reset", post(hitl_reset))
@@ -184,6 +216,12 @@ fn default_profile() -> Value {
     json!({
         "version": "2.0",
         "updatedAt": now_iso(),
+        "autoAprendizaje": {
+            "activo": false,
+            "cada": 10,
+            "decisionesEnLaUltima": 0,
+            "ultimaMs": null
+        },
         "totalDecisions": 4,
         "acceptanceRate": 85,
         "learnedProfile": "El usuario prefiere un enfoque técnico, conciso y estructurado. Suele descartar conexiones genéricas o superficiales y favorece patrones de arquitectura de sistemas, código en Python y filosofía pragmática. Adapta las respuestas a esta preferencia aprendida.",
@@ -395,6 +433,32 @@ async fn hitl_preferences(State(st): State<AppState>) -> impl IntoResponse {
     Json(json!({ "success": true, "profile": get_profile(&st.data_dir) }))
 }
 
+/// `POST /api/hitl/auto` — enciende/apaga el aprendizaje automático y cada cuántas decisiones corre.
+///
+/// La idea del motor de auto-mejora: que la app aprenda sola de qué aceptás, qué descartás y qué te
+/// interesa, sin que tengas que apretar un botón.
+async fn hitl_auto(State(st): State<AppState>, Json(body): Json<Value>) -> impl IntoResponse {
+    let mut profile = get_profile(&st.data_dir);
+    let auto = profile["autoAprendizaje"].clone();
+    let activo = body["activo"].as_bool().unwrap_or_else(|| auto["activo"].as_bool().unwrap_or(false));
+    let cada = body["cada"]
+        .as_i64()
+        .or_else(|| auto["cada"].as_i64())
+        .unwrap_or(10)
+        .clamp(1, 500);
+    let total = profile["totalDecisions"].as_i64().unwrap_or(0);
+
+    if activo && !auto["activo"].as_bool().unwrap_or(false) {
+        // Al encenderlo, la cuenta arranca desde acá: no recalibra por lo viejo.
+        profile["autoAprendizaje"]["decisionesEnLaUltima"] = json!(total);
+    }
+    profile["autoAprendizaje"]["activo"] = json!(activo);
+    profile["autoAprendizaje"]["cada"] = json!(cada);
+    save_profile(&st.data_dir, &profile);
+    log::info!("aprendizaje automático: {} (cada {cada} decisiones)", if activo { "encendido" } else { "apagado" });
+    Json(json!({ "success": true, "profile": profile }))
+}
+
 async fn hitl_feedback(State(st): State<AppState>, Json(body): Json<Value>) -> impl IntoResponse {
     let action = body["action"].as_str().unwrap_or("").to_string();
     if action.is_empty()
@@ -507,7 +571,7 @@ async fn hitl_feedback(State(st): State<AppState>, Json(body): Json<Value>) -> i
         }
     }
 
-    let updated = json!({
+    let mut updated = json!({
         "version": "2.0",
         "updatedAt": now_iso(),
         "totalDecisions": total_decisions,
@@ -517,6 +581,11 @@ async fn hitl_feedback(State(st): State<AppState>, Json(body): Json<Value>) -> i
         "topicsRejected": topics.split_off(topics.len().saturating_sub(15)),
         "recentFeedback": history
     });
+    // Registrar una decisión reescribe el perfil entero: hay que preservar la configuración del
+    // aprendizaje automático. Medido: sin esto el interruptor se apagaba solo en la primera decisión.
+    if let Some(auto) = current.get("autoAprendizaje") {
+        updated["autoAprendizaje"] = auto.clone();
+    }
 
     save_profile(&st.data_dir, &updated);
     (
@@ -549,7 +618,11 @@ async fn hitl_set_profile(
     )
 }
 
-async fn hitl_recalibrate(State(st): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
+/// Recalibra el perfil con IA a partir de las últimas decisiones de curaduría.
+///
+/// Un solo lugar para las dos formas de dispararlo: el botón del panel y el aprendizaje automático.
+/// Devuelve el perfil actualizado, o `None` si no hay nada que analizar o el motor no respondió.
+async fn recalibrar_perfil_con_ia(st: &AppState, key: &str) -> Option<Value> {
     let mut profile = get_profile(&st.data_dir);
     let sample: Vec<Value> = profile["recentFeedback"]
         .as_array()
@@ -567,33 +640,43 @@ async fn hitl_recalibrate(State(st): State<AppState>, headers: HeaderMap) -> imp
                 .collect()
         })
         .unwrap_or_default();
-
-    if !sample.is_empty() {
-        if let Some(key) = resolve_key(&st, &headers) {
-            let prompt = format!(
-                "Analiza estas decisiones recientes de curaduría de un usuario en un mapa mental (HITL Loop):\n{}\n\nSintetiza un perfil de estilo y preferencia cognitiva de 2 o 3 oraciones contundentes para inyectar en el system prompt.\nEjemplo: \"El usuario prefiere un enfoque técnico, conciso y estructurado. Suele descartar conexiones genéricas y favorece patrones de arquitectura, código y filosofía pragmática.\"\nResponde en formato JSON:\n{{\"profile\": \"El usuario prefiere...\"}}",
-                serde_json::to_string_pretty(&sample).unwrap_or_default()
-            );
-            let schema = json!({
-                "type": "OBJECT",
-                "properties": { "profile": { "type": "STRING" } },
-                "required": ["profile"]
-            });
-            // Sin nodo asociado: la clave de caché se arma con el prompt solo.
-            if let Some(llamada) = call_model(&st, &key, &prompt, &schema, None, "", None).await {
-                let parsed = llamada.valor;
-                if let Some(p) = parsed["profile"].as_str() {
-                    profile["learnedProfile"] = json!(p);
-                    profile["updatedAt"] = json!(now_iso());
-                    save_profile(&st.data_dir, &profile);
-                    return Json(
-                        json!({ "success": true, "profile": profile, "calibratedWithAi": true }),
-                    );
-                }
-            }
-        }
+    if sample.is_empty() {
+        return None;
     }
 
+    let prompt = format!(
+        "Analiza estas decisiones recientes de curaduría de un usuario en un mapa mental (HITL Loop):\n{}\n\nSintetiza un perfil de estilo y preferencia cognitiva de 2 o 3 oraciones contundentes para inyectar en el system prompt.\nEjemplo: \"El usuario prefiere un enfoque técnico, conciso y estructurado. Suele descartar conexiones genéricas y favorece patrones de arquitectura, código y filosofía pragmática.\"\nResponde en formato JSON:\n{{\"profile\": \"El usuario prefiere...\"}}",
+        serde_json::to_string_pretty(&sample).unwrap_or_default()
+    );
+    let schema = json!({
+        "type": "OBJECT",
+        "properties": { "profile": { "type": "STRING" } },
+        "required": ["profile"]
+    });
+    let llamada = call_model(st, key, &prompt, &schema, None, "", None).await?;
+    let aprendido = llamada.valor["profile"].as_str()?.trim().to_string();
+    if aprendido.is_empty() {
+        return None;
+    }
+
+    profile["learnedProfile"] = json!(aprendido);
+    profile["updatedAt"] = json!(now_iso());
+    // Cualquier recalibración (manual o automática) reinicia la cuenta del automático.
+    profile["autoAprendizaje"]["decisionesEnLaUltima"] = profile["totalDecisions"].clone();
+    profile["autoAprendizaje"]["ultimaMs"] = json!(now_ms());
+    save_profile(&st.data_dir, &profile);
+    log::info!("aprendizaje: perfil recalibrado con IA ({} decisiones acumuladas)", profile["totalDecisions"]);
+    Some(profile)
+}
+
+async fn hitl_recalibrate(State(st): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
+    if let Some(key) = resolve_key(&st, &headers) {
+        if let Some(profile) = recalibrar_perfil_con_ia(&st, &key).await {
+            return Json(json!({ "success": true, "profile": profile, "calibratedWithAi": true }));
+        }
+    }
+    // Sin IA disponible: heurística local sobre lo aceptado y lo descartado.
+    let mut profile = get_profile(&st.data_dir);
     let last3: Vec<String> = profile["categoriesAccepted"]
         .as_array()
         .map(|a| {

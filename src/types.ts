@@ -128,6 +128,14 @@ export interface FeedbackEvent {
   inferredPreference?: string;
 }
 
+/** Aprendizaje automático: cada cuántas decisiones la app corrige tu perfil sola. */
+export interface HitlAutoAprendizaje {
+  activo: boolean;
+  cada: number;
+  decisionesEnLaUltima?: number;
+  ultimaMs?: number | null;
+}
+
 export interface UserHitlProfile {
   version: string;
   updatedAt: string;
@@ -137,6 +145,7 @@ export interface UserHitlProfile {
   categoriesAccepted: string[];
   topicsRejected: string[];
   recentFeedback: FeedbackEvent[];
+  autoAprendizaje?: HitlAutoAprendizaje;
 }
 
 export type CustomNode = Node<IdeaNodeData>;

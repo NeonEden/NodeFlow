@@ -113,6 +113,30 @@ export async function updateHitlProfile(learnedProfile: string): Promise<UserHit
   return null;
 }
 
+/**
+ * Enciende/apaga el aprendizaje automático y cada cuántas decisiones recalibra solo.
+ * La idea del motor de auto-mejora: que la app aprenda de lo que aceptás y descartás sin botones.
+ */
+export async function updateHitlAuto(activo: boolean, cada: number): Promise<UserHitlProfile | null> {
+  try {
+    const res = await fetch(apiUrl('/api/hitl/auto'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ activo, cada }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success && data.profile) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(data.profile));
+        return data.profile;
+      }
+    }
+  } catch {
+    /* sin backend: el panel queda como estaba */
+  }
+  return null;
+}
+
 export async function recalibrateHitlProfile(): Promise<UserHitlProfile | null> {
   try {
     const res = await fetch(apiUrl('/api/hitl/recalibrate'), {
