@@ -87,6 +87,7 @@ All figures below were measured on this machine, not estimated.
 ## What works today
 
 - **Canvas** — knowledge graph on React Flow: create/edit node cards, typed edges, auto-organisation by level, category lenses, zones, LOD by zoom.
+- **Condensation engine (lossless pruning)** — define a *strategic north star* and collapse a whole selection into one macro-node: its nodes and edges are kept inside as lineage (`collapsed_nodes_count`, `lineage_node_ids`), so **nothing is lost** — double-click a macro-node to see where it came from and restore the original sub-graph.
 - **Local drafts** — `granite3.3:2b` proposes title/category/tags for raw captures; a Rust validator accepts or rejects each field against the *live* category vocabulary of the graph.
 - **Cost accounting and caching** — trace of tokens + USD cost per generated artifact; hash cache with a versioned contract and eviction.
 - **Expert runs** — a reusable prompt contract produces validated artifacts (visual prompts, synthesis) from a node or a multi-node selection.

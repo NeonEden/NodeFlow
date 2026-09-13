@@ -3,6 +3,7 @@
 **v0.1.0 — MVP (actual, septiembre 2026).** Orquestador híbrido funcionando en uso diario: canvas de grafo, borradores con modelo local validados por código, contabilidad de costo y caché por artefacto, corridas de experto, diagnóstico del grafo, integración con Obsidian, propuestas con aprobación explícita.
 
 ## v0.2 — Infraestructura de inferencia explícita
+- **Motor de Condensación (Fase A ✓)** — Norte Estratégico persistente + condensación de una selección en un macro-nodo con linaje guardado (poda sin pérdida) y restauración del sub-grafo. Pendiente Fase B (condensación total con los 3 pases) y Fase C (descarte socrático de lo ya resuelto).
 - Runtime local **independiente**: el modelo local corre dentro de la app, sin depender de un agente externo.
 - **Interruptor Local / Cloud visible** por tarea, con costo y latencia esperados a la vista antes de ejecutar.
 - **Streaming (SSE)** de tokens hacia el nodo activo.
