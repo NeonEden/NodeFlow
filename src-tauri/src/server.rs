@@ -560,7 +560,7 @@ async fn hitl_recalibrate(State(st): State<AppState>, headers: HeaderMap) -> imp
                 "required": ["profile"]
             });
             // Sin nodo asociado: la clave de caché se arma con el prompt solo.
-            if let Some(llamada) = call_model(&st, &key, &prompt, &schema, None, "").await {
+            if let Some(llamada) = call_model(&st, &key, &prompt, &schema, None, "", None).await {
                 let parsed = llamada.valor;
                 if let Some(p) = parsed["profile"].as_str() {
                     profile["learnedProfile"] = json!(p);
@@ -676,9 +676,14 @@ async fn ai_action(
         .or_else(|| body["nodeId"].as_str())
         .unwrap_or("")
         .to_string();
+    // Fase 11 — el modo viaja con la petición: local (edge) | nube | auto (cadena configurada).
+    let modo = body["modo"]
+        .as_str()
+        .map(|m| m.trim().to_lowercase())
+        .filter(|m| !m.is_empty());
     let called = match resolve_key(&st, &headers) {
         Some(key) if !prompt.is_empty() && !schema.is_null() => {
-            call_model(&st, &key, &prompt, &schema, Some(&system_instruction), &nodo_id).await
+            call_model(&st, &key, &prompt, &schema, Some(&system_instruction), &nodo_id, modo.as_deref()).await
         }
         _ => None,
     };
@@ -734,6 +739,9 @@ async fn ai_action(
     if !uso.is_null() {
         out["uso"] = uso.clone();
     }
+    // Fase 11 — trazabilidad del ruteo: qué modo pidió el usuario y qué cadena se intentó.
+    out["modo"] = json!(modo.clone().unwrap_or_else(|| "auto".to_string()));
+    out["cadena"] = json!(cadena_por_modo(modo.as_deref(), cadena_de_proveedores(&st)));
     // Trazabilidad: qué notas de la bóveda alimentaron esta generación.
     if let Some(f) = context.get("memoria_fuentes") {
         if let Ok(v) = serde_json::from_str::<serde_json::Value>(f) {
@@ -1149,6 +1157,20 @@ fn cadena_de_proveedores(st: &AppState) -> Vec<String> {
         .collect()
 }
 
+/// Fase 11 — **modo de inferencia por tarea**, elegido por el usuario en la UI.
+///
+/// El ruteo es determinista a propósito (ver ADR 0005: un modelo chico clasificando acertó 1 de 5).
+/// - `local`/`edge` → sólo el modelo local: sin cuota, sin red, costo cero.
+/// - `nube`/`cloud` → sólo el proveedor en la nube: razonamiento profundo sobre varias ramas.
+/// - ausente, vacío o desconocido → la cadena configurada (`auto`).
+fn cadena_por_modo(modo: Option<&str>, base: Vec<String>) -> Vec<String> {
+    match modo.map(|m| m.trim().to_lowercase()).as_deref() {
+        Some("local") | Some("edge") => vec!["ollama".to_string()],
+        Some("nube") | Some("cloud") => vec!["gemini".to_string()],
+        _ => base,
+    }
+}
+
 /// Llama a UN proveedor concreto (lo usa la cadena y también el escalado por contrato).
 async fn call_provider(
     st: &AppState,
@@ -1253,8 +1275,9 @@ async fn call_model(
     schema: &Value,
     system: Option<&str>,
     nodo: &str,
+    modo: Option<&str>,
 ) -> Option<crate::costo::Llamada> {
-    for provider in cadena_de_proveedores(st) {
+    for provider in cadena_por_modo(modo, cadena_de_proveedores(st)) {
         if let Some(llamada) =
             call_provider_cached(st, key, &provider, prompt, schema, system, nodo).await
         {
@@ -2216,4 +2239,37 @@ Todo artefacto tiene que distinguir lo establecido de lo propuesto, y lo medido 
             "costo": costo_texto,
         })),
     )
+}
+
+#[cfg(test)]
+mod tests_modo {
+    use super::cadena_por_modo;
+
+    fn v(xs: &[&str]) -> Vec<String> {
+        xs.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn el_modo_local_fuerza_el_modelo_local() {
+        assert_eq!(cadena_por_modo(Some("local"), v(&["gemini"])), v(&["ollama"]));
+    }
+
+    #[test]
+    fn el_modo_nube_fuerza_el_proveedor_en_la_nube() {
+        assert_eq!(cadena_por_modo(Some("nube"), v(&["ollama"])), v(&["gemini"]));
+    }
+
+    #[test]
+    fn sin_modo_o_desconocido_se_usa_la_cadena_configurada() {
+        let base = v(&["ollama", "gemini"]);
+        assert_eq!(cadena_por_modo(None, base.clone()), base);
+        assert_eq!(cadena_por_modo(Some("   "), base.clone()), base);
+        assert_eq!(cadena_por_modo(Some("otro"), base.clone()), base);
+    }
+
+    #[test]
+    fn los_alias_edge_y_cloud_no_distinguen_mayusculas_ni_espacios() {
+        assert_eq!(cadena_por_modo(Some(" LOCAL "), vec![]), v(&["ollama"]));
+        assert_eq!(cadena_por_modo(Some("Cloud"), vec![]), v(&["gemini"]));
+    }
 }

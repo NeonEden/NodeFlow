@@ -23,6 +23,7 @@ import {
   Zap,
   RefreshCw,
 } from 'lucide-react';
+import { InferenceSwitch } from './InferenceSwitch';
 import { ColorPickerMenu } from './ColorPickerMenu';
 import { EdgeAppearance, UserProfile } from '../types';
 import { TemplateDefinition } from '../data/templates';
@@ -245,8 +246,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         />
       </div>
 
-      {/* Right Controls: Nodo Raíz, Hibridador IA, Síntesis, Exportar, and Profile */}
+      {/* Right Controls: inferencia, Nodo Raíz, Hibridador IA, Síntesis, Exportar, and Profile */}
       <div className="flex items-center gap-1.5 md:gap-2">
+        {/* Fase 11 — dónde corre la inferencia de esta tarea (local / auto / nube) */}
+        <InferenceSwitch />
         <button
           type="button"
           onClick={() => onAddNode(true)}
