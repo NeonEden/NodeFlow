@@ -520,7 +520,7 @@ REGLAS DE GENERACIÓN ESTRICTAS:
         <div className="px-6 py-4 border-t border-slate-800 bg-slate-900 flex items-center justify-between text-xs text-slate-400">
           <div className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-emerald-400" />
-            <span>Sincronizado con base de datos local y backend Express</span>
+            <span>Sincronizado con el backend local (Rust) y tu bóveda</span>
           </div>
           <button
             onClick={onClose}
