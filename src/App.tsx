@@ -1702,19 +1702,6 @@ export default function App() {
    * - criticar  → dispara el flujo socrático que ya existe (él propone, vos aprobás).
    * Los colapsos son locales (no gastan IA) y guardan el linaje: se restauran con doble clic.
    */
-  /**
-   * Vecindad DIRECTA (profundidad 1): "lo que se une con la idea", no todo el grafo alcanzable.
-   * Antes recorría el grafo sin límite y en un lienzo conectado eso terminaba "conservando" todo.
-   */
-  const vecindadDirecta = useCallback((ids: string[], eds: Edge[]) => {
-    const dentro = new Set<string>(ids);
-    eds.forEach((e) => {
-      if (dentro.has(e.source)) dentro.add(e.target);
-      if (dentro.has(e.target)) dentro.add(e.source);
-    });
-    return dentro;
-  }, []);
-
   /** Qué va a pasar, en números, ANTES de aplicar. Se muestra en la tarjeta del plan. */
   const previsualizarPlanVoz = useCallback(
     (plan: PlanVoz): string => {
@@ -1724,16 +1711,17 @@ export default function App() {
         if (c.accion === 'crear') partes.push('1 nodo nuevo');
         else if (c.accion === 'enlazar') partes.push('1 enlace');
         else if (c.accion === 'enfocar') {
-          const dentro = vecindadDirecta(c.nodos || [], edges);
-          conservar = dentro.size;
-          partes.push(`conservar ${dentro.size} nodos (esa idea y lo que se une a ella)`);
+          // Se conserva EXACTAMENTE lo que eligió el motor (ya leyó el lienzo entero). Expandir a los
+          // vecinos parecía más generoso y en un grafo denso terminaba conservando todo: no enfocaba nada.
+          conservar = new Set(c.nodos || []).size;
+          partes.push(`conservar ${conservar} nodos (los que el motor marcó como la idea y su entorno)`);
         } else if (c.accion === 'condensar') partes.push(`colapsar ${new Set(c.nodos || []).size} nodos`);
         else if (c.accion === 'criticar') partes.push(`cuestionar ${(c.nodos || []).length} nodos`);
       });
       if (conservar) partes.push(`los otros ${Math.max(0, nodes.length - conservar)} pasan a un macro-nodo (se restauran con doble clic)`);
       return partes.join(' · ');
     },
-    [nodes.length, edges, vecindadDirecta]
+    [nodes.length]
   );
 
   const aplicarPlanVoz = useCallback(
@@ -1861,7 +1849,7 @@ export default function App() {
 
       if (enfocar) {
         const objetivo = enfocar as { ids: string[]; criterio?: string };
-        const conservar = vecindadDirecta(objetivo.ids, eds);
+        const conservar = new Set<string>(objetivo.ids);
         const resto = nds.filter((n) => !conservar.has(n.id)).map((n) => n.id);
         if (resto.length) hacerMacro(resto, `Fuera de foco (${resto.length} nodos)`);
       }
@@ -1882,7 +1870,7 @@ export default function App() {
       );
       return { creados, afectados };
     },
-    [nodes, edges, takeSnapshot, setNodes, setEdges, setSelectedNodes, showToast, vecindadDirecta]
+    [nodes, edges, takeSnapshot, setNodes, setEdges, setSelectedNodes, showToast]
   );
 
   /** Restaurar el sub-grafo original de un macro-nodo: vuelven sus nodos y sus aristas tal cual. */
