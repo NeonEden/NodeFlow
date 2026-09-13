@@ -21,6 +21,68 @@ pub const MAX_COMANDOS: usize = 4;
 /// Tope de nodos por comando (evita "limpiá todo" por accidente).
 pub const MAX_NODOS: usize = 30;
 
+/// Servidor de voz local (Kokoro TTS). Corre en la máquina del usuario: sin cuotas ni red externa.
+/// Se puede mover con NODEFLOW_TTS_URL.
+pub fn tts_url() -> String {
+    std::env::var("NODEFLOW_TTS_URL").unwrap_or_else(|_| "http://127.0.0.1:8125".to_string())
+}
+
+/// ¿Esta respuesta merece voz?
+///
+/// La regla es la del manifiesto: la IA **actúa primero y habla sólo cuando aporta**. Crear o
+/// enlazar nodos es visible y evidente (silencio); en cambio un cambio estructural —enfocar el
+/// lienzo, condensar, cuestionar— o haber descartado algo que el motor propuso a medias son
+/// hallazgos: eso se dice, en una frase.
+pub fn debe_hablar(plan: &Value) -> bool {
+    if plan["descartados"].as_u64().unwrap_or(0) > 0 {
+        return true;
+    }
+    plan["comandos"]
+        .as_array()
+        .map(|cs| {
+            cs.iter().any(|c| {
+                matches!(
+                    c["accion"].as_str().unwrap_or(""),
+                    "enfocar" | "condensar" | "criticar"
+                )
+            })
+        })
+        .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests_voz_selectiva {
+    use super::debe_hablar;
+    use serde_json::json;
+
+    #[test]
+    fn crear_y_enlazar_son_silencio() {
+        // Acción obvia: se ve en el lienzo, no hace falta narrarla.
+        let plan = json!({"comandos": [{"accion": "crear", "titulo": "Sensor"}, {"accion": "enlazar"}]});
+        assert!(!debe_hablar(&plan));
+    }
+
+    #[test]
+    fn cambio_estructural_habla() {
+        for accion in ["enfocar", "condensar", "criticar"] {
+            let plan = json!({"comandos": [{"accion": accion}]});
+            assert!(debe_hablar(&plan), "{accion} debería hablar");
+        }
+    }
+
+    #[test]
+    fn descartar_algo_habla() {
+        let plan = json!({"comandos": [{"accion": "crear", "titulo": "X"}], "descartados": 2});
+        assert!(debe_hablar(&plan));
+    }
+
+    #[test]
+    fn sin_comandos_no_habla() {
+        assert!(!debe_hablar(&json!({"comandos": []})));
+        assert!(!debe_hablar(&json!({})));
+    }
+}
+
 /// Ajustes del servicio de voz (endpoint, modelo, idioma). Por entorno, para poder cambiar de
 /// región o de idioma sin recompilar: NODEFLOW_VOZ_URL / NODEFLOW_VOZ_MODELO / NODEFLOW_VOZ_IDIOMA.
 pub fn ajustes() -> (String, String, String) {

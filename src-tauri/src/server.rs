@@ -153,6 +153,7 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
             .route("/api/ai/cache", get(ai_cache))
             .route("/api/voz/estado", get(voz_estado))
             .route("/api/voz/jwt", get(voz_jwt))
+            .route("/api/voz/decir", post(voz_decir))
             .route("/api/ai/motores", get(ai_motores))
             .route("/api/ai/motor", post(ai_motor))
             .route("/api/ai/proveedor", post(ai_proveedor))
@@ -820,11 +821,17 @@ async fn ai_action(
                             .collect()
                     })
                     .unwrap_or_default();
-                let limpio = crate::voz::validar(&value, &ids);
+                let mut limpio = crate::voz::validar(&value, &ids);
+                // La voz selectiva se decide acá (regla testeada en `voz::debe_hablar`): el frontend
+                // sólo obedece. Crear o enlazar es visible y va en silencio; enfocar, condensar,
+                // criticar o haber descartado algo son hallazgos: eso se dice.
+                let habla = crate::voz::debe_hablar(&limpio);
+                limpio["hablar"] = json!(habla);
                 log::info!(
-                    "voz: {} comandos válidos · {} descartados",
+                    "voz: {} comandos válidos · {} descartados · voz {}",
                     limpio["comandos"].as_array().map(|a| a.len()).unwrap_or(0),
-                    limpio["descartados"].as_u64().unwrap_or(0)
+                    limpio["descartados"].as_u64().unwrap_or(0),
+                    if habla { "activa" } else { "en silencio" }
                 );
                 value = limpio;
             }
@@ -2178,6 +2185,16 @@ fn clave_speechmatics(st: &AppState) -> Option<String> {
 async fn voz_estado(State(st): State<AppState>) -> impl IntoResponse {
     let configurada = clave_speechmatics(&st).is_some();
     let (url, modelo, idioma) = crate::voz::ajustes();
+    // La voz de salida (Kokoro local) es opcional: si no responde, se dice sin romper nada.
+    let tts_url = crate::voz::tts_url();
+    let tts_disponible = st
+        .http
+        .get(format!("{tts_url}/estado"))
+        .timeout(std::time::Duration::from_millis(1500))
+        .send()
+        .await
+        .map(|r| r.status().is_success())
+        .unwrap_or(false);
     Json(json!({
         "success": true,
         "configurada": configurada,
@@ -2186,12 +2203,63 @@ async fn voz_estado(State(st): State<AppState>) -> impl IntoResponse {
         "modelo": modelo,
         "idioma": idioma,
         "codec": "pcm_s16le 16000 Hz",
+        "tts": { "disponible": tts_disponible, "url": tts_url, "motor": "Kokoro (local)" },
         "pista": if configurada {
             "Clave presente. El token temporal se pide a /api/voz/jwt."
         } else {
             "Falta la clave: SPEECHMATICS_API_KEY en el entorno, o \"speechmatics_api_key\" en nodeflow.config.json."
         }
     }))
+}
+
+/// `POST /api/voz/decir` — sintetiza una frase con la voz LOCAL (Kokoro) y devuelve el WAV.
+///
+/// La voz vive en la máquina del usuario (`tools/tts/servidor.py`, puerto 8125): sin cuotas, sin
+/// mandar el texto a ningún servicio. Si no está corriendo, la app sigue andando y lo dice claro.
+async fn voz_decir(State(st): State<AppState>, Json(body): Json<Value>) -> axum::response::Response {
+    use axum::body::Body;
+    use axum::response::Response;
+
+    let responder_json = |codigo: StatusCode, mensaje: String| -> Response {
+        Response::builder()
+            .status(codigo)
+            .header("Content-Type", "application/json")
+            .body(Body::from(json!({ "success": false, "error": mensaje }).to_string()))
+            .unwrap()
+    };
+
+    let texto = body["texto"].as_str().unwrap_or("").trim().to_string();
+    if texto.is_empty() {
+        return responder_json(StatusCode::BAD_REQUEST, "Falta el texto a decir.".into());
+    }
+    let url = format!("{}/decir", crate::voz::tts_url());
+    match st
+        .http
+        .post(&url)
+        .json(&json!({ "texto": texto, "voz": body["voz"] }))
+        .send()
+        .await
+    {
+        Ok(r) if r.status().is_success() => match r.bytes().await {
+            Ok(audio) => {
+                log::info!("voz: {} caracteres sintetizados ({} KB)", texto.chars().count(), audio.len() / 1024);
+                Response::builder()
+                    .status(StatusCode::OK)
+                    .header("Content-Type", "audio/wav")
+                    .body(Body::from(audio))
+                    .unwrap()
+            }
+            Err(e) => responder_json(StatusCode::BAD_GATEWAY, format!("Respuesta de voz inválida: {e}")),
+        },
+        Ok(r) => responder_json(
+            StatusCode::BAD_GATEWAY,
+            format!("El servidor de voz respondió {}.", r.status()),
+        ),
+        Err(_) => responder_json(
+            StatusCode::BAD_GATEWAY,
+            format!("La voz local no responde en {url}. Arrancala con tools/tts/servidor.py."),
+        ),
+    }
 }
 
 /// `GET /api/voz/jwt` — token temporal de realtime para el WebSocket del navegador.

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { X, Mic, Square, Loader2, Sparkles, Check, AlertTriangle, Wand2, Target, Layers, MessageSquarePlus, Link2, Quote, Gauge } from 'lucide-react';
+import { X, Mic, Square, Loader2, Sparkles, Check, AlertTriangle, Wand2, Target, Layers, MessageSquarePlus, Link2, Quote, Gauge, Volume2, VolumeX } from 'lucide-react';
 import { SpeechmaticsRt, EstadoVoz } from '../services/speechmaticsRt';
-import { getVozEstado, getVozJwt, pedirPlanVoz, describirComando, VozEstado, PlanVoz, VozComando } from '../services/vozService';
+import { getVozEstado, getVozJwt, pedirPlanVoz, describirComando, decir, VozEstado, PlanVoz, VozComando } from '../services/vozService';
 
 interface VozPanelProps {
   isOpen: boolean;
@@ -42,6 +42,14 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
   const [pensando, setPensando] = useState(false);
   const [aplicando, setAplicando] = useState(false);
   const [resultado, setResultado] = useState('');
+  const [silencio, setSilencio] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('nodeflow_voz_silencio') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const [hablando, setHablando] = useState(false);
   const rtRef = useRef<SpeechmaticsRt | null>(null);
   const inicioRef = useRef(0);
 
@@ -65,6 +73,35 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
       setEstado('inactivo');
     }
   }, [isOpen]);
+
+  const alternarSilencio = () => {
+    setSilencio((s) => {
+      try {
+        localStorage.setItem('nodeflow_voz_silencio', s ? '0' : '1');
+      } catch {
+        /* almacenamiento restringido */
+      }
+      return !s;
+    });
+  };
+
+  /** Habla sólo si el backend lo autorizó (regla de voz selectiva) y no está en silencio. */
+  const hablar = async (texto: string) => {
+    if (!texto.trim()) return;
+    setHablando(true);
+    try {
+      const audio = await decir(texto);
+      const url = URL.createObjectURL(audio);
+      const el = new Audio(url);
+      el.onended = () => URL.revokeObjectURL(url);
+      await el.play();
+    } catch (e: any) {
+      // Que la voz falle no rompe nada: el lienzo ya cambió y el texto está en pantalla.
+      setError((previo) => previo || `Voz: ${e?.message || 'no pude reproducir'}`);
+    } finally {
+      setHablando(false);
+    }
+  };
 
   const empezar = async () => {
     setError('');
@@ -120,6 +157,8 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
         costo: uso?.costo_usd ?? 0,
         cache: uso?.cache ?? 'miss',
       });
+      // El backend decidió si esto merece voz; acá sólo se obedece.
+      if (p.hablar && !silencio) void hablar(p.respuesta || '');
     } catch (e: any) {
       setError(e?.message || 'El motor no pudo interpretar el dictado.');
     } finally {
@@ -211,6 +250,21 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
               <button type="button" onClick={consultarEstado} className="text-xs text-slate-400 hover:text-slate-200 underline cursor-pointer">
                 Ya la puse, reintentar
               </button>
+            )}
+            <button
+              type="button"
+              id="btn-voz-silencio"
+              onClick={alternarSilencio}
+              title={silencio ? 'Activar la voz de salida' : 'Silenciar la voz de salida'}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[11px] border border-slate-700 bg-slate-800 text-slate-200 hover:text-white transition-colors cursor-pointer"
+            >
+              {silencio ? <VolumeX size={13} className="text-slate-400" /> : <Volume2 size={13} className={hablando ? 'text-cyan-300 animate-pulse' : 'text-cyan-400'} />}
+              {silencio ? 'Voz apagada' : hablando ? 'Hablando…' : 'Voz activa'}
+            </button>
+            {servicio?.tts && (
+              <span className={`text-[11px] ${servicio.tts.disponible ? 'text-slate-400' : 'text-amber-300'}`}>
+                {servicio.tts.disponible ? `${servicio.tts.motor} ✓` : 'voz local no disponible'}
+              </span>
             )}
             <span className="text-[11px] text-slate-500">{servicio?.codec} · latencia objetivo &lt; 1 s</span>
           </div>

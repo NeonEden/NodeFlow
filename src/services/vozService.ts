@@ -16,6 +16,8 @@ export interface VozEstado {
   idioma: string;
   codec: string;
   pista: string;
+  /** Voz de salida local (Kokoro). Es opcional: si no está levantada, se avisa y nada se rompe. */
+  tts?: { disponible: boolean; url: string; motor: string };
 }
 
 export type AccionVoz = 'crear' | 'enlazar' | 'enfocar' | 'condensar' | 'criticar';
@@ -33,6 +35,8 @@ export interface VozComando {
 
 export interface PlanVoz {
   intencion: 'capturar' | 'comando';
+  /** Lo decide el backend con la regla de voz selectiva: si merece hablarse, se dice. */
+  hablar?: boolean;
   respuesta: string;
   motivo?: string;
   comandos: VozComando[];
@@ -66,6 +70,25 @@ export async function pedirPlanVoz(texto: string): Promise<PlanVozRespuesta> {
   if (!d.success) throw new Error(d?.error || 'No pude interpretar lo que dijiste.');
   const plan = d.voz as PlanVoz;
   return { plan, modelo: d.modelUsed || '', uso: d.uso || {} };
+}
+
+/** Pide la voz local (Kokoro) y devuelve el audio listo para reproducir. */
+export async function decir(texto: string): Promise<Blob> {
+  const r = await fetch(apiUrl('/api/voz/decir'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ texto }),
+  });
+  if (!r.ok) {
+    let detalle = 'La voz local no respondió.';
+    try {
+      detalle = (await r.json())?.error || detalle;
+    } catch {
+      /* respuesta sin JSON */
+    }
+    throw new Error(detalle);
+  }
+  return await r.blob();
 }
 
 /** Texto legible de un comando, para la tarjeta de confirmación. */

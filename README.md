@@ -144,6 +144,19 @@ OLLAMA_HOST=http://localhost:11434
 2. **A cache key must not carry the clock.** The first cache implementation hashed a prompt containing `now_iso()` and scored 6 misses / 0 hits on identical runs. The key now carries the day plus a fingerprint of the facts.
 3. **Measure, don't assume.** Contrast ratios, memory footprint, cache hit rates and validator rejections in this repo were all measured; several design decisions changed after the measurement contradicted the assumption.
 
+## The spoken loop (local voice)
+
+Talk, the canvas acts, and the assistant answers **out loud only when it has something to say**:
+structural moves (focus, condense, question) and discarded proposals are spoken; creating or linking
+nodes stays silent because you can see it.
+
+- **Ears:** Speechmatics Realtime (websocket, sub-second partials).
+- **Voice:** **Kokoro TTS locally** — 82M parameters, ~340 MB, no torch, no quotas, no text leaving the
+  machine (`tools/tts/`). Measured on this machine: **2.4× faster than real time**.
+- **The rule that decides whether it speaks** is code, not vibes: `voz::debe_hablar()` in Rust, with tests.
+- Start the voice server with `tools/tts/arrancar-oculto.vbs` (windowless) — the app detects it and keeps
+  working if it's not running.
+
 ## Documentation
 
 - [`ROADMAP.md`](ROADMAP.md) — phases and next milestones.
