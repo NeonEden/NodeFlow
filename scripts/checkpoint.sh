@@ -19,12 +19,18 @@ MIN="${NF_CHECKPOINT_MIN:-5}"
 
 anotar() { printf '[%s] %s\n' "$(date '+%F %T')" "$1" >> "$LOG"; echo "$1"; }
 
+# Marca de cada corrida (aunque no haya nada que guardar): sirve para comprobar que la tarea
+# programada está viva, sin llenar el log de líneas vacías.
+marcar() { printf '%s · %s\n' "$(date '+%F %T')" "$1" > "$REPO/.git/checkpoint.ultima"; }
+
 verificar() {
   if ! npx --no-install tsc --noEmit >/tmp/nf-tsc.log 2>&1; then
+    marcar "chequeos fallaron: no se guardó"
     anotar "NO guardado: tsc falló → $(tail -3 /tmp/nf-tsc.log | tr '\n' ' ')"
     return 1
   fi
   if ! cargo test --manifest-path src-tauri/Cargo.toml --lib 2>&1 | grep -q "test result: ok"; then
+    marcar "chequeos fallaron: no se guardó"
     anotar "NO guardado: los tests de Rust fallaron"
     return 1
   fi
@@ -34,7 +40,10 @@ verificar() {
 guardar() {
   local cambios
   cambios="$(git status --porcelain | wc -l | tr -d ' ')"
-  [ "$cambios" = "0" ] && return 0
+  if [ "$cambios" = "0" ]; then
+    marcar "sin cambios"
+    return 0
+  fi
 
   verificar || return 1
 
@@ -49,6 +58,7 @@ Archivos: $resumen"
 
   if git push -q origin HEAD 2>/dev/null; then
     anotar "guardado y subido: $mensaje"
+    marcar "guardado y subido ($cambios archivos)"
   else
     anotar "guardado en local (sin subir): $mensaje"
   fi
