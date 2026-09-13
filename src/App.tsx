@@ -73,6 +73,7 @@ import { ApiKeyModal } from './components/ApiKeyModal';
 import { BrainDumpModal } from './components/BrainDumpModal';
 import { SemanticBridgesModal } from './components/SemanticBridgesModal';
 import { postAiAction } from './services/aiApi';
+import { motorActual } from './state/motorActual';
 import { autoLayoutNodes } from './utils/layout';
 import { useUndoRedo } from './hooks/useUndoRedo';
 import { getInitialUser, saveCurrentUser } from './services/auth';
@@ -1083,7 +1084,7 @@ export default function App() {
 
       if (action === 'branch') {
         setIsAiLoading(true);
-        showToast(`Gemini está analizando y generando ramificaciones para "${targetData.title}"...`, 'info');
+        showToast(`${motorActual()} está analizando y generando ramificaciones para "${targetData.title}"...`, 'info');
 
         try {
           const response = await postAiAction({
@@ -1169,7 +1170,7 @@ export default function App() {
 
       if (action === 'explore') {
         setIsAiLoading(true);
-        showToast(`Gemini está explorando dimensiones técnicas y estratégicas para "${targetData.title}"...`, 'info');
+        showToast(`${motorActual()} está explorando dimensiones técnicas y estratégicas para "${targetData.title}"...`, 'info');
 
         try {
           const response = await postAiAction({
@@ -1244,7 +1245,7 @@ export default function App() {
           }
         } catch (err) {
           console.error('Error generating AI explore:', err);
-          showToast('Error al explorar concepto con Gemini.', 'error');
+          showToast(`Error al explorar el concepto con ${motorActual()}.`, 'error');
         } finally {
           setIsAiLoading(false);
         }
@@ -1338,7 +1339,7 @@ export default function App() {
           }
         } catch (err) {
           console.error('Error generating AI critique:', err);
-          showToast('Error al auditar riesgos con Gemini.', 'error');
+          showToast(`Error al auditar riesgos con ${motorActual()}.`, 'error');
         } finally {
           setIsAiLoading(false);
         }
@@ -1431,7 +1432,7 @@ export default function App() {
           }
         } catch (err) {
           console.error('Error generating AI socratic questions:', err);
-          showToast('Error al formular preguntas socráticas con Gemini.', 'error');
+          showToast(`Error al formular preguntas socráticas con ${motorActual()}.`, 'error');
         } finally {
           setIsAiLoading(false);
         }
@@ -1881,7 +1882,7 @@ export default function App() {
           // Modo 100% instantáneo (0ms)
           structure = parseTextToLocalStructure(rawText);
         } else {
-          showToast('Gemini está procesando y estructurando tu descarga mental...', 'info');
+          showToast(`${motorActual()} está procesando y estructurando tu descarga mental...`, 'info');
           try {
             const res = await postAiAction({
               type: 'braindump',
@@ -2009,7 +2010,7 @@ export default function App() {
             ? `Estructurado con motor instantáneo: ${newCreatedNodes.length} nodos integrados`
             : mode === 'instant'
             ? `Volcado instantáneo listo: ${newCreatedNodes.length} nodos creados en el lienzo`
-            : `Descarga mental estructurada con Gemini: ${newCreatedNodes.length} nodos integrados`;
+            : `Descarga mental estructurada con ${motorActual()}: ${newCreatedNodes.length} nodos integrados`;
           showToast(successMsg, 'success');
 
           // Centrar el viewport en el nuevo núcleo
@@ -2043,7 +2044,7 @@ export default function App() {
     }
     setIsBridgesLoading(true);
     try {
-      showToast('Gemini está analizando conexiones conceptuales no evidentes...', 'info');
+      showToast(`${motorActual()} está analizando conexiones conceptuales no evidentes...`, 'info');
       const res = await postAiAction({
         type: 'find_bridges',
         nodes: nodes.map((n) => ({
@@ -2863,7 +2864,7 @@ export default function App() {
                     <span className="text-[10px] font-bold text-white uppercase tracking-tighter">AI Copilot</span>
                   </div>
                   <p className="text-[10px] text-slate-400 leading-normal mb-2.5 italic">
-                    "Selecciona ideas y descubre sinergias con Gemini AI, o genera una síntesis global de toda la red."
+                    "Selecciona ideas y descubre sinergias con la IA, o genera una síntesis global de toda la red."
                   </p>
                   <div className="flex flex-col gap-1.5">
                     <button
@@ -3094,7 +3095,7 @@ export default function App() {
                 <div>
                   <div className="font-semibold text-white text-[13px] flex items-center justify-between mb-0.5">
                     <span className="flex items-center gap-1.5">
-                      <span>Co-creación con Gemini AI</span>
+                      <span>Co-creación IA</span>
                       <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                     </span>
                   </div>
@@ -3111,7 +3112,7 @@ export default function App() {
               className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900/70 hover:bg-slate-900 border border-slate-800 hover:border-indigo-500/40 text-slate-400 hover:text-indigo-300 text-xs backdrop-blur-md shadow-lg transition-all duration-200 cursor-pointer opacity-30 hover:opacity-100 group-hover:opacity-100 group-hover:border-indigo-500/60"
             >
               <BrainCircuit size={14} className="text-indigo-400" />
-              <span className="text-[11px] font-medium tracking-tight">Co-creación Gemini IA</span>
+              <span className="text-[11px] font-medium tracking-tight">Co-creación IA</span>
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
             </div>
           </div>

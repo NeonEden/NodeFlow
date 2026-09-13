@@ -26,7 +26,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Versión del contrato de la caché. Subila para invalidar todas las entradas guardadas.
 /// v2: la clave ahora incluye el **motor** (proveedor@modelo), no sólo el proveedor.
-pub const CACHE_VER: u32 = 2;
+/// v3: los motores de Ollama pasaron a la API nativa con el esquema como gramática — las respuestas
+///     viejas tenían la forma equivocada (un objeto donde el contrato pide una lista) y no se reusan.
+pub const CACHE_VER: u32 = 3;
 
 /// Tope de entradas en disco (una entrada ≈ un artefacto generado).
 pub const CACHE_TOPE: usize = 300;
@@ -103,6 +105,13 @@ pub fn consumo_gemini(v: &Value) -> Option<Consumo> {
         .get("candidatesTokenCount")
         .and_then(|x| x.as_u64())
         .unwrap_or(0);
+    Some(Consumo { prompt, completion })
+}
+
+/// Tokens de la API nativa de Ollama (`/api/chat`): `prompt_eval_count` + `eval_count`.
+pub fn consumo_ollama_nativo(v: &Value) -> Option<Consumo> {
+    let prompt = v.get("prompt_eval_count").and_then(|x| x.as_u64())?;
+    let completion = v.get("eval_count").and_then(|x| x.as_u64()).unwrap_or(0);
     Some(Consumo { prompt, completion })
 }
 
@@ -560,6 +569,16 @@ mod tests {
         assert!(c.get("k0").is_none(), "la más vieja se fue");
         assert!(c.get("k3").is_some(), "la última entró");
         let _ = std::fs::remove_file(&ruta);
+    }
+
+    #[test]
+    fn los_tokens_de_la_api_nativa_de_ollama_se_leen() {
+        let v = serde_json::json!({"prompt_eval_count": 1200, "eval_count": 340});
+        let c = consumo_ollama_nativo(&v).unwrap();
+        assert_eq!(c.prompt, 1200);
+        assert_eq!(c.completion, 340);
+        assert_eq!(c.total(), 1540);
+        assert!(consumo_ollama_nativo(&serde_json::json!({})).is_none());
     }
 
     #[test]

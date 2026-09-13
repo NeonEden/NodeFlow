@@ -96,18 +96,58 @@ pub fn motores_de_tags(tags: &[String], base_url: &str) -> Vec<Motor> {
     v
 }
 
+/// Convierte un esquema estilo Gemini (`"type": "OBJECT"`) al JSON Schema estándar que espera el
+/// `format` de Ollama. Medido: sin gramática, los modelos locales devuelven un objeto donde el
+/// contrato pide una lista y la función parece rota; con gramática la forma se cumple siempre.
+pub fn esquema_para_ollama(v: &Value) -> Value {
+    match v {
+        Value::Object(o) => {
+            let mut n = serde_json::Map::new();
+            for (k, val) in o {
+                if k == "type" {
+                    if let Some(t) = val.as_str() {
+                        n.insert(k.clone(), serde_json::json!(t.to_lowercase()));
+                        continue;
+                    }
+                }
+                n.insert(k.clone(), esquema_para_ollama(val));
+            }
+            Value::Object(n)
+        }
+        Value::Array(a) => Value::Array(a.iter().map(esquema_para_ollama).collect()),
+        otro => otro.clone(),
+    }
+}
+
+/// Modos automáticos: eligen dentro de un grupo y se resuelven en `plan`.
+pub const AUTO_LOCAL: &str = "auto:local";
+pub const AUTO_NUBE: &str = "auto:nube";
+
 /// Plan de ejecución para una llamada: **un solo motor**, el elegido.
 ///
 /// `modo` (opcional, por tarea) restringe el grupo: `local` → sólo hardware del usuario,
 /// `nube` → nube gratuita o paga. Dentro del grupo manda el motor seleccionado si pertenece a él.
 pub fn plan(catalogo: &[Motor], seleccionado: Option<&str>, modo: Option<&str>) -> Vec<Motor> {
+    // `auto:local` / `auto:nube` son elecciones guardadas que eligen dentro de un grupo.
+    let (modo, salto_de_id): (Option<&str>, bool) = match seleccionado.map(|s| s.trim().to_lowercase()).as_deref() {
+        Some(AUTO_LOCAL) => (Some("local"), true),
+        Some("auto:nube") => (Some("nube"), true),
+        _ => (modo, false),
+    };
     let grupo: Option<Vec<&str>> = match modo.map(|m| m.trim().to_lowercase()).as_deref() {
         Some("local") | Some("edge") => Some(vec![EN_TU_PLACA]),
         Some("nube") | Some("cloud") => Some(vec![NUBE_GRATIS, NUBE_PAGA]),
         _ => None,
     };
+    let seleccionado = if salto_de_id { None } else { seleccionado };
     let disponible = |m: &&Motor| m.disponible && grupo.as_ref().map(|g| g.contains(&m.donde.as_str())).unwrap_or(true);
 
+    // Automáticos: devuelven **todo el grupo** en orden (placa → gratis → pago). Así, si un motor
+    // falla —típicamente 402 por créditos— la misma corrida sigue con el siguiente en vez de
+    // devolverle un error al usuario.
+    if salto_de_id {
+        return catalogo.iter().filter(disponible).cloned().collect();
+    }
     // 1) el elegido, si existe y entra en el grupo pedido
     if let Some(id) = seleccionado {
         if let Some(m) = catalogo.iter().find(|m| m.id == id).filter(disponible) {
@@ -209,6 +249,49 @@ mod tests {
         c.push(Motor { disponible: false, ..Motor::nuevo("ollama", "fantasma:7b", EN_TU_PLACA, None, None) });
         let p = plan(&c, Some("ollama:fantasma:7b"), Some("local"));
         assert_ne!(p[0].modelo, "fantasma:7b", "no debe elegir un motor marcado como no disponible");
+    }
+
+    #[test]
+    fn el_esquema_de_gemini_se_traduce_a_json_schema_estandar() {
+        let g = serde_json::json!({
+            "type": "OBJECT",
+            "properties": {
+                "variations": { "type": "ARRAY", "items": { "type": "OBJECT",
+                    "properties": { "title": { "type": "STRING" } } } }
+            },
+            "required": ["variations"]
+        });
+        let o = esquema_para_ollama(&g);
+        assert_eq!(o["type"], "object");
+        assert_eq!(o["properties"]["variations"]["type"], "array");
+        assert_eq!(o["properties"]["variations"]["items"]["type"], "object");
+        assert_eq!(o["properties"]["variations"]["items"]["properties"]["title"]["type"], "string");
+        assert_eq!(o["required"][0], "variations");
+    }
+
+    #[test]
+    fn auto_local_devuelve_solo_la_placa_y_auto_nube_solo_la_nube() {
+        let c = cat();
+        let l = plan(&c, Some(AUTO_LOCAL), None);
+        assert!(!l.is_empty());
+        assert!(l.iter().all(|m| m.donde == EN_TU_PLACA), "local no debe incluir nube");
+        let n = plan(&c, Some("auto:nube"), None);
+        assert!(n.iter().all(|m| m.donde != EN_TU_PLACA), "nube no debe incluir la placa");
+    }
+
+    #[test]
+    fn los_automaticos_traen_respaldo_para_una_misma_corrida() {
+        let c = cat();
+        let n = plan(&c, Some(AUTO_NUBE), None);
+        assert!(n.len() >= 2, "si el primero falla hay con qué seguir");
+        assert_eq!(n[0].donde, NUBE_GRATIS);
+    }
+
+    #[test]
+    fn auto_nube_prefiere_lo_gratuito_sobre_lo_pago() {
+        let c = cat();
+        let n = plan(&c, Some(AUTO_NUBE), None);
+        assert_eq!(n[0].donde, NUBE_GRATIS, "con nube gratis disponible no gasta en la paga");
     }
 
     #[test]

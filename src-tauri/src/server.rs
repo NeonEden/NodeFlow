@@ -52,6 +52,22 @@ pub struct AppState {
     pub tarifas: crate::costo::Tarifas,
     /// Fase 10 — microservicio de borradores con el modelo local (modelo, keep_alive, tope).
     pub borrador: crate::borrador::Config,
+    /// Fase 12 — motores que fallaron por créditos o clave (id → motivo). Se aprende en la primera
+    /// corrida: el catálogo los declara y los automáticos los saltean, en vez de elegir un motor muerto.
+    pub motores_caidos: Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,
+}
+
+impl AppState {
+    /// Registra que un motor no está disponible (y por qué). Idempotente.
+    pub fn marcar_motor_caido(&self, id: &str, motivo: &str) {
+        if let Ok(mut m) = self.motores_caidos.lock() {
+            m.insert(id.to_string(), motivo.to_string());
+        }
+    }
+
+    pub fn motivos_de_motores(&self) -> std::collections::HashMap<String, String> {
+        self.motores_caidos.lock().map(|m| m.clone()).unwrap_or_default()
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -87,6 +103,7 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
             cache,
             tarifas,
             borrador,
+            motores_caidos: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         };
 
         let cors = CorsLayer::new()
@@ -105,6 +122,7 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
             .route("/api/ai/cache", get(ai_cache))
             .route("/api/ai/motores", get(ai_motores))
             .route("/api/ai/motor", post(ai_motor))
+            .route("/api/ai/proveedor", post(ai_proveedor))
             // Fase 10 — el modelo local propone, el código valida
             .route("/api/knowledge/draft", post(knowledge_draft))
             // Fase 3 — vault en disco
@@ -1304,6 +1322,11 @@ async fn call_motor(
     match m.proveedor.as_str() {
         "ollama" => {
             let base = m.base_url.clone().unwrap_or_else(|| "http://localhost:11434/v1".to_string());
+            let raiz_url = base.trim_end_matches("/v1").trim_end_matches('/').to_string();
+            if let Some(r) = call_ollama_nativo(st, &raiz_url, &m.modelo, prompt, system, schema).await {
+                return Some(r);
+            }
+            log::warn!("{}: sin respuesta por la API nativa; pruebo el camino compatible con OpenAI", m.id);
             call_ollama(st, Some((base, m.modelo.clone())), prompt, system).await
         }
         "gemini" => {
@@ -1398,6 +1421,14 @@ async fn catalogo(st: &AppState) -> Vec<crate::motores::Motor> {
             }
         }
     }
+    // Motores que ya fallaron por créditos o clave: se declaran, no se ofrecen como si anduvieran.
+    let caidos = st.motivos_de_motores();
+    for m in v.iter_mut() {
+        if let Some(motivo) = caidos.get(&m.id) {
+            m.disponible = false;
+            m.nota = Some(motivo.clone());
+        }
+    }
     v
 }
 
@@ -1467,6 +1498,76 @@ async fn ai_motores(State(st): State<AppState>) -> impl IntoResponse {
             "efectivo": efectivo,
             "motores": cat,
         })),
+    )
+}
+
+/// `POST /api/ai/proveedor` — agrega (o actualiza) un proveedor compatible con OpenAI desde la UI.
+///
+/// La clave se guarda **en el config local** (`<id>_api_key`) y nunca se devuelve al frontend: la
+/// respuesta sólo confirma y devuelve el catálogo actualizado.
+async fn ai_proveedor(State(st): State<AppState>, Json(body): Json<Value>) -> impl IntoResponse {
+    let id = body["id"].as_str().unwrap_or("").trim().to_lowercase();
+    let base = body["base_url"].as_str().unwrap_or("").trim().to_string();
+    let modelo = body["modelo"].as_str().unwrap_or("").trim().to_string();
+    let etiqueta = body["etiqueta"].as_str().unwrap_or("").trim().to_string();
+    let clave = body["api_key"].as_str().unwrap_or("").trim().to_string();
+    let donde = body["donde"].as_str().unwrap_or(crate::motores::NUBE_PAGA).to_string();
+    if id.is_empty() || base.is_empty() || modelo.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "ok": false, "error": "id, base_url y modelo son obligatorios" })),
+        );
+    }
+    if !base.starts_with("http://") && !base.starts_with("https://") {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "ok": false, "error": "base_url debe empezar con http:// o https://" })),
+        );
+    }
+
+    let ruta = st.data_dir.join("nodeflow.config.json");
+    let mut cfg: Value = std::fs::read_to_string(&ruta)
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_else(|| json!({}));
+    let Some(obj) = cfg.as_object_mut() else {
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "ok": false, "error": "config inválido" })));
+    };
+
+    let mut provs: Vec<Value> = obj
+        .get("proveedores")
+        .and_then(|p| p.as_array())
+        .cloned()
+        .unwrap_or_default();
+    provs.retain(|p| p["id"].as_str() != Some(id.as_str()));
+    let mut entrada = json!({
+        "id": id,
+        "etiqueta": if etiqueta.is_empty() { format!("{modelo} · {id}") } else { etiqueta },
+        "base_url": base,
+        "modelo": modelo,
+        "donde": donde,
+    });
+    let clave_config = format!("{id}_api_key");
+    if !clave.is_empty() {
+        // La clave vive en el config local, junto al resto. Nunca viaja al frontend.
+        obj.insert(clave_config.clone(), json!(clave));
+        entrada["clave_config"] = json!(clave_config);
+    }
+    provs.push(entrada);
+    obj.insert("proveedores".into(), Value::Array(provs));
+    let txt = match serde_json::to_string_pretty(&cfg) {
+        Ok(t) => t,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "ok": false, "error": e.to_string() }))),
+    };
+    if let Err(e) = std::fs::write(&ruta, txt) {
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "ok": false, "error": e.to_string() })));
+    }
+    log::info!("proveedor agregado: {id} ({modelo}){}", if clave.is_empty() { " sin clave" } else { " con clave" });
+
+    let cat = catalogo(&st).await;
+    (
+        StatusCode::OK,
+        Json(json!({ "ok": true, "motores": cat, "seleccionado": crate::motores::seleccionado(&st.data_dir) })),
     )
 }
 
@@ -1608,11 +1709,79 @@ async fn call_ollama(
             })
         }
         Ok(resp) => {
-            log::warn!("Ollama HTTP {}", resp.status());
+            let codigo = resp.status().as_u16();
+            log::warn!("Ollama HTTP {codigo}");
+            if codigo == 402 || codigo == 401 {
+                st.marcar_motor_caido(
+                    &format!("ollama:{model}"),
+                    if codigo == 402 { "requiere créditos (HTTP 402)" } else { "clave rechazada (HTTP 401)" },
+                );
+            }
             None
         }
         Err(e) => {
             log::warn!("Ollama error de red: {e}");
+            None
+        }
+    }
+}
+
+/// API **nativa** de Ollama (`/api/chat`) con el esquema como **gramática**.
+///
+/// Es la diferencia entre "el modelo hizo lo que quiso" y "el modelo cumple el contrato": medido, sin
+/// gramática los modelos que corren en la placa devolvían un objeto donde la acción pide una lista, y
+/// la función parecía rota. La gramática garantiza la forma (no la verdad: eso lo sigue validando el
+/// código, ver ADR 0003).
+async fn call_ollama_nativo(
+    st: &AppState,
+    raiz_url: &str,
+    modelo: &str,
+    prompt: &str,
+    system: Option<&str>,
+    schema: &Value,
+) -> Option<crate::costo::Respuesta> {
+    let mut messages = Vec::new();
+    if let Some(s) = system {
+        messages.push(json!({ "role": "system", "content": s }));
+    }
+    messages.push(json!({ "role": "user", "content": prompt }));
+    let body = json!({
+        "model": modelo,
+        "messages": messages,
+        "stream": false,
+        "format": crate::motores::esquema_para_ollama(schema),
+        "options": { "temperature": 0.7 }
+    });
+    let url = format!("{}/api/chat", raiz_url.trim_end_matches('/'));
+    match st.http.post(&url).json(&body).send().await {
+        Ok(r) if r.status().is_success() => {
+            let v: Value = r.json().await.ok()?;
+            let text = v["message"]["content"].as_str().unwrap_or("");
+            match parse_json_text(text) {
+                Some(p) => Some(crate::costo::Respuesta {
+                    valor: p,
+                    modelo: modelo.to_string(),
+                    consumo: crate::costo::consumo_ollama_nativo(&v),
+                }),
+                None => {
+                    log::warn!("{modelo}: la gramática devolvió JSON no parseable");
+                    None
+                }
+            }
+        }
+        Ok(r) => {
+            let codigo = r.status().as_u16();
+            log::warn!("{modelo}: HTTP {codigo} en /api/chat");
+            if codigo == 402 || codigo == 401 {
+                st.marcar_motor_caido(
+                    &format!("ollama:{modelo}"),
+                    if codigo == 402 { "requiere créditos (HTTP 402)" } else { "clave rechazada (HTTP 401)" },
+                );
+            }
+            None
+        }
+        Err(e) => {
+            log::warn!("{modelo}: error de red en /api/chat — {e}");
             None
         }
     }

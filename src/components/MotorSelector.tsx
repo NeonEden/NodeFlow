@@ -1,16 +1,15 @@
 import { useEffect, useState } from 'react';
-import { Cpu, Cloud, Coins, RefreshCw } from 'lucide-react';
+import { Cpu, Cloud, Coins, Plus, RefreshCw, X } from 'lucide-react';
 import { apiUrl } from '../services/apiBase';
+import { fijarMotorActual } from '../state/motorActual';
 
 /**
  * Fase 12 — **Selector global de motor de inferencia**.
  *
- * Un solo lugar decide dónde corre la IA de toda la app: no se configura función por función.
- * El catálogo lo arma el backend con lo que existe de verdad (modelos del daemon local, nube
- * configurada, proveedores compatibles con OpenAI) y declara lo que falta en vez de esconderlo.
- *
- * La elección se guarda en el backend (`POST /api/ai/motor`), así vale también para la API y los
- * tests, no sólo para esta ventana.
+ * Un solo lugar decide dónde corre la IA de toda la app. El catálogo lo arma el backend con lo que
+ * existe de verdad (modelos del daemon local, nube configurada, proveedores agregados a mano) y
+ * declara lo que falta en vez de esconderlo. La elección se guarda en el backend, así vale también
+ * para la API y los tests.
  */
 
 interface Motor {
@@ -45,14 +44,23 @@ export function MotorSelector() {
   const [efectivo, setEfectivo] = useState('');
   const [traza, setTraza] = useState<Traza | null>(null);
   const [cargando, setCargando] = useState(false);
+  const [alta, setAlta] = useState(false);
+  const [form, setForm] = useState({ id: '', etiqueta: '', base_url: '', modelo: '', api_key: '', donde: 'pago' });
+  const [msgAlta, setMsgAlta] = useState<string | null>(null);
+
+  const aplicar = (d: any) => {
+    const lista: Motor[] = Array.isArray(d?.motores) ? d.motores : [];
+    setMotores(lista);
+    setElegido(d?.seleccionado ?? '');
+    setEfectivo(d?.efectivo ?? '');
+    const m = lista.find((x) => x.id === (d?.efectivo ?? ''));
+    fijarMotorActual(m?.modelo ?? 'la IA');
+  };
 
   const cargar = async () => {
     setCargando(true);
     try {
-      const d = await (await fetch(apiUrl('/api/ai/motores'))).json();
-      setMotores(Array.isArray(d.motores) ? d.motores : []);
-      setElegido(d.seleccionado ?? '');
-      setEfectivo(d.efectivo ?? '');
+      aplicar(await (await fetch(apiUrl('/api/ai/motores'))).json());
     } catch {
       /* sin backend todavía */
     } finally {
@@ -70,34 +78,58 @@ export function MotorSelector() {
   const elegir = async (id: string) => {
     setElegido(id);
     try {
-      await fetch(apiUrl('/api/ai/motor'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id }),
-      });
-      cargar();
+      const d = await (
+        await fetch(apiUrl('/api/ai/motor'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id }),
+        })
+      ).json();
+      if (d?.ok) await cargar();
     } catch {
-      /* si falla, la próxima carga muestra el estado real */
+      await cargar();
+    }
+  };
+
+  const guardarAlta = async () => {
+    setMsgAlta(null);
+    try {
+      const d = await (
+        await fetch(apiUrl('/api/ai/proveedor'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(form),
+        })
+      ).json();
+      if (!d?.ok) {
+        setMsgAlta(d?.error ?? 'no se pudo guardar');
+        return;
+      }
+      aplicar(d);
+      setAlta(false);
+      setForm({ id: '', etiqueta: '', base_url: '', modelo: '', api_key: '', donde: 'pago' });
+      setMsgAlta('API agregada');
+    } catch (e: any) {
+      setMsgAlta(e?.message ?? 'error de red');
     }
   };
 
   const actual = motores.find((m) => m.id === (elegido || efectivo));
   const grupoActual = GRUPOS.find((g) => g.donde === actual?.donde);
   const IconoGrupo = grupoActual?.icono ?? Cpu;
-
   const costo = traza ? (traza.costo_usd > 0 ? `$${traza.costo_usd.toFixed(4)}` : '$0') : '';
   const etiquetaTraza = traza
     ? `${traza.proveedor} · ${traza.ms} ms · ${traza.tokens} tok · ${costo}${traza.cache === 'hit' ? ' · caché HIT' : ''}`
     : '';
-
   const disponibles = motores.filter((m) => m.disponible).length;
+  const nombreEfectivo = motores.find((m) => m.id === efectivo)?.modelo ?? efectivo ?? '';
 
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="relative flex items-center gap-1.5">
       <div
         id="selector-motor"
         className="flex items-center gap-1.5 bg-slate-900/70 border border-slate-800 rounded-xl px-2 py-1"
-        title="Dónde corre la IA de toda la app. Se guarda y vale para la API, no sólo para esta ventana."
+        title="Dónde corre la IA de toda la app. Se guarda y vale también para la API."
       >
         <IconoGrupo size={13} className={grupoActual?.color ?? 'text-slate-400'} />
         <select
@@ -106,8 +138,11 @@ export function MotorSelector() {
           disabled={cargando}
           className="bg-transparent text-[11px] text-slate-200 outline-none cursor-pointer max-w-[190px]"
         >
-          <option value="" className="bg-slate-900">
-            Automático {efectivo ? `(${motores.find((m) => m.id === efectivo)?.modelo ?? efectivo})` : ''}
+          <option value="auto:local" className="bg-slate-900">
+            Automático: local{grupoActual?.donde === 'local' && nombreEfectivo ? ` (${nombreEfectivo})` : ''}
+          </option>
+          <option value="auto:nube" className="bg-slate-900">
+            Automático: nube{grupoActual && grupoActual.donde !== 'local' && nombreEfectivo ? ` (${nombreEfectivo})` : ''}
           </option>
           {GRUPOS.map((g) => {
             const items = motores.filter((m) => m.donde === g.donde);
@@ -124,6 +159,14 @@ export function MotorSelector() {
             );
           })}
         </select>
+        <button
+          type="button"
+          onClick={() => setAlta((v) => !v)}
+          title="Agregar una API compatible con OpenAI (DeepSeek, vLLM, Fireworks…)"
+          className="text-slate-500 hover:text-slate-200 transition-colors cursor-pointer"
+        >
+          <Plus size={11} />
+        </button>
         <button
           type="button"
           onClick={cargar}
@@ -144,6 +187,52 @@ export function MotorSelector() {
         >
           {etiquetaTraza}
         </span>
+      )}
+
+      {alta && (
+        <div className="absolute right-0 top-full mt-2 z-50 w-72 bg-slate-900 border border-slate-700 rounded-xl p-3 space-y-2 shadow-2xl">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-slate-200">Agregar API compatible</span>
+            <button type="button" onClick={() => setAlta(false)} className="text-slate-500 hover:text-slate-200 cursor-pointer">
+              <X size={13} />
+            </button>
+          </div>
+          {[
+            { k: 'id', ph: 'id (ej. deepseek)' },
+            { k: 'etiqueta', ph: 'etiqueta (ej. deepseek-chat · API)' },
+            { k: 'base_url', ph: 'https://api.deepseek.com/v1' },
+            { k: 'modelo', ph: 'modelo (ej. deepseek-chat)' },
+            { k: 'api_key', ph: 'API key (sólo se guarda local)' },
+          ].map((c) => (
+            <input
+              key={c.k}
+              type={c.k === 'api_key' ? 'password' : 'text'}
+              value={(form as any)[c.k]}
+              onChange={(e) => setForm({ ...form, [c.k]: e.target.value })}
+              placeholder={c.ph}
+              className="w-full bg-slate-950/70 border border-slate-800 rounded-lg px-2 py-1.5 text-[11px] text-slate-200 outline-none focus:border-slate-600"
+            />
+          ))}
+          <div className="flex items-center gap-2">
+            <select
+              value={form.donde}
+              onChange={(e) => setForm({ ...form, donde: e.target.value })}
+              className="bg-slate-950/70 border border-slate-800 rounded-lg px-2 py-1.5 text-[11px] text-slate-200"
+            >
+              <option value="pago">Nube paga</option>
+              <option value="gratis">Nube gratuita</option>
+              <option value="local">En tu placa</option>
+            </select>
+            <button
+              type="button"
+              onClick={guardarAlta}
+              className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-600 rounded-lg px-2 py-1.5 text-[11px] font-medium transition-colors cursor-pointer"
+            >
+              Guardar
+            </button>
+          </div>
+          {msgAlta && <p className="text-[10px] text-slate-400">{msgAlta}</p>}
+        </div>
       )}
     </div>
   );
