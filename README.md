@@ -92,6 +92,7 @@ All figures below were measured on this machine, not estimated.
 - **Cost accounting and caching** — trace of tokens + USD cost per generated artifact; hash cache with a versioned contract and eviction.
 - **Expert runs** — a reusable prompt contract produces validated artifacts (visual prompts, synthesis) from a node or a multi-node selection.
 - **Graph hygiene** — garden diagnostics: dangling edges, orphans, duplicates, repair and tidy.
+- **Voice → operations (Speechmatics)** — talk and the canvas acts: the transcript is interpreted as a *plan* of operations (create nodes, link them to what already exists, focus the canvas on one idea and collapse the rest, question a set of nodes). The plan is **validated server-side against the real graph** — only existing ids, only allowed actions, hard caps — and shown for approval before anything is touched. Realtime ASR latency, tokens and cost are measured per dictation.
 - **Vault integration** — notes live as Markdown + YAML frontmatter in an Obsidian vault; the graph and the vault are the same knowledge, in two views.
 - **Human in the loop** — the agent (local or remote) never writes to the graph directly: it *proposes*, and the change is applied after explicit approval, with an audit trail.
 
