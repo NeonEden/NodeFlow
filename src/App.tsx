@@ -70,6 +70,7 @@ import { SynthesisModal, MapSynthesis } from './components/SynthesisModal';
 import { LinajeModal } from './components/LinajeModal';
 import { VozPanel } from './components/VozPanel';
 import type { PlanVoz } from './services/vozService';
+import { medirContraste, resumenContraste } from './utils/contraste';
 import { TemplatesModal } from './components/TemplatesModal';
 import { ClearCanvasModal } from './components/ClearCanvasModal';
 import { HitlLearningModal } from './components/HitlLearningModal';
@@ -245,6 +246,18 @@ export default function App() {
   const [isConocimientoOpen, setIsConocimientoOpen] = useState(false);
   const [isJardinOpen, setIsJardinOpen] = useState(false);
   const [isVozOpen, setIsVozOpen] = useState(false);
+
+  // Auditoría de contraste a mano: en la consola del WebView (o desde devtools) `nfContraste()`.
+  // Recorre la UI real y devuelve los textos que no llegan al mínimo AA. Sirve para que este tipo
+  // de bug se mida en vez de descubrirse mirando.
+  useEffect(() => {
+    (window as unknown as { nfContraste?: () => unknown }).nfContraste = () => {
+      const violaciones = medirContraste(document.body);
+      // eslint-disable-next-line no-console
+      console.log(resumenContraste(violaciones));
+      return violaciones;
+    };
+  }, []);
   const [isOrquestadorOpen, setIsOrquestadorOpen] = useState(false);
 
   // Fase 7b: métrica de valor (T0 → T1)

@@ -127,6 +127,46 @@ pub(crate) fn slug(raw: &str) -> String {
 }
 
 /// Escapa un string para meterlo entre comillas dobles en YAML/markdown.
+/// Etiquetas sin repetidos (comparando sin distinguir mayúsculas), conservando el orden.
+/// Existe porque el ciclo nota → estado → nota duplicaba etiquetas en cada guardado: el nodo
+/// principal llegó a tener "nucleo" 62 veces.
+fn sin_repetidos(tags: Vec<String>) -> Vec<String> {
+    let mut vistos: Vec<String> = Vec::new();
+    let mut salida: Vec<String> = Vec::new();
+    for t in tags {
+        let limpio = t.trim().to_string();
+        if limpio.is_empty() {
+            continue;
+        }
+        let clave = limpio.to_lowercase();
+        if !vistos.contains(&clave) {
+            vistos.push(clave);
+            salida.push(limpio);
+        }
+    }
+    salida
+}
+
+#[cfg(test)]
+mod tests_tags {
+    use super::sin_repetidos;
+
+    #[test]
+    fn quita_repetidos_y_conserva_orden() {
+        let entrada: Vec<String> = ["Gemini", "Orquestador", "nucleo", "NUCLEO", "nucleo", " nucleo "]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(sin_repetidos(entrada), vec!["Gemini", "Orquestador", "nucleo"]);
+    }
+
+    #[test]
+    fn saca_vacios_y_no_rompe_con_vacio() {
+        assert_eq!(sin_repetidos(vec!["  ".into(), "".into()]), Vec::<String>::new());
+        assert_eq!(sin_repetidos(vec![]), Vec::<String>::new());
+    }
+}
+
 fn yaml_escape(raw: &str) -> String {
     raw.replace('\\', "\\\\")
         .replace('"', "\\\"")
@@ -455,9 +495,10 @@ impl Vault {
         if let Some(o) = d["aiOrigin"].as_str() {
             tags.push(format!("ai:{o}"));
         }
-        if is_root {
+        if is_root && !tags.iter().any(|t| t.eq_ignore_ascii_case("nucleo")) {
             tags.push("nucleo".into());
         }
+        let tags = sin_repetidos(tags);
         let tags_json = serde_json::to_string(&tags).unwrap_or_else(|_| "[]".into());
 
         let mut md = String::from("---\n");
@@ -1383,7 +1424,8 @@ impl Vault {
             .filter(|s| !s.is_empty());
         let tags = fm
             .get("tags")
-            .and_then(|v| serde_json::from_str::<Vec<String>>(v).ok());
+            .and_then(|v| serde_json::from_str::<Vec<String>>(v).ok())
+            .map(sin_repetidos);
 
         let mut cambios: Vec<String> = Vec::new();
         let mut nodes_mut = nodes.clone();

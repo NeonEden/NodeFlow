@@ -106,8 +106,10 @@ export const PAPEL: CanvasTheme = {
     border: '#e5eaf1',
     borderStrong: '#cbd5e1',
     text: '#0f172a',
-    textMuted: '#5b6b82',
-    textDim: '#62707f',
+    // La estructura (sidebar/header) es oscura también en tema claro: estos textos van claros
+    // en los dos temas. Medido: el sidebar daba 2.01 con un gris medio.
+    textMuted: '#a9b6c7',
+    textDim: '#94a3b8',
   },
 };
 
@@ -149,8 +151,10 @@ export const NOCHE: CanvasTheme = {
     border: '#1e293b',
     borderStrong: '#334155',
     text: '#f1f5f9',
-    textMuted: '#94a3b8',
-    textDim: '#64748b',
+    textMuted: '#a9b6c7',
+    // Antes #64748b (slate-500): 2.77 de contraste sobre el fondo casi negro de la estructura.
+    // Los rótulos de 9-10 px no llegaban a AA. Medido con la auditoría: ahora 5.4.
+    textDim: '#94a3b8',
   },
 };
 

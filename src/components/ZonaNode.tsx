@@ -58,7 +58,7 @@ export const ZonaNode: React.FC<NodeProps<ZonaNodeData>> = memo(({ data }) => {
       {/* Marca de agua: orienta cuando el chip del encabezado queda fuera de pantalla. */}
       <span
         className="absolute top-3 right-4 text-[46px] font-black leading-none tabular-nums select-none"
-        style={{ color: `${acento}14` }}
+        style={{ color: `color-mix(in srgb, ${acento} 55%, var(--nf-title))` }}
       >
         {String(data?.nivel ?? 0).padStart(2, '0')}
       </span>
