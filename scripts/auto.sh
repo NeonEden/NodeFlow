@@ -3,6 +3,7 @@
 # 1) respaldo del día si falta  2) punto de guardado (verifica y recién ahí commitea/sube)
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+bash "$REPO/scripts/limpiar-builds.sh"
 bash "$REPO/scripts/backup.sh"  >> "$REPO/.git/checkpoint.log" 2>&1
 bash "$REPO/scripts/checkpoint.sh" >> "$REPO/.git/checkpoint.log" 2>&1
 
