@@ -8,6 +8,8 @@ interface VozPanelProps {
   onClose: () => void;
   /** Aplica el plan aprobado. Devuelve cuántos nodos creó y a cuántos afectó. */
   onAplicar: (plan: PlanVoz) => Promise<{ creados: number; afectados: number } | null>;
+  /** Qué va a pasar, en números, para mostrarlo ANTES de aplicar. */
+  onPrevisualizar: (plan: PlanVoz) => string;
   tituloNodo: (id: string) => string;
 }
 
@@ -28,7 +30,7 @@ const EJEMPLOS = [
  * Panel de Voz (Speechmatics). Hablás, la transcripción aparece en vivo y al cortar el motor
  * propone un PLAN de operaciones sobre el lienzo — que se aprueba antes de aplicarse.
  */
-export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, tituloNodo }) => {
+export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, onPrevisualizar, tituloNodo }) => {
   const [servicio, setServicio] = useState<VozEstado | null>(null);
   const [estado, setEstado] = useState<EstadoVoz>('inactivo');
   const [detalleEstado, setDetalleEstado] = useState('');
@@ -262,6 +264,15 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
                 <div className="text-[11px] text-amber-200/90">
                   Descarté {plan.descartados} operación(es) que no cerraban contra el lienzo.
                   {plan.motivo_descarte?.length ? ` (${plan.motivo_descarte.slice(0, 2).join('; ')})` : ''}
+                </div>
+              )}
+
+              {plan.comandos.length > 0 && (
+                <div className="flex items-start gap-2 text-[11px] text-amber-100 bg-amber-950/30 border border-amber-800/50 rounded-lg px-2.5 py-2">
+                  <AlertTriangle size={12} className="shrink-0 mt-0.5 text-amber-400" />
+                  <span>
+                    <span className="font-semibold">Va a pasar esto:</span> {onPrevisualizar(plan)}
+                  </span>
                 </div>
               )}
 

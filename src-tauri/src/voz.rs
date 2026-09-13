@@ -14,8 +14,10 @@ use serde_json::{json, Value};
 
 /// Lo que la voz puede pedir. Todo lo demás se descarta.
 pub const ACCIONES: [&str; 5] = ["crear", "enlazar", "enfocar", "condensar", "criticar"];
-/// Tope de operaciones por dictado (una frase larga no debería disparar 40 cosas).
-pub const MAX_COMANDOS: usize = 12;
+/// Tope de operaciones por dictado. Medido: un pedido de "dejá sólo lo que se conecta con X"
+/// llegó como 5 condensaciones y colapsó media lienzo, cuando la intención era UNA operación.
+/// Una frase son pocas operaciones; si el motor propone más, no se aplica el excedente.
+pub const MAX_COMANDOS: usize = 4;
 /// Tope de nodos por comando (evita "limpiá todo" por accidente).
 pub const MAX_NODOS: usize = 30;
 

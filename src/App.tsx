@@ -1702,6 +1702,40 @@ export default function App() {
    * - criticar  → dispara el flujo socrático que ya existe (él propone, vos aprobás).
    * Los colapsos son locales (no gastan IA) y guardan el linaje: se restauran con doble clic.
    */
+  /**
+   * Vecindad DIRECTA (profundidad 1): "lo que se une con la idea", no todo el grafo alcanzable.
+   * Antes recorría el grafo sin límite y en un lienzo conectado eso terminaba "conservando" todo.
+   */
+  const vecindadDirecta = useCallback((ids: string[], eds: Edge[]) => {
+    const dentro = new Set<string>(ids);
+    eds.forEach((e) => {
+      if (dentro.has(e.source)) dentro.add(e.target);
+      if (dentro.has(e.target)) dentro.add(e.source);
+    });
+    return dentro;
+  }, []);
+
+  /** Qué va a pasar, en números, ANTES de aplicar. Se muestra en la tarjeta del plan. */
+  const previsualizarPlanVoz = useCallback(
+    (plan: PlanVoz): string => {
+      const partes: string[] = [];
+      let conservar = 0;
+      plan.comandos.forEach((c) => {
+        if (c.accion === 'crear') partes.push('1 nodo nuevo');
+        else if (c.accion === 'enlazar') partes.push('1 enlace');
+        else if (c.accion === 'enfocar') {
+          const dentro = vecindadDirecta(c.nodos || [], edges);
+          conservar = dentro.size;
+          partes.push(`conservar ${dentro.size} nodos (esa idea y lo que se une a ella)`);
+        } else if (c.accion === 'condensar') partes.push(`colapsar ${new Set(c.nodos || []).size} nodos`);
+        else if (c.accion === 'criticar') partes.push(`cuestionar ${(c.nodos || []).length} nodos`);
+      });
+      if (conservar) partes.push(`los otros ${Math.max(0, nodes.length - conservar)} pasan a un macro-nodo (se restauran con doble clic)`);
+      return partes.join(' · ');
+    },
+    [nodes.length, edges, vecindadDirecta]
+  );
+
   const aplicarPlanVoz = useCallback(
     async (plan: PlanVoz) => {
       if (!plan.comandos?.length) return null;
@@ -1827,18 +1861,7 @@ export default function App() {
 
       if (enfocar) {
         const objetivo = enfocar as { ids: string[]; criterio?: string };
-        const conservar = new Set<string>();
-        const cola = [...objetivo.ids];
-        const vecinos = (id: string) =>
-          eds.filter((e) => e.source === id || e.target === id).map((e) => (e.source === id ? e.target : e.source));
-        while (cola.length) {
-          const id = cola.shift() as string;
-          if (conservar.has(id)) continue;
-          conservar.add(id);
-          vecinos(id).forEach((v) => {
-            if (!conservar.has(v)) cola.push(v);
-          });
-        }
+        const conservar = vecindadDirecta(objetivo.ids, eds);
         const resto = nds.filter((n) => !conservar.has(n.id)).map((n) => n.id);
         if (resto.length) hacerMacro(resto, `Fuera de foco (${resto.length} nodos)`);
       }
@@ -1859,7 +1882,7 @@ export default function App() {
       );
       return { creados, afectados };
     },
-    [nodes, edges, takeSnapshot, setNodes, setEdges, setSelectedNodes, showToast]
+    [nodes, edges, takeSnapshot, setNodes, setEdges, setSelectedNodes, showToast, vecindadDirecta]
   );
 
   /** Restaurar el sub-grafo original de un macro-nodo: vuelven sus nodos y sus aristas tal cual. */
@@ -3546,6 +3569,7 @@ export default function App() {
         isOpen={isVozOpen}
         onClose={() => setIsVozOpen(false)}
         onAplicar={aplicarPlanVoz}
+        onPrevisualizar={previsualizarPlanVoz}
         tituloNodo={(id) => nodes.find((n) => n.id === id)?.data.title || id}
       />
 
