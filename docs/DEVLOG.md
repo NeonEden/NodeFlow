@@ -2,14 +2,15 @@
 
 Generado desde el historial de git (Conventional Commits). No se edita a mano.
 
-`38` commits · rama `main` · actualizado 2026-09-13 16:41
+`45` commits · rama `main` · actualizado 2026-09-13 17:30
 
 Últimos 14 días:
 
-## 2026-09-13 · 20 commit(s) · +4264 −654
+## 2026-09-13 · 27 commit(s) · +4874 −3473
 
 **Nuevas capacidades**
 
+- Fase A — Norte Estratégico + macro-nodos con linaje (poda sin pérdida)
 - automatic profile learning, honest wording and readable panel
 - global engine selector - one place decides where the AI runs
 - per-task local/cloud mode with measured cost and cache trace
@@ -28,10 +29,16 @@ Generado desde el historial de git (Conventional Commits). No se edita a mano.
 
 **Documentación**
 
+- notas de v0.1.0 listas para publicar
 - add README (EN/ES), roadmap, ADRs, MIT license and real env example
 
 **Infraestructura**
 
+- 2 archivo(s) · 2026-09-13 17:26
+- 1 archivo(s) · 2026-09-13 17:16
+- 6 archivo(s) · 2026-09-13 17:06
+- 3 archivo(s) · 2026-09-13 17:01
+- 1 archivo(s) · 2026-09-13 16:41
 - 1 archivo(s) · 2026-09-13 16:41
 - 1 archivo(s) · 2026-09-13 16:32
 - 3 archivo(s) · 2026-09-13 16:32
