@@ -23,5 +23,11 @@
     "allowImportingTsExtensions": true,
     "noEmit": true
   },
-  "exclude": ["node_modules", "dist", "src-tauri/target", "src-tauri/gen"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "src-tauri/target",
+    "src-tauri/gen",
+    "server.ts"
+  ]
 }
