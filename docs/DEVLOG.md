@@ -2,11 +2,11 @@
 
 Generado desde el historial de git (Conventional Commits). No se edita a mano.
 
-`34` commits · rama `main` · actualizado 2026-09-13 16:30
+`38` commits · rama `main` · actualizado 2026-09-13 16:41
 
 Últimos 14 días:
 
-## 2026-09-13 · 16 commit(s) · +3911 −652
+## 2026-09-13 · 20 commit(s) · +4264 −654
 
 **Nuevas capacidades**
 
@@ -32,6 +32,10 @@ Generado desde el historial de git (Conventional Commits). No se edita a mano.
 
 **Infraestructura**
 
+- 1 archivo(s) · 2026-09-13 16:41
+- 1 archivo(s) · 2026-09-13 16:32
+- 3 archivo(s) · 2026-09-13 16:32
+- 3 archivo(s) · 2026-09-13 16:31
 - unignore src/data, sync lock and add CI
 - merge the v0.1 native rewrite onto the NeuralMind prototype history
 - fix identity - nodeflow-desktop 0.1.0, MIT
