@@ -151,6 +151,8 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
             .route("/api/hitl/reset", post(hitl_reset))
             .route("/api/ai/action", post(ai_action))
             .route("/api/ai/cache", get(ai_cache))
+            .route("/api/voz/estado", get(voz_estado))
+            .route("/api/voz/jwt", get(voz_jwt))
             .route("/api/ai/motores", get(ai_motores))
             .route("/api/ai/motor", post(ai_motor))
             .route("/api/ai/proveedor", post(ai_proveedor))
@@ -804,6 +806,28 @@ async fn ai_action(
             if action_type == "condensar" {
                 normalizar_condensado(&mut value);
             }
+            // Voz: el plan se valida contra el lienzo REAL (sólo ids que existen, sólo acciones
+            // permitidas, topes). Lo que no pasa, se descarta y se informa; nunca se ejecuta a ciegas.
+            if action_type == "voz" {
+                let ids: Vec<String> = st
+                    .vault
+                    .read_state()
+                    .unwrap_or(serde_json::json!({}))["nodes"]
+                    .as_array()
+                    .map(|ns| {
+                        ns.iter()
+                            .filter_map(|n| n["id"].as_str().map(String::from))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let limpio = crate::voz::validar(&value, &ids);
+                log::info!(
+                    "voz: {} comandos válidos · {} descartados",
+                    limpio["comandos"].as_array().map(|a| a.len()).unwrap_or(0),
+                    limpio["descartados"].as_u64().unwrap_or(0)
+                );
+                value = limpio;
+            }
             let ok = match &value {
                 Value::Array(a) => !a.is_empty(),
                 Value::Object(o) => !o.is_empty(),
@@ -1040,6 +1064,36 @@ fn build_context(
             .trim()
             .to_string(),
     );
+
+    // Voz (Fase B): lo que dijo el usuario + el lienzo REAL con ids, para que el plan sólo pueda
+    // referirse a nodos que existen. Se acota a 120 nodos para no inflar el prompt.
+    if action == "voz" {
+        ctx.insert("texto".into(), body["texto"].as_str().unwrap_or("").trim().to_string());
+        if let Some((vault, _)) = ctx_memoria {
+            let estado = vault.read_state().unwrap_or(serde_json::json!({}));
+            let lienzo = estado["nodes"]
+                .as_array()
+                .map(|ns| {
+                    ns.iter()
+                        .take(120)
+                        .filter_map(|n| {
+                            let d = if n["data"].is_object() { &n["data"] } else { n };
+                            let id = s(n, "id");
+                            let titulo = s(d, "title");
+                            let cat = s(d, "category");
+                            if id.is_empty() || titulo.is_empty() {
+                                None
+                            } else {
+                                Some(format!("{id} · {titulo} · {cat}"))
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                })
+                .unwrap_or_default();
+            ctx.insert("lienzo".into(), lienzo);
+        }
+    }
 
     // nodos: soporta tanto {id,data:{...}} como {id,title,...}
     let nodes = body["nodes"].as_array().cloned().unwrap_or_default();
@@ -2077,6 +2131,121 @@ async fn vault_info(State(st): State<AppState>) -> impl IntoResponse {
 }
 
 /// Lee el grafo canónico. Con `?since=<rev>` responde barato cuando nada cambió (polling).
+/// Clave de Speechmatics: variable de entorno → `.env` del proyecto (dev) → `nodeflow.config.json`.
+/// Nunca sale del backend y nunca se escribe en un log.
+fn clave_speechmatics(st: &AppState) -> Option<String> {
+    for var in ["SPEECHMATICS_API_KEY", "SPEECHMATICS_KEY"] {
+        if let Ok(v) = std::env::var(var) {
+            let v = v.trim().to_string();
+            if !v.is_empty() {
+                return Some(v);
+            }
+        }
+    }
+    for candidate in ["../.env", ".env"] {
+        if let Ok(txt) = std::fs::read_to_string(candidate) {
+            for line in txt.lines() {
+                let line = line.trim();
+                for campo in ["SPEECHMATICS_API_KEY=", "SPEECHMATICS_KEY="] {
+                    if let Some(rest) = line.strip_prefix(campo) {
+                        let v = rest.trim().trim_matches('"').trim_matches('\'').to_string();
+                        if !v.is_empty() {
+                            log::info!("Speechmatics: clave leída desde {candidate}");
+                            return Some(v);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if let Ok(txt) = std::fs::read_to_string(st.data_dir.join("nodeflow.config.json")) {
+        if let Ok(v) = serde_json::from_str::<Value>(&txt) {
+            for campo in ["speechmatics_api_key", "SPEECHMATICS_API_KEY"] {
+                if let Some(k) = v[campo].as_str() {
+                    let k = k.trim().to_string();
+                    if !k.is_empty() {
+                        log::info!("Speechmatics: clave leída desde nodeflow.config.json");
+                        return Some(k);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// `GET /api/voz/estado` — si la voz está lista, sin exponer nunca la clave.
+async fn voz_estado(State(st): State<AppState>) -> impl IntoResponse {
+    let configurada = clave_speechmatics(&st).is_some();
+    let (url, modelo, idioma) = crate::voz::ajustes();
+    Json(json!({
+        "success": true,
+        "configurada": configurada,
+        "proveedor": "Speechmatics",
+        "url": url,
+        "modelo": modelo,
+        "idioma": idioma,
+        "codec": "pcm_s16le 16000 Hz",
+        "pista": if configurada {
+            "Clave presente. El token temporal se pide a /api/voz/jwt."
+        } else {
+            "Falta la clave: SPEECHMATICS_API_KEY en el entorno, o \"speechmatics_api_key\" en nodeflow.config.json."
+        }
+    }))
+}
+
+/// `GET /api/voz/jwt` — token temporal de realtime para el WebSocket del navegador.
+/// La clave de cuenta se queda en el backend: el frontend sólo ve un token que expira.
+async fn voz_jwt(State(st): State<AppState>) -> impl IntoResponse {
+    let Some(clave) = clave_speechmatics(&st) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "success": false,
+                "error": "Falta la clave de Speechmatics (SPEECHMATICS_API_KEY o \"speechmatics_api_key\" en nodeflow.config.json)."
+            })),
+        );
+    };
+    let pedido = st
+        .http
+        .post("https://mp.speechmatics.com/v1/api_keys?type=rt")
+        .header("Authorization", format!("Bearer {clave}"))
+        .json(&json!({ "ttl": 300 }))
+        .send()
+        .await;
+    match pedido {
+        Ok(r) => {
+            let code = r.status();
+            let body: Value = r.json().await.unwrap_or(json!({}));
+            if !code.is_success() {
+                let detalle = body["error"].as_str().or(body["message"].as_str()).unwrap_or("sin detalle");
+                log::warn!("voz: Speechmatics rechazó la petición de token ({code})");
+                return (
+                    StatusCode::BAD_GATEWAY,
+                    Json(json!({ "success": false, "error": format!("Speechmatics rechazó la clave ({code}): {detalle}") })),
+                );
+            }
+            let jwt = body["key_value"].as_str().unwrap_or("").to_string();
+            if jwt.is_empty() {
+                return (
+                    StatusCode::BAD_GATEWAY,
+                    Json(json!({ "success": false, "error": "Speechmatics no devolvió token temporal." })),
+                );
+            }
+            let (url, modelo, idioma) = crate::voz::ajustes();
+            log::info!("voz: token temporal emitido (300 s)");
+            (
+                StatusCode::OK,
+                Json(json!({ "success": true, "jwt": jwt, "url": url, "modelo": modelo, "idioma": idioma, "expira_en_s": 300 })),
+            )
+        }
+        Err(e) => (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({ "success": false, "error": format!("No pude hablar con Speechmatics: {e}") })),
+        ),
+    }
+}
+
 async fn graph_state(
     State(st): State<AppState>,
     Query(q): Query<HashMap<String, String>>,

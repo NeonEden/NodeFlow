@@ -8,6 +8,7 @@ mod memoria;
 mod motores;
 mod server;
 mod vault;
+mod voz;
 
 use std::path::PathBuf;
 use tauri::Manager;

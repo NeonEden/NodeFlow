@@ -717,5 +717,69 @@
     "response": {
       "key": "condensar"
     }
+  },
+  "voz": {
+    "aliases": [],
+    "prompt": "Sos el intérprete de voz de NodeFlow. El usuario acaba de hablar y hay que traducir sus palabras\nen OPERACIONES sobre su lienzo de ideas. No sos un chatbot: sos quien ejecuta.\n\nLO QUE DIJO (transcripción):\n\"{{texto}}\"\n\nEL LIENZO AHORA (id · título · categoría), una línea por nodo:\n{{lienzo}}\n\nDevolvé:\n- intencion: \"capturar\" si quiere sumar ideas nuevas, \"comando\" si quiere operar sobre lo que ya existe.\n- respuesta: en primera persona y en UNA frase: qué vas a hacer, como se lo dirías hablando.\n- comandos: la lista de operaciones. Acciones permitidas y sus campos:\n  · crear     → {accion, titulo, descripcion, categoria}\n  · enlazar   → {accion, desde, hasta}  (ids del lienzo, o el título exacto de un nodo que creás en esta lista)\n  · enfocar   → {accion, criterio, nodos:[ids]}  (se conservan esos nodos y su vecindad; el resto se condensa)\n  · condensar → {accion, nodos:[ids]}\n  · criticar  → {accion, nodos:[ids]}\n\nReglas:\n- Usá SOLO los ids que aparecen arriba. Nunca inventes ids.\n- Si pide limpiar/filtrar el lienzo alrededor de una idea, buscá arriba los nodos que tratan de esa idea\n  (y de sus conceptos vecinos) y devolvé UN 'enfocar' con esos ids.\n- Si no hay nada que corresponda, devolvé comandos vacíos y explicá en 'respuesta'.\n- Ejemplo: «limpiá el lienzo y dejá sólo lo que se conecta con el orquestador de voz» → un 'enfocar'\n  con los ids de los nodos de voz, orquestación, NodeFlow y memoria persistida.\n{{memoria}}",
+    "schema": {
+      "type": "OBJECT",
+      "properties": {
+        "intencion": {
+          "type": "STRING"
+        },
+        "respuesta": {
+          "type": "STRING"
+        },
+        "motivo": {
+          "type": "STRING"
+        },
+        "comandos": {
+          "type": "ARRAY",
+          "items": {
+            "type": "OBJECT",
+            "properties": {
+              "accion": {
+                "type": "STRING"
+              },
+              "titulo": {
+                "type": "STRING"
+              },
+              "descripcion": {
+                "type": "STRING"
+              },
+              "categoria": {
+                "type": "STRING"
+              },
+              "criterio": {
+                "type": "STRING"
+              },
+              "nodos": {
+                "type": "ARRAY",
+                "items": {
+                  "type": "STRING"
+                }
+              },
+              "desde": {
+                "type": "STRING"
+              },
+              "hasta": {
+                "type": "STRING"
+              }
+            },
+            "required": [
+              "accion"
+            ]
+          }
+        }
+      },
+      "required": [
+        "intencion",
+        "respuesta",
+        "comandos"
+      ]
+    },
+    "response": {
+      "key": "voz"
+    }
   }
 }
