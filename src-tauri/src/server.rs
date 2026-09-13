@@ -796,10 +796,14 @@ async fn ai_action(
             uso = llamada.uso_json(&st.tarifas);
             let parsed = llamada.valor;
             let model = llamada.modelo;
-            let value = match &nested {
+            let mut value = match &nested {
                 Some(k) => parsed[k].clone(),
                 None => parsed.clone(),
             };
+            // El modelo propone, el código valida: se normaliza al contrato de la acción.
+            if action_type == "condensar" {
+                normalizar_condensado(&mut value);
+            }
             let ok = match &value {
                 Value::Array(a) => !a.is_empty(),
                 Value::Object(o) => !o.is_empty(),
@@ -1144,6 +1148,90 @@ fn build_context(
         );
     }
     ctx
+}
+
+/// El motor devuelve a veces el mismo contenido con otro nombre de campo (medido con
+/// `gpt-oss:120b-cloud`, que ignora la gramática: `macro_concept` en vez de `title`).
+/// Se lo lleva al contrato de la acción antes de que el frontend lo vea.
+fn normalizar_condensado(v: &mut serde_json::Value) {
+    fn toma(v: &serde_json::Value, nombres: &[&str]) -> Option<String> {
+        nombres
+            .iter()
+            .find_map(|n| v.get(n).and_then(|x| x.as_str()).map(|s| s.trim().to_string()))
+            .filter(|s| !s.is_empty())
+    }
+    let texto_largo = toma(v, &["macro_concept", "macro", "sintesis", "summary"]);
+    let faltantes: [(&str, [&str; 3]); 4] = [
+        ("title", ["titulo", "nombre", "concepto"]),
+        ("description", ["descripcion", "detalle", "explicacion"]),
+        ("resumen", ["sintesis", "summary", "resumen_ejecutivo"]),
+        ("principio", ["principle", "insight", "regla"]),
+    ];
+    for (destino, alias) in faltantes {
+        let ya = v
+            .get(destino)
+            .and_then(|x| x.as_str())
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(false);
+        if ya {
+            continue;
+        }
+        if let Some(s) = toma(v, &alias) {
+            v[destino] = serde_json::Value::String(s);
+        } else if let Some(largo) = texto_largo.as_ref() {
+            v[destino] = serde_json::Value::String(if destino == "title" {
+                largo.chars().take(90).collect()
+            } else {
+                largo.clone()
+            });
+        }
+    }
+    if let Some(m) = v.get("match").and_then(|x| x.as_f64()) {
+        if m > 1.0 {
+            v["match"] = serde_json::json!(m / 100.0);
+        }
+    }
+    let sin_tags = v
+        .get("tags")
+        .and_then(|x| x.as_array())
+        .map(|a| a.is_empty())
+        .unwrap_or(true);
+    if sin_tags {
+        v["tags"] = serde_json::json!(["Condensado"]);
+    }
+}
+
+#[cfg(test)]
+mod tests_condensar {
+    use super::normalizar_condensado;
+    use serde_json::json;
+
+    #[test]
+    fn normaliza_lo_medido_con_gpt_oss() {
+        let mut v = json!({"macro_concept": "Grafo íntegro + API estable", "match": 92,
+                           "principio": "La integridad referencial es la base."});
+        normalizar_condensado(&mut v);
+        assert_eq!(v["title"], json!("Grafo íntegro + API estable"));
+        assert_eq!(v["match"], json!(0.92));
+        assert!(v["description"].as_str().unwrap().contains("Grafo"));
+        assert_eq!(v["tags"], json!(["Condensado"]));
+    }
+
+    #[test]
+    fn respuesta_conforme_no_se_toca() {
+        let mut ok = json!({"title": "X", "description": "Y", "resumen": "Z",
+                            "principio": "P", "match": 0.5, "tags": ["a"]});
+        let antes = ok.clone();
+        normalizar_condensado(&mut ok);
+        assert_eq!(ok, antes);
+    }
+
+    #[test]
+    fn vacio_no_paniquea() {
+        let mut vacio = json!({});
+        normalizar_condensado(&mut vacio);
+        assert_eq!(vacio["tags"], json!(["Condensado"]));
+    }
 }
 
 fn fill_template(tpl: &str, ctx: &std::collections::HashMap<String, String>) -> String {
