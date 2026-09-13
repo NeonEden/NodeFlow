@@ -125,10 +125,9 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
                     if total - hechas < cada {
                         continue;
                     }
-                    let Some(key) = st_auto.env_key.clone() else {
-                        log::warn!("aprendizaje automático activo pero sin clave de nube: no puedo recalibrar");
-                        continue;
-                    };
+                    // La corrección usa el **motor elegido**: si es local, aprende gratis y sin red.
+                    // Por eso no se exige clave de nube acá (cada motor resuelve la suya).
+                    let key = st_auto.env_key.clone().unwrap_or_default();
                     log::info!("aprendizaje automático: {total} decisiones ({cada} nuevas desde la última) → recalibro");
                     if recalibrar_perfil_con_ia(&st_auto, &key).await.is_none() {
                         log::warn!("aprendizaje automático: el motor no devolvió perfil; reintento en el próximo ciclo");
