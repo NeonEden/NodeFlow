@@ -210,14 +210,14 @@ export function MotorSelector() {
               value={(form as any)[c.k]}
               onChange={(e) => setForm({ ...form, [c.k]: e.target.value })}
               placeholder={c.ph}
-              className="w-full bg-slate-950/70 border border-slate-800 rounded-lg px-2 py-1.5 text-[11px] text-slate-200 outline-none focus:border-slate-600"
+              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-[11px] text-slate-200 placeholder:text-slate-500 outline-none focus:border-slate-500"
             />
           ))}
           <div className="flex items-center gap-2">
             <select
               value={form.donde}
               onChange={(e) => setForm({ ...form, donde: e.target.value })}
-              className="bg-slate-950/70 border border-slate-800 rounded-lg px-2 py-1.5 text-[11px] text-slate-200"
+              className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-[11px] text-slate-200 outline-none"
             >
               <option value="pago">Nube paga</option>
               <option value="gratis">Nube gratuita</option>

@@ -3015,6 +3015,16 @@ export default function App() {
               <Keyboard size={14} />
               <span className="text-[10px] hidden sm:inline font-mono">Atajos</span>
             </button>
+
+            {/* Autoría: chica, pero en la esquina donde se lee */}
+            <div
+              id="credito-autor"
+              className="bg-[var(--nf-hud-bg)] border border-[var(--nf-hud-border)] rounded-lg px-2.5 py-2 backdrop-blur-md shadow-lg select-none flex items-center gap-1.5"
+              title="NodeFlow — creado por TOMAS.WAV (Tomas Pieruz)"
+            >
+              <span className="text-[10px] font-mono text-[var(--nf-hud-text)] opacity-70">por</span>
+              <span className="text-[10px] font-semibold tracking-tight text-[var(--nf-hud-text)]">TOMAS.WAV</span>
+            </div>
           </div>
 
           {/* Floating Multi-Selection Quick Bar (Unir, Hibridar, Puentes) */}
