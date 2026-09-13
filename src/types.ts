@@ -132,7 +132,7 @@ export interface HumanDecision {
 export interface FeedbackEvent {
   id: string;
   timestamp: string;
-  action: 'NODE_EDIT' | 'NODE_DELETE' | 'EDGE_CREATED' | 'AI_ACCEPTED' | 'HYBRIDIZE_FEEDBACK';
+  action: 'NODE_EDIT' | 'NODE_DELETE' | 'EDGE_CREATED' | 'AI_ACCEPTED' | 'HYBRIDIZE_FEEDBACK' | 'CONDENSE_FEEDBACK';
   prompt_original: string;
   ai_suggestion: string[];
   human_decision: HumanDecision;

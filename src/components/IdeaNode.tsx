@@ -58,6 +58,8 @@ export const IdeaNode: React.FC<NodeProps<IdeaNodeData>> = memo(({ id, data, sel
   const accentColor = data.colorAccent || '#6366f1';
   const categoryLabel = data.category || data.label || (data.isRoot ? 'NÚCLEO' : 'CONCEPTO');
   const isSearchMatch = data.isSearchMatch;
+  // Macro-nodo (Fase A): nace de condensar N nodos y guarda su linaje.
+  const macro = data.macro;
   const lod = useLod();
   const tarjetas = useTarjetas();
   const tema = useTema();
@@ -236,7 +238,16 @@ export const IdeaNode: React.FC<NodeProps<IdeaNodeData>> = memo(({ id, data, sel
           >
             {categoryLabel}
           </span>
-          {isHub && (
+          {macro && (
+            <span
+              className="ml-auto text-[9px] font-mono shrink-0 px-1.5 py-0.5 rounded-md border"
+              style={{ borderColor: `${accentColor}66`, backgroundColor: `${accentColor}1a`, color: accentColor }}
+              title={`${macro.colapsados} nodos condensados · doble clic para ver el linaje`}
+            >
+              ◈ {macro.colapsados}
+            </span>
+          )}
+          {isHub && !macro && (
             <span
               className="ml-auto text-[9px] font-mono nf-muted shrink-0"
               title={`${degree} conexiones`}

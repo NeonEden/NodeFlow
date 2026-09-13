@@ -38,6 +38,7 @@ import {
   Search,
   LayoutTemplate,
   Trash2,
+  Target,
   RotateCcw,
   Brain,
   Zap,
@@ -65,6 +66,7 @@ import { AuthModal } from './components/AuthModal';
 import { SavedStatesModal } from './components/SavedStatesModal';
 import { NodeEditModal } from './components/NodeEditModal';
 import { SynthesisModal, MapSynthesis } from './components/SynthesisModal';
+import { LinajeModal } from './components/LinajeModal';
 import { TemplatesModal } from './components/TemplatesModal';
 import { ClearCanvasModal } from './components/ClearCanvasModal';
 import { HitlLearningModal } from './components/HitlLearningModal';
@@ -271,6 +273,28 @@ export default function App() {
   const handleAIActionRef = useRef<any>(null);
   const handleConnectSelectedNodesRef = useRef<() => void>(() => {});
   const handleHybridizeRef = useRef<() => void>(() => {});
+  const handleCondensarRef = useRef<() => void>(() => {});
+
+  // Fase A — Norte Estratégico: el objetivo que actúa de lente al condensar (persiste entre sesiones).
+  const [norte, setNorte] = useState<string>(() => {
+    try {
+      return localStorage.getItem('nodeflow_norte') || '';
+    } catch {
+      return '';
+    }
+  });
+  const [isNorteOpen, setIsNorteOpen] = useState(false);
+  const [nodoLinaje, setNodoLinaje] = useState<CustomNode | null>(null);
+  const [isLinajeOpen, setIsLinajeOpen] = useState(false);
+
+  const guardarNorte = (v: string) => {
+    setNorte(v);
+    try {
+      localStorage.setItem('nodeflow_norte', v);
+    } catch {
+      /* almacenamiento restringido */
+    }
+  };
 
   // 5. Undo / Redo Hook
   const {
@@ -543,6 +567,13 @@ export default function App() {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
         e.preventDefault();
         setIsBrainDumpOpen(true);
+        return;
+      }
+
+      // Ctrl/Cmd + Shift + C: condensar la selección en un macro-nodo (poda sin pérdida)
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'c') {
+        e.preventDefault();
+        handleCondensarRef.current?.();
         return;
       }
 
@@ -1547,6 +1578,140 @@ export default function App() {
     }
   }, [selectedNodes, nodes, edges, edgeAppearance.type, takeSnapshot, showToast, hitlProfile.learnedProfile]);
 
+  /**
+   * Fase A — Condensar: los N nodos seleccionados se vuelven UN macro-nodo, y sus datos
+   * (nodos + aristas originales) quedan guardados dentro: poda sin pérdida.
+   * El Norte Estratégico entra en el prompt como lente; la IA devuelve el principio y el aporte.
+   */
+  const handleCondensar = useCallback(async () => {
+    if (selectedNodes.length < 2) {
+      showToast('Seleccioná al menos 2 nodos para condensarlos en un macro-nodo.', 'info');
+      return;
+    }
+    setIsAiLoading(true);
+    showToast(`Condensando ${selectedNodes.length} nodos en un macro-concepto...`, 'info');
+
+    try {
+      const response = await postAiAction({
+        type: 'condensar',
+        selectedNodes: selectedNodes.map((n) => ({
+          id: n.id,
+          title: n.data.title,
+          description: n.data.description,
+        })),
+        objetivo: norte,
+        hitlProfileOverride: hitlProfile.learnedProfile,
+      });
+      const data = await response.json();
+      if (!data.success || !data.condensar) {
+        showToast('No se pudo condensar la selección.', 'error');
+        return;
+      }
+
+      takeSnapshot(nodes, edges);
+      const ids = new Set(selectedNodes.map((n) => n.id));
+      const macroId = `node-macro-${Date.now()}`;
+      const centro = {
+        x: selectedNodes.reduce((s, n) => s + n.position.x, 0) / selectedNodes.length,
+        y: selectedNodes.reduce((s, n) => s + n.position.y, 0) / selectedNodes.length,
+      };
+
+      // Aristas: las internas se guardan en el linaje; las externas se reenganchan al macro para
+      // que el grafo siga conectado (si no, el macro quedaría flotando sin relaciones).
+      const todasLasTocadas = edges.filter((e) => ids.has(e.source) || ids.has(e.target));
+      const internas = todasLasTocadas.filter((e) => ids.has(e.source) && ids.has(e.target));
+      const externas = todasLasTocadas.filter((e) => ids.has(e.source) !== ids.has(e.target));
+      const reenganchadas: Edge[] = externas.map((e) => ({
+        ...e,
+        id: `${e.id}-macro`,
+        source: ids.has(e.source) ? macroId : e.source,
+        target: ids.has(e.target) ? macroId : e.target,
+      }));
+
+      const macroNode: CustomNode = {
+        id: macroId,
+        type: 'ideaNode',
+        position: centro,
+        data: {
+          id: macroId,
+          category: 'MACRO',
+          label: 'MACRO · CONDENSADO',
+          title: data.condensar.title,
+          description: data.condensar.description,
+          tags: data.condensar.tags || ['Condensado'],
+          colorAccent: '#8b5cf6',
+          maturity: 4,
+          macro: {
+            colapsados: selectedNodes.length,
+            linaje: selectedNodes.map((n) => n.id),
+            resumen: data.condensar.resumen,
+            principio: data.condensar.principio,
+            match: typeof data.condensar.match === 'number' ? data.condensar.match : undefined,
+            objetivo: norte || undefined,
+            creadoEn: new Date().toISOString(),
+            datos: { nodes: selectedNodes, edges: todasLasTocadas },
+          },
+          aiOrigin: {
+            batchId: macroId,
+            actionType: 'condensar',
+            promptOriginal: `Condensar ${selectedNodes.length} nodos${norte ? ` hacia «${norte}»` : ''}`,
+            originalTitle: data.condensar.title,
+            allBatchTitles: [data.condensar.title],
+            createdAt: new Date().toISOString(),
+          },
+        },
+      };
+
+      setNodes((nds) => [...nds.filter((n) => !ids.has(n.id)), macroNode]);
+      setEdges((eds) => [...eds.filter((e) => !ids.has(e.source) && !ids.has(e.target)), ...reenganchadas]);
+      setSelectedNodes([]);
+      showToast(
+        `◈ ${selectedNodes.length} nodos → 1 macro-nodo. El linaje quedó guardado: doble clic para verlo.`,
+        'success'
+      );
+
+      recordHitlFeedback({
+        id: `hitl-cond-${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        action: 'CONDENSE_FEEDBACK',
+        prompt_original: `Condensar ${selectedNodes.length} nodos${norte ? ` hacia «${norte}»` : ''}`,
+        ai_suggestion: [data.condensar.title],
+        human_decision: { accepted: [data.condensar.title], rejected: [], added_manually: [] },
+        contextSnippet: data.condensar.resumen || data.condensar.description,
+      }).then((up) => {
+        if (up) setHitlProfile(up);
+      });
+    } catch (err) {
+      console.error('Error al condensar:', err);
+      showToast('Error al condensar la selección.', 'error');
+    } finally {
+      setIsAiLoading(false);
+    }
+  }, [selectedNodes, nodes, edges, norte, takeSnapshot, showToast, setSelectedNodes, hitlProfile.learnedProfile]);
+
+  /** Restaurar el sub-grafo original de un macro-nodo: vuelven sus nodos y sus aristas tal cual. */
+  const handleRestaurarLinaje = useCallback(
+    (node: CustomNode) => {
+      const datos = node.data.macro?.datos;
+      if (!datos || !datos.nodes?.length) {
+        showToast('Este macro-nodo no tiene linaje guardado.', 'info');
+        return;
+      }
+      takeSnapshot(nodes, edges);
+      const vuelvenNodes = datos.nodes as CustomNode[];
+      const vuelvenEdges = (datos.edges ?? []) as Edge[];
+      setNodes((nds) => [...nds.filter((n) => n.id !== node.id), ...vuelvenNodes]);
+      setEdges((eds) => [
+        ...eds.filter((e) => e.source !== node.id && e.target !== node.id),
+        ...vuelvenEdges,
+      ]);
+      setIsLinajeOpen(false);
+      setNodoLinaje(null);
+      showToast(`Restaurados ${vuelvenNodes.length} nodos al lienzo.`, 'success');
+    },
+    [nodes, edges, takeSnapshot, showToast]
+  );
+
   // Conexión rápida y directa entre 2 nodos seleccionados (sin tener que arrastrar cables con el ratón)
   const handleConnectSelectedNodes = useCallback(() => {
     if (selectedNodes.length !== 2) {
@@ -1589,6 +1754,7 @@ export default function App() {
   useEffect(() => {
     handleConnectSelectedNodesRef.current = handleConnectSelectedNodes;
     handleHybridizeRef.current = handleHybridize;
+    handleCondensarRef.current = handleCondensar;
   }, [handleConnectSelectedNodes, handleHybridize]);
 
   // Search matching node IDs
@@ -2852,6 +3018,13 @@ export default function App() {
             nodeTypes={NODE_TYPES}
             edgeTypes={EDGE_TYPES}
             zoomOnDoubleClick={false}
+            onNodeDoubleClick={(_, node) => {
+              // Doble clic en un macro-nodo: se despliega su linaje (los nodos que lo originaron).
+              if ((node.data as IdeaNodeData)?.macro) {
+                setNodoLinaje(node as CustomNode);
+                setIsLinajeOpen(true);
+              }
+            }}
             onInit={(instance) => {
               rfInstanceRef.current = instance;
             }}
@@ -2963,6 +3136,49 @@ export default function App() {
             </div>
           </div>
 
+          {/* Fase A — Norte Estratégico: la lente con la que se condensan las ideas */}
+          <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 pointer-events-auto">
+            {isNorteOpen ? (
+              <div className="flex items-center gap-2 px-3 py-2 bg-slate-900/95 border border-violet-500/50 rounded-2xl shadow-2xl backdrop-blur-md">
+                <Target size={14} className="text-violet-400 shrink-0" />
+                <input
+                  id="input-norte-estrategico"
+                  autoFocus
+                  value={norte}
+                  onChange={(e) => guardarNorte(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === 'Escape') setIsNorteOpen(false);
+                  }}
+                  placeholder="Norte estratégico: ¿qué querés lograr con este lienzo?"
+                  className="w-[24rem] bg-transparent text-xs text-slate-100 placeholder:text-slate-500 outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => setIsNorteOpen(false)}
+                  className="text-slate-500 hover:text-slate-200 transition-colors cursor-pointer"
+                  title="Cerrar (Enter)"
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                id="btn-norte-estrategico"
+                onClick={() => setIsNorteOpen(true)}
+                title="Definí el Norte Estratégico: la lente que guía la condensación del lienzo"
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-2xl border backdrop-blur-md shadow-lg text-[11px] transition-colors cursor-pointer ${
+                  norte
+                    ? 'bg-violet-950/50 border-violet-500/40 text-violet-200 hover:text-white'
+                    : 'bg-slate-900/70 border-slate-800 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Target size={13} className={norte ? 'text-violet-400' : ''} />
+                {norte ? <span className="max-w-[22rem] truncate">{norte}</span> : <span>Norte estratégico</span>}
+              </button>
+            )}
+          </div>
+
           {/* Floating Multi-Selection Quick Bar (Unir, Hibridar, Puentes) */}
           {selectedNodes.length >= 2 && (
             <div
@@ -2999,6 +3215,18 @@ export default function App() {
                 <Sparkles size={14} />
                 <span>Hibridar IA</span>
                 <kbd className="text-[10px] px-1 py-0.5 bg-purple-900/60 text-purple-200 rounded font-mono">H</kbd>
+              </button>
+
+              <button
+                type="button"
+                id="btn-quick-condensar"
+                onClick={handleCondensar}
+                title="Condensar la selección en un macro-nodo, guardando el linaje (Ctrl+Shift+C)"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600/90 hover:bg-violet-500 text-white rounded-xl text-xs font-semibold border border-violet-400/60 transition-colors cursor-pointer shadow-lg shadow-violet-900/30"
+              >
+                <Layers size={14} />
+                <span className="hidden sm:inline">Condensar {selectedNodes.length}</span>
+                <kbd className="text-[10px] px-1 py-0.5 bg-violet-900/70 text-violet-100 rounded font-mono">C</kbd>
               </button>
 
               <button
@@ -3128,6 +3356,16 @@ export default function App() {
       />
 
       {/* AI Synthesis Modal */}
+      <LinajeModal
+        isOpen={isLinajeOpen}
+        onClose={() => {
+          setIsLinajeOpen(false);
+          setNodoLinaje(null);
+        }}
+        node={nodoLinaje}
+        onRestaurar={handleRestaurarLinaje}
+      />
+
       <SynthesisModal
         isOpen={isSynthesisModalOpen}
         onClose={() => setIsSynthesisModalOpen(false)}

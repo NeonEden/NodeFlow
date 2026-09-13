@@ -407,6 +407,8 @@ export const HitlLearningModal: React.FC<HitlLearningModalProps> = ({
                                 ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
                                 : event.action === 'NODE_DELETE'
                                 ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                                : event.action === 'CONDENSE_FEEDBACK'
+                                ? 'Condensación'
                                 : event.action === 'HYBRIDIZE_FEEDBACK'
                                 ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
                                 : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
