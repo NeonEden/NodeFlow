@@ -39,6 +39,7 @@ import {
   LayoutTemplate,
   Trash2,
   Target,
+  Mic,
   RotateCcw,
   Brain,
   Zap,
@@ -67,6 +68,8 @@ import { SavedStatesModal } from './components/SavedStatesModal';
 import { NodeEditModal } from './components/NodeEditModal';
 import { SynthesisModal, MapSynthesis } from './components/SynthesisModal';
 import { LinajeModal } from './components/LinajeModal';
+import { VozPanel } from './components/VozPanel';
+import type { PlanVoz } from './services/vozService';
 import { TemplatesModal } from './components/TemplatesModal';
 import { ClearCanvasModal } from './components/ClearCanvasModal';
 import { HitlLearningModal } from './components/HitlLearningModal';
@@ -241,6 +244,7 @@ export default function App() {
   const [isMemoriaOpen, setIsMemoriaOpen] = useState(false);
   const [isConocimientoOpen, setIsConocimientoOpen] = useState(false);
   const [isJardinOpen, setIsJardinOpen] = useState(false);
+  const [isVozOpen, setIsVozOpen] = useState(false);
   const [isOrquestadorOpen, setIsOrquestadorOpen] = useState(false);
 
   // Fase 7b: métrica de valor (T0 → T1)
@@ -1689,6 +1693,175 @@ export default function App() {
     }
   }, [selectedNodes, nodes, edges, norte, takeSnapshot, showToast, setSelectedNodes, hitlProfile.learnedProfile]);
 
+  /**
+   * Aplica un plan de voz YA VALIDADO por el backend (sólo ids que existen, sólo acciones permitidas).
+   * - crear     → nodos nuevos, a la derecha del lienzo.
+   * - enlazar   → aristas entre nodos existentes o con los recién creados.
+   * - enfocar   → conserva los nodos indicados y su vecindad; el resto se colapsa en UN macro-nodo.
+   * - condensar → colapsa los nodos indicados en un macro-nodo.
+   * - criticar  → dispara el flujo socrático que ya existe (él propone, vos aprobás).
+   * Los colapsos son locales (no gastan IA) y guardan el linaje: se restauran con doble clic.
+   */
+  const aplicarPlanVoz = useCallback(
+    async (plan: PlanVoz) => {
+      if (!plan.comandos?.length) return null;
+      takeSnapshot(nodes, edges);
+
+      const nuevos: CustomNode[] = [];
+      const tituloAId = new Map<string, string>();
+      const resolver = (ref: string): string => {
+        const limpio = ref.trim();
+        if (!limpio) return '';
+        const porTitulo = tituloAId.get(limpio.toLowerCase());
+        if (porTitulo) return porTitulo;
+        if (nodes.some((n) => n.id === limpio)) return limpio;
+        const porNombre = nodes.find((n) => (n.data.title || '').trim().toLowerCase() === limpio.toLowerCase());
+        return porNombre?.id || '';
+      };
+
+      const maxX = nodes.reduce((m, n) => Math.max(m, n.position.x), 0);
+      const minY = nodes.reduce((m, n) => Math.min(m, n.position.y), nodes[0]?.position.y ?? 0);
+      const enlaces: Edge[] = [];
+      const colapsar: string[] = [];
+      const criticar: string[] = [];
+      let enfocar: { ids: string[]; criterio?: string } | null = null;
+      let creados = 0;
+
+      plan.comandos.forEach((c, i) => {
+        if (c.accion === 'crear') {
+          const id = `node-voz-${Date.now()}-${i}`;
+          nuevos.push({
+            id,
+            type: 'ideaNode',
+            position: { x: maxX + 380, y: minY + creados * 150 },
+            data: {
+              id,
+              title: c.titulo || 'Idea dictada',
+              description: c.descripcion || '',
+              category: (c.categoria || 'VOZ').toUpperCase(),
+              colorAccent: '#22d3ee',
+              maturity: 1,
+              tags: ['Voz'],
+              aiOrigin: {
+                batchId: `voz-${Date.now()}`,
+                actionType: 'braindump',
+                promptOriginal: c.titulo || '',
+                originalTitle: c.titulo || '',
+                allBatchTitles: [],
+                createdAt: new Date().toISOString(),
+              },
+            },
+          });
+          tituloAId.set((c.titulo || '').trim().toLowerCase(), id);
+          creados++;
+        } else if (c.accion === 'enlazar') {
+          const a = resolver(c.desde || '');
+          const b = resolver(c.hasta || '');
+          if (a && b && a !== b) {
+            enlaces.push({
+              id: `e-voz-${Date.now()}-${i}`,
+              source: a,
+              target: b,
+              type: 'smoothstep',
+              animated: true,
+              label: 'voz',
+            } as Edge);
+          }
+        } else if (c.accion === 'enfocar') {
+          enfocar = { ids: c.nodos || [], criterio: c.criterio };
+        } else if (c.accion === 'condensar') {
+          colapsar.push(...(c.nodos || []));
+        } else if (c.accion === 'criticar') {
+          criticar.push(...(c.nodos || []));
+        }
+      });
+
+      let nds = [...nodes, ...nuevos];
+      let eds = [...edges, ...enlaces];
+      let afectados = 0;
+
+      const hacerMacro = (ids: string[], titulo: string) => {
+        const idsSet = new Set(ids.filter((id) => nds.some((n) => n.id === id)));
+        if (idsSet.size < 2) return;
+        const dentro = nds.filter((n) => idsSet.has(n.id));
+        const tocadas = eds.filter((e) => idsSet.has(e.source) || idsSet.has(e.target));
+        const macroId = `node-macro-voz-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+        const centro = {
+          x: dentro.reduce((s, n) => s + n.position.x, 0) / dentro.length,
+          y: dentro.reduce((s, n) => s + n.position.y, 0) / dentro.length,
+        };
+        const macro: CustomNode = {
+          id: macroId,
+          type: 'ideaNode',
+          position: centro,
+          data: {
+            id: macroId,
+            category: 'MACRO',
+            label: 'MACRO · VOZ',
+            title: titulo,
+            description: `${dentro.length} nodos fuera del foco. Doble clic para ver el linaje y restaurarlos.`,
+            colorAccent: '#8b5cf6',
+            maturity: 4,
+            tags: ['Voz', 'Condensado'],
+            macro: {
+              colapsados: dentro.length,
+              linaje: dentro.map((n) => n.id),
+              resumen: 'Colapsado al operar el lienzo por voz. Nada se perdió: está acá adentro.',
+              creadoEn: new Date().toISOString(),
+              datos: { nodes: dentro, edges: tocadas },
+            },
+          },
+        };
+        const reenganchadas = tocadas
+          .filter((e) => idsSet.has(e.source) !== idsSet.has(e.target))
+          .map((e) => ({
+            ...e,
+            id: `${e.id}-macro`,
+            source: idsSet.has(e.source) ? macroId : e.source,
+            target: idsSet.has(e.target) ? macroId : e.target,
+          }));
+        nds = [...nds.filter((n) => !idsSet.has(n.id)), macro];
+        eds = [...eds.filter((e) => !idsSet.has(e.source) && !idsSet.has(e.target)), ...reenganchadas];
+        afectados += dentro.length;
+      };
+
+      if (enfocar) {
+        const objetivo = enfocar as { ids: string[]; criterio?: string };
+        const conservar = new Set<string>();
+        const cola = [...objetivo.ids];
+        const vecinos = (id: string) =>
+          eds.filter((e) => e.source === id || e.target === id).map((e) => (e.source === id ? e.target : e.source));
+        while (cola.length) {
+          const id = cola.shift() as string;
+          if (conservar.has(id)) continue;
+          conservar.add(id);
+          vecinos(id).forEach((v) => {
+            if (!conservar.has(v)) cola.push(v);
+          });
+        }
+        const resto = nds.filter((n) => !conservar.has(n.id)).map((n) => n.id);
+        if (resto.length) hacerMacro(resto, `Fuera de foco (${resto.length} nodos)`);
+      }
+      if (colapsar.length) hacerMacro(colapsar, `Condensado por voz`);
+
+      setNodes(nds);
+      setEdges(eds);
+      setSelectedNodes([]);
+
+      criticar.forEach((id) => {
+        const n = nodes.find((x) => x.id === id);
+        if (n) handleAIActionRef.current?.('socratic', n.id, n.data);
+      });
+
+      showToast(
+        `Voz: ${creados} nodo(s) nuevo(s)${afectados ? ` · ${afectados} colapsado(s)` : ''}${criticar.length ? ` · ${criticar.length} a cuestionar` : ''}.`,
+        'success'
+      );
+      return { creados, afectados };
+    },
+    [nodes, edges, takeSnapshot, setNodes, setEdges, setSelectedNodes, showToast]
+  );
+
   /** Restaurar el sub-grafo original de un macro-nodo: vuelven sus nodos y sus aristas tal cual. */
   const handleRestaurarLinaje = useCallback(
     (node: CustomNode) => {
@@ -2880,6 +3053,19 @@ export default function App() {
                   <span className="truncate">Conocimiento</span>
                   <span className="ml-auto shrink-0 whitespace-nowrap text-[9px] text-emerald-300 font-mono bg-emerald-900/50 px-1.5 py-0.5 rounded border border-emerald-700/50">captura</span>
                 </button>
+                {/* Fase B: voz → plan de operaciones sobre el lienzo (Speechmatics) */}
+                <button
+                  type="button"
+                  id="btn-panel-voz"
+                  onClick={() => setIsVozOpen(true)}
+                  title="Hablá y operá el lienzo: dictá ideas nuevas o comandá cambios (Speechmatics)"
+                  className="w-full flex items-center gap-2 px-3 py-2 bg-slate-900/70 hover:bg-slate-800/70 text-cyan-200 border border-slate-800 hover:border-cyan-700/60 rounded-xl text-xs font-medium transition-colors cursor-pointer group"
+                >
+                  <Mic size={14} className="text-cyan-400 shrink-0" />
+                  <span className="truncate">Voz</span>
+                  <span className="ml-auto shrink-0 whitespace-nowrap text-[9px] text-cyan-300 font-mono bg-cyan-900/50 px-1.5 py-0.5 rounded border border-cyan-700/50">hablar</span>
+                </button>
+
                 {/* Fase 7a: el agente jardín */}
                 <button
                   type="button"
@@ -3356,6 +3542,13 @@ export default function App() {
       />
 
       {/* AI Synthesis Modal */}
+      <VozPanel
+        isOpen={isVozOpen}
+        onClose={() => setIsVozOpen(false)}
+        onAplicar={aplicarPlanVoz}
+        tituloNodo={(id) => nodes.find((n) => n.id === id)?.data.title || id}
+      />
+
       <LinajeModal
         isOpen={isLinajeOpen}
         onClose={() => {
