@@ -147,6 +147,9 @@ OLLAMA_HOST=http://localhost:11434
 
 - [`ROADMAP.md`](ROADMAP.md) — phases and next milestones.
 - [`docs/FLUJO.md`](docs/FLUJO.md) — workflow: verified auto-save checkpoints, devlog generated from the git history, versioned releases and backups.
+- Auto-save runs **in the background and windowless**, every 10 minutes (Windows scheduled task →
+  `scripts/auto-oculto.vbs`), and checks only what changed: TypeScript for `.ts/.tsx`, Rust tests for
+  `.rs/.toml`, nothing for docs-only edits.
 - [`docs/DEVLOG.md`](docs/DEVLOG.md) — development log, generated from the commit history.
 - [`docs/adr/`](docs/adr) — Architecture Decision Records (why Tauri over Electron, why a hash cache, why code-side validation, why hybrid routing).
 
