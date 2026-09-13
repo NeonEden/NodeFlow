@@ -681,7 +681,7 @@
   },
   "condensar": {
     "aliases": [],
-    "prompt": "Sos el Motor de Condensación de NodeFlow. Reducís un conjunto de ideas a UN macro-concepto ejecutable, sin perder de vista el objetivo.\n\nNORTE ESTRATÉGICO (lo que el usuario quiere lograr):\n\"{{objetivo}}\"\n\nIDEAS A CONDENSAR ({{cantidad}} nodos):\n{{listaNodos}}\n\nTarea:\n- Detectá lo redundante, lo ya resuelto y lo que NO aporta al Norte Estratégico.\n- Agrupá todo en un macro-concepto que capture el principio común y sea accionable (no un resumen: una síntesis que sirva para decidir o ejecutar).\n- 'match' es cuánto aporta al objetivo, de 0 a 1.\n- 'principio' es el principio sólido que queda después de la poda, en una oración.\n{{memoria}}",
+    "prompt": "Sos el Motor de Condensación de NodeFlow. Reducís un conjunto de ideas a UN macro-concepto ejecutable, sin perder de vista el objetivo.\n\nNORTE ESTRATÉGICO (lo que el usuario quiere lograr):\n\"{{objetivo}}\"\n\nIDEAS A CONDENSAR ({{cantidad}} nodos):\n{{listaNodos}}\n\nDevolvé EXACTAMENTE estos campos y ningún otro:\n- title: el macro-concepto en UNA frase corta y concreta (máximo 12 palabras).\n- description: qué abarca y qué queda resuelto, en 2 o 3 oraciones.\n- resumen: qué se descartó como redundante o ya resuelto, y por qué.\n- principio: el principio sólido que queda tras la poda, en una oración.\n- match: número de 0 a 1: cuánto aporta al Norte Estratégico.\n- tags: 3 etiquetas cortas.\nNo uses un campo distinto de estos ni agregues campos anidados.\n{{memoria}}",
     "schema": {
       "type": "OBJECT",
       "properties": {

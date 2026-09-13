@@ -1180,7 +1180,14 @@ fn normalizar_condensado(v: &mut serde_json::Value) {
             v[destino] = serde_json::Value::String(s);
         } else if let Some(largo) = texto_largo.as_ref() {
             v[destino] = serde_json::Value::String(if destino == "title" {
-                largo.chars().take(90).collect()
+                // Un título legible: la primera cláusula, sin cortar palabras al medio.
+                let corte = largo
+                    .find([',', '.', ';', ':'])
+                    .filter(|&i| i >= 12)
+                    .unwrap_or_else(|| largo.len().min(70));
+                let mut s: String = largo.chars().take(corte).collect();
+                s = s.trim().trim_end_matches([',', '.', ';', ':']).to_string();
+                s
             } else {
                 largo.clone()
             });
