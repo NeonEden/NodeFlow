@@ -16,6 +16,6 @@ npm-debug.log*
 .env.local
 *.key
 
-# Datos locales de la app
-data/
+# Datos locales de la app (solo en la raíz; src/data/ es código fuente)
+/data/
 vp.js
