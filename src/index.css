@@ -297,13 +297,13 @@
    3) Y dentro de una tarjeta (slate o con tinte de color) vuelve a ser OSCURO, porque la tarjeta
       es clara aunque esté adentro del sidebar.
    Medido con la auditoría: 1.7 → 4.9 en las tarjetas, 5.4 en el sidebar. */
-.nf-claro .nf-app :is(.text-slate-400, .text-slate-500, .text-slate-600) {
+.nf-claro :is(.text-slate-400, .text-slate-500, .text-slate-600) {
   color: #5b6b82 !important;
 }
-.nf-claro .nf-app [class*='bg-slate-950'] :is(.text-slate-400, .text-slate-500, .text-slate-600) {
+.nf-claro [class*='bg-slate-950'] :is(.text-slate-400, .text-slate-500, .text-slate-600) {
   color: #94a3b8 !important;
 }
-.nf-claro .nf-app :is(
+.nf-claro :is(
   [class*='bg-slate-900'],
   [class*='bg-slate-800'],
   [class*='bg-slate-700'],
