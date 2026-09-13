@@ -5,3 +5,5 @@
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 bash "$REPO/scripts/backup.sh"  >> "$REPO/.git/checkpoint.log" 2>&1
 bash "$REPO/scripts/checkpoint.sh" >> "$REPO/.git/checkpoint.log" 2>&1
+
+# Prueba de guardado automático: esta línea la commitea la tarea programada sola.
