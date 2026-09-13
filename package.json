@@ -1,7 +1,10 @@
 {
-  "name": "react-example",
+  "name": "nodeflow-desktop",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
+  "description": "Hybrid Edge/Cloud inference orchestrator for knowledge graphs",
+  "author": "TOMAS.WAV (Tomas Pieruz)",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
