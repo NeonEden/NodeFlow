@@ -1,5 +1,7 @@
 mod artefactos;
+mod borrador;
 mod conocimiento;
+mod costo;
 mod expertos;
 mod grafo;
 mod memoria;

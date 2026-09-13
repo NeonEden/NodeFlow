@@ -2338,6 +2338,24 @@ impl Vault {
             if titulo.is_empty() {
                 continue;
             }
+            // Los tags que vienen de un borrador validado se respetan; sin ellos, la etiqueta
+            // por defecto (que es lo que hacía la captura antes de la Fase 10).
+            let tags: Vec<String> = n["tags"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|t| t.as_str())
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .take(5)
+                        .collect()
+                })
+                .unwrap_or_default();
+            let tags = if tags.is_empty() {
+                json!(["conocimiento"])
+            } else {
+                json!(tags)
+            };
             let mut payload = json!({
                 "title": titulo,
                 "description": n["descripcion"].as_str()
@@ -2345,7 +2363,7 @@ impl Vault {
                     .unwrap_or(""),
                 "category": n["categoria"].as_str().unwrap_or(&categoria),
                 "maturity": n["madurez"].as_i64().unwrap_or(madurez),
-                "tags": ["conocimiento"],
+                "tags": tags,
                 "origen": "captura",
                 "motivo": req["motivo"].as_str().unwrap_or("Capturado desde el panel de conocimiento"),
             });

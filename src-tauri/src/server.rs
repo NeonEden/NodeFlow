@@ -46,6 +46,12 @@ pub struct AppState {
     pub vault: Arc<Vault>,
     /// Fase 5b — memoria semántica de la bóveda (BM25 sobre todas las notas).
     pub memoria: Arc<Memoria>,
+    /// Fase 9 — caché de respuestas de IA (`.nodeflow/ai-cache.json`): repetir no cuesta tokens.
+    pub cache: Arc<crate::costo::Cache>,
+    /// Fase 9 — tarifas declaradas por el usuario (USD por 1M tokens). Sin declarar: `None`, no 0.
+    pub tarifas: crate::costo::Tarifas,
+    /// Fase 10 — microservicio de borradores con el modelo local (modelo, keep_alive, tope).
+    pub borrador: crate::borrador::Config,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -54,6 +60,21 @@ pub struct AppState {
 
 pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memoria: Arc<Memoria>) {
     tauri::async_runtime::spawn(async move {
+        // Fase 9: tarifas declaradas (config del vault) + caché en disco junto al resto del estado.
+        let cfg: Option<Value> = std::fs::read_to_string(data_dir.join("nodeflow.config.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str::<Value>(&t).ok());
+        let tarifas = cfg
+            .as_ref()
+            .map(|c| c.get("costo").unwrap_or(c))
+            .map(|seccion| crate::costo::Tarifas::desde_config(Some(seccion)))
+            .unwrap_or_default();
+        // Fase 10: el borrador local se configura con env > `nodeflow.config.json` > default.
+        let borrador = crate::borrador::Config::desde(cfg.as_ref().and_then(|c| c.get("borrador")));
+        let cache = Arc::new(crate::costo::Cache::cargar(
+            vault.raiz().join(".nodeflow").join("ai-cache.json"),
+        ));
+
         let state = AppState {
             data_dir,
             http: reqwest::Client::builder()
@@ -63,6 +84,9 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
             env_key,
             vault,
             memoria,
+            cache,
+            tarifas,
+            borrador,
         };
 
         let cors = CorsLayer::new()
@@ -78,6 +102,9 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
             .route("/api/hitl/recalibrate", post(hitl_recalibrate))
             .route("/api/hitl/reset", post(hitl_reset))
             .route("/api/ai/action", post(ai_action))
+            .route("/api/ai/cache", get(ai_cache))
+            // Fase 10 — el modelo local propone, el código valida
+            .route("/api/knowledge/draft", post(knowledge_draft))
             // Fase 3 — vault en disco
             .route("/api/graph/state", get(graph_state).post(graph_save))
             .route("/api/vault/info", get(vault_info))
@@ -532,7 +559,9 @@ async fn hitl_recalibrate(State(st): State<AppState>, headers: HeaderMap) -> imp
                 "properties": { "profile": { "type": "STRING" } },
                 "required": ["profile"]
             });
-            if let Some((parsed, _)) = call_model(&st, &key, &prompt, &schema, None).await {
+            // Sin nodo asociado: la clave de caché se arma con el prompt solo.
+            if let Some(llamada) = call_model(&st, &key, &prompt, &schema, None, "").await {
+                let parsed = llamada.valor;
                 if let Some(p) = parsed["profile"].as_str() {
                     profile["learnedProfile"] = json!(p);
                     profile["updatedAt"] = json!(now_iso());
@@ -641,15 +670,25 @@ async fn ai_action(
         .and_then(|v| v.as_str())
         .map(String::from);
 
+    // Fase 9: la clave de caché necesita saber de qué nodo salió el prompt.
+    let nodo_id = body["nodeData"]["id"]
+        .as_str()
+        .or_else(|| body["nodeId"].as_str())
+        .unwrap_or("")
+        .to_string();
     let called = match resolve_key(&st, &headers) {
         Some(key) if !prompt.is_empty() && !schema.is_null() => {
-            call_model(&st, &key, &prompt, &schema, Some(&system_instruction)).await
+            call_model(&st, &key, &prompt, &schema, Some(&system_instruction), &nodo_id).await
         }
         _ => None,
     };
 
+    let mut uso = Value::Null;
     let (payload, model_used, used_ai) = match called {
-        Some((parsed, model)) => {
+        Some(llamada) => {
+            uso = llamada.uso_json(&st.tarifas);
+            let parsed = llamada.valor;
+            let model = llamada.modelo;
             let value = match &nested {
                 Some(k) => parsed[k].clone(),
                 None => parsed.clone(),
@@ -688,7 +727,12 @@ async fn ai_action(
         out["source"] = json!("fallback");
     }
     if used_ai {
-        out["source"] = json!("gemini");
+        // El proveedor real, no un "gemini" fijo (antes mentía cuando respondía Ollama).
+        out["source"] = uso["proveedor"].clone();
+    }
+    // Fase 9 — costo visible: tokens medidos (o estimados y declarados), costo y caché.
+    if !uso.is_null() {
+        out["uso"] = uso.clone();
     }
     // Trazabilidad: qué notas de la bóveda alimentaron esta generación.
     if let Some(f) = context.get("memoria_fuentes") {
@@ -1113,7 +1157,7 @@ async fn call_provider(
     prompt: &str,
     schema: &Value,
     system: Option<&str>,
-) -> Option<(Value, String)> {
+) -> Option<crate::costo::Respuesta> {
     match provider {
         "ollama" => call_ollama(st, prompt, system).await,
         "gemini" => {
@@ -1130,21 +1174,107 @@ async fn call_provider(
     }
 }
 
+/// Fase 9 — llama a un proveedor **con caché**: consulta `nodo + prompt + proveedor + esquema` antes
+/// de gastar la llamada y guarda el resultado si respondió. Siempre devuelve una `Llamada` con
+/// consumo, costo y origen (`cache: "hit" | "miss"`), que es lo que viaja en la traza.
+async fn call_provider_cached(
+    st: &AppState,
+    key: &str,
+    provider: &str,
+    prompt: &str,
+    schema: &Value,
+    system: Option<&str>,
+    nodo: &str,
+) -> Option<crate::costo::Llamada> {
+    let clave = crate::costo::clave_cache(nodo, prompt, provider, schema);
+    if let Some(e) = st.cache.get(&clave) {
+        log::info!(
+            "ia: caché HIT para «{nodo}» con {provider} · {} tokens evitados (modelo {}) · clave {}",
+            e.tokens,
+            e.modelo,
+            &clave[..12]
+        );
+        return Some(crate::costo::Llamada {
+            valor: e.valor,
+            proveedor: provider.to_string(),
+            modelo: e.modelo,
+            consumo: crate::costo::Consumo::default(),
+            estimado: false,
+            cache: true,
+            tokens_evitados: e.tokens,
+            ms: 0,
+        });
+    }
+
+    let t = std::time::Instant::now();
+    let r = call_provider(st, key, provider, prompt, schema, system).await?;
+    // Medido si el proveedor reporta `usage`; estimado —y declarado como estimado— si no.
+    let (consumo, estimado) = match r.consumo.clone() {
+        Some(c) => (c, false),
+        None => (
+            crate::costo::consumo_estimado(prompt, &r.valor.to_string()),
+            true,
+        ),
+    };
+    let llamada = crate::costo::Llamada {
+        valor: r.valor,
+        proveedor: provider.to_string(),
+        modelo: r.modelo,
+        consumo,
+        estimado,
+        cache: false,
+        tokens_evitados: 0,
+        ms: t.elapsed().as_millis(),
+    };
+    st.cache.put(
+        &clave,
+        crate::costo::entrada_nueva(
+            llamada.valor.clone(),
+            provider,
+            &llamada.modelo,
+            llamada.consumo.total(),
+        ),
+    );
+    log::info!(
+        "ia: {provider} «{}» · {} tokens ({}) · {} ms · nodo «{nodo}» · clave {}",
+        llamada.modelo,
+        llamada.consumo.total(),
+        if llamada.estimado { "estimado" } else { "medido" },
+        llamada.ms,
+        &clave[..12]
+    );
+    Some(llamada)
+}
+
 async fn call_model(
     st: &AppState,
     key: &str,
     prompt: &str,
     schema: &Value,
     system: Option<&str>,
-) -> Option<(Value, String)> {
+    nodo: &str,
+) -> Option<crate::costo::Llamada> {
     for provider in cadena_de_proveedores(st) {
-        let attempt = call_provider(st, key, &provider, prompt, schema, system).await;
-        if attempt.is_some() {
-            return attempt;
+        if let Some(llamada) =
+            call_provider_cached(st, key, &provider, prompt, schema, system, nodo).await
+        {
+            return Some(llamada);
         }
         log::warn!("proveedor '{provider}' no respondió; paso al siguiente de la cadena");
     }
     None
+}
+
+/// `GET /api/ai/cache` — el ahorro medido por la propia app: entradas, hits y tokens evitados.
+async fn ai_cache(State(st): State<AppState>) -> impl IntoResponse {
+    (
+        StatusCode::OK,
+        Json(json!({
+            "ok": true,
+            "cache": st.cache.stats(),
+            "tarifas_declaradas": st.tarifas.modelos_declarados(),
+        })),
+    )
 }
 
 async fn call_gemini(
@@ -1153,7 +1283,7 @@ async fn call_gemini(
     prompt: &str,
     schema: &Value,
     system: Option<&str>,
-) -> Option<(Value, String)> {
+) -> Option<crate::costo::Respuesta> {
     for model in CANDIDATE_MODELS {
         let url = format!(
             "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
@@ -1183,7 +1313,12 @@ async fn call_gemini(
                     .as_str()
                     .unwrap_or("");
                 if let Some(parsed) = parse_json_text(text) {
-                    return Some((parsed, model.to_string()));
+                    // `usageMetadata` es la medición del proveedor; si falta, se estima y se declara.
+                    return Some(crate::costo::Respuesta {
+                        valor: parsed,
+                        modelo: model.to_string(),
+                        consumo: crate::costo::consumo_gemini(&value),
+                    });
                 }
                 log::warn!("Gemini {model}: respuesta no parseable");
             }
@@ -1195,7 +1330,11 @@ async fn call_gemini(
     None
 }
 
-async fn call_ollama(st: &AppState, prompt: &str, system: Option<&str>) -> Option<(Value, String)> {
+async fn call_ollama(
+    st: &AppState,
+    prompt: &str,
+    system: Option<&str>,
+) -> Option<crate::costo::Respuesta> {
     let base = std::env::var("NODEFLOW_OLLAMA_URL")
         .unwrap_or_else(|_| "http://localhost:11434/v1".to_string());
     let model = std::env::var("NODEFLOW_OLLAMA_MODEL")
@@ -1223,7 +1362,11 @@ async fn call_ollama(st: &AppState, prompt: &str, system: Option<&str>) -> Optio
         Ok(resp) if resp.status().is_success() => {
             let v: Value = resp.json().await.ok()?;
             let text = v["choices"][0]["message"]["content"].as_str().unwrap_or("");
-            parse_json_text(text).map(|p| (p, format!("{model} (ollama)")))
+            parse_json_text(text).map(|p| crate::costo::Respuesta {
+                valor: p,
+                modelo: format!("{model} (ollama)"),
+                consumo: crate::costo::consumo_openai(&v),
+            })
         }
         Ok(resp) => {
             log::warn!("Ollama HTTP {}", resp.status());
@@ -1261,6 +1404,12 @@ fn now_ms() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
+}
+
+/// Fecha del día (UTC, `YYYY-MM-DD`). Es lo que va al snapshot medido: un `now_iso()` completo
+/// hacía único cada prompt y la caché no podía acertar nunca.
+pub(crate) fn hoy() -> String {
+    now_iso().chars().take(10).collect()
 }
 
 pub(crate) fn now_iso() -> String {
@@ -1536,6 +1685,159 @@ async fn metrics(State(st): State<AppState>) -> impl IntoResponse {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Vista previa: texto crudo → candidatos a nodo (no propone nada).
+/// `POST /api/knowledge/draft` — Fase 10: el **modelo local propone** (título, categoría, madurez,
+/// tags) y el **código valida** campo por campo; lo rechazado cae al valor determinista del sistema.
+/// Con `proponer: true`, lo validado entra a la cola de aprobación — nunca al lienzo.
+/// `simular` es un hook de verificación: alimenta el validador con un JSON dado sin cargar el modelo.
+async fn knowledge_draft(State(st): State<AppState>, Json(body): Json<Value>) -> impl IntoResponse {
+    let nodos: Vec<Value> = match body["nodos"].as_array() {
+        Some(a) => a.clone(),
+        None => crate::conocimiento::segmentar(body["texto"].as_str().unwrap_or(""), None, None),
+    };
+    if nodos.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "ok": false, "error": "el texto no produjo candidatos (cada bloque necesita densidad mínima)" })),
+        );
+    }
+    let categoria_fallback = body["categoria"]
+        .as_str()
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "CONOCIMIENTO".to_string());
+    let limite = body["limite"]
+        .as_u64()
+        .map(|v| (v as usize).clamp(1, 15))
+        .unwrap_or(st.borrador.tope_por_pedido);
+    let simulado = body.get("simular").cloned();
+    // Vocabulario medido: las categorías que el lienzo YA usa. Es verdad medida y evita que el
+    // validador rechace una categoría legítima solo porque no estaba en una lista escrita a mano.
+    let vocabulario: Vec<String> = st
+        .vault
+        .grafo_actual()
+        .0
+        .iter()
+        .filter_map(|n| n["data"]["category"].as_str().map(|s| s.to_string()))
+        .collect();
+    let inicio = std::time::Instant::now();
+
+    let mut borradores: Vec<Value> = Vec::new();
+    let mut enviados: Vec<Value> = Vec::new();
+    for n in nodos.iter().take(limite) {
+        let titulo_h = n["titulo"]
+            .as_str()
+            .or_else(|| n["title"].as_str())
+            .unwrap_or("")
+            .to_string();
+        let cuerpo = n["descripcion"]
+            .as_str()
+            .or_else(|| n["description"].as_str())
+            .unwrap_or("")
+            .to_string();
+        let (crudo, autor_del_crudo, ms) = match &simulado {
+            Some(v) => (Some(v.clone()), "simulado (hook de verificación)".to_string(), 0u128),
+            None => match call_borrador_local(&st, &titulo_h, &cuerpo).await {
+                Some((v, modelo, ms)) => (Some(v), modelo, ms),
+                None => (None, "sin respuesta del daemon local".to_string(), 0u128),
+            },
+        };
+        let b = crate::borrador::validar_con(
+            crudo.as_ref(),
+            &titulo_h,
+            &categoria_fallback,
+            &vocabulario,
+        );
+        borradores.push(json!({
+            "titulo_heuristica": titulo_h,
+            "borrador": b.json(),
+            // Lo que devolvió el modelo, tal cual: sin esto un rechazo no se puede auditar.
+            "crudo": crudo,
+            "autor_crudo": autor_del_crudo,
+            "ms": ms,
+        }));
+        enviados.push(json!({
+            "titulo": b.titulo,
+            "descripcion": cuerpo,
+            "categoria": b.categoria,
+            "madurez": b.madurez,
+            "tags": b.tags,
+        }));
+    }
+
+    let proponer = body["proponer"].as_bool().unwrap_or(false);
+    let mut propuestas = Value::Null;
+    if proponer {
+        let req = json!({
+            "nodos": enviados,
+            "categoria": categoria_fallback,
+            "parent": body["parent"].as_str().unwrap_or(""),
+            "motivo": "Borrador local (modelo chico) validado por el código",
+        });
+        propuestas = match st.vault.conocimiento_capturar(&req) {
+            Ok(v) => v,
+            Err(e) => json!({ "ok": false, "error": e }),
+        };
+    }
+
+    let cubiertos = nodos.len().min(limite);
+    (
+        StatusCode::OK,
+        Json(json!({
+            "ok": true,
+            "modelo": st.borrador.modelo,
+            "keep_alive": st.borrador.keep_alive,
+            "candidatos": nodos.len(),
+            "con_borrador": cubiertos,
+            "borradores": borradores,
+            "propuestas": propuestas,
+            "nota": if cubiertos < nodos.len() {
+                format!("{cubiertos} de {} candidatos fueron al modelo; el resto usa el camino determinista (subí `limite`)", nodos.len())
+            } else {
+                "el modelo propone, el código valida: cada rechazo queda en `problemas`".to_string()
+            },
+            "ms": inicio.elapsed().as_millis(),
+        })),
+    )
+}
+
+/// Llama al daemon local por su API **nativa** (`/api/chat`): es la que acepta un JSON Schema como
+/// gramática y `keep_alive` **por request** (una variable global en 0 s recarga el modelo cada vez y
+/// convierte 12 ms en 13 s). No confundir con `call_ollama`, que usa la ruta `/v1` compatible con
+/// OpenAI de los modelos de la cuota gratuita.
+async fn call_borrador_local(st: &AppState, titulo: &str, cuerpo: &str) -> Option<(Value, String, u128)> {
+    let cfg = &st.borrador;
+    let url = format!("{}/api/chat", cfg.url.trim_end_matches('/'));
+    let body = json!({
+        "model": cfg.modelo,
+        "messages": [{ "role": "user", "content": crate::borrador::prompt(titulo, cuerpo) }],
+        "stream": false,
+        "format": crate::borrador::esquema(),
+        "keep_alive": cfg.keep_alive,
+        "options": { "temperature": 0 }
+    });
+    let t = std::time::Instant::now();
+    match st.http.post(&url).json(&body).send().await {
+        Ok(resp) if resp.status().is_success() => {
+            let v: Value = resp.json().await.ok()?;
+            let ms = t.elapsed().as_millis();
+            match parse_json_text(v["message"]["content"].as_str().unwrap_or("")) {
+                Some(p) => Some((p, cfg.modelo.clone(), ms)),
+                None => {
+                    log::warn!("borrador: el modelo local respondió algo que no es JSON");
+                    None
+                }
+            }
+        }
+        Ok(resp) => {
+            log::warn!("borrador: el daemon local respondió HTTP {}", resp.status());
+            None
+        }
+        Err(e) => {
+            log::warn!("borrador: el daemon local no responde ({e})");
+            None
+        }
+    }
+}
+
 async fn knowledge_preview(State(st): State<AppState>, Json(p): Json<Value>) -> impl IntoResponse {
     match st.vault.conocimiento_preview(&p) {
         Ok(v) => (StatusCode::OK, Json(v)),
@@ -1696,7 +1998,7 @@ async fn experto_run(
     // estaba instrumentada). Los hechos medidos ganan sobre cualquier nota.
     let diag = crate::grafo::diagnostico(&nodes, &edges);
     let st_stats = &diag["stats"];
-    let mut hechos = format!("- fecha: {}\n", crate::server::now_iso());
+    let mut hechos = String::new();
     hechos += &format!(
         "- lienzo: {} nodos · {} aristas · {} aristas colgadas · {} nodos sin conexiones\n",
         st_stats["nodos"].as_i64().unwrap_or(0),
@@ -1724,6 +2026,10 @@ async fn experto_run(
                 artefactos, puente MCP (22 herramientas) y app instalable\n";
     hechos += "- el cliente MCP (el agente) SÍ re-registra herramientas en caliente al recibir la \
                 notificación tools/list_changed: no hace falta reiniciar nada para eso\n";
+    // Cabecera: fecha del día + huella del contenido medido. Dos corridas con el mismo estado
+    // producen el mismo prompt (y la caché acierta); si algo cambió, la huella cambia sola.
+    let huella = crate::costo::hash_estable(&hechos);
+    hechos = format!("- fecha: {}\n- huella del estado medido: {huella}\n{hechos}", hoy());
 
     let extra = body["extra"].as_str().unwrap_or("").trim().to_string();
     let mut prompt = format!("CONCEPTO (nodo del lienzo)\nTítulo: {titulo}\nDescripción: {desc}\n");
@@ -1769,6 +2075,13 @@ Todo artefacto tiene que distinguir lo establecido de lo propuesto, y lo medido 
     let mut intentos = 0;
     let mut traza: Vec<Value> = Vec::new();
     let mut respondio_alguno = false;
+    // Fase 9 — el costo del artefacto: cada intento aporta consumo, costo, caché y tokens evitados.
+    let mut consumo_total = crate::costo::Consumo::default();
+    let mut estimado_total = false;
+    let mut cache_hits: u64 = 0;
+    let mut tokens_evitados: u64 = 0;
+    let mut modelo_final = String::new();
+    let mut prov_final = String::new();
 
     // Si el experto declara su proveedor, va primero (y el resto de la cadena queda de respaldo).
     // Motivo medido: Ollama es gratis pero no aplica el schema, así que un artefacto estricto gasta
@@ -1785,15 +2098,21 @@ Todo artefacto tiene que distinguir lo establecido de lo propuesto, y lo medido 
     }
     for prov in cadena {
         let t = std::time::Instant::now();
-        let Some((v1, modelo)) =
-            call_provider(&st, &key, &prov, &prompt, &schema, Some(&system)).await
+        let Some(llamada) =
+            call_provider_cached(&st, &key, &prov, &prompt, &schema, Some(&system), &id).await
         else {
             traza.push(json!({"proveedor": prov, "resultado": "sin respuesta", "ms": t.elapsed().as_millis()}));
             continue;
         };
         respondio_alguno = true;
         intentos += 1;
-        let mut v = v1;
+        let mut v = llamada.valor.clone();
+        let mut consumo = llamada.consumo.clone();
+        let mut estimado = llamada.estimado;
+        let mut evitados = llamada.tokens_evitados;
+        if llamada.cache {
+            cache_hits += 1;
+        }
         let mut p = crate::artefactos::validar(&tipo, &v);
         if !p.is_empty() {
             // Un reintento de reparación en el mismo proveedor: sale más barato que cambiar de modelo.
@@ -1801,32 +2120,48 @@ Todo artefacto tiene que distinguir lo establecido de lo propuesto, y lo medido 
                 "{prompt}\n\nTU RESPUESTA ANTERIOR FUE RECHAZADA POR EL VALIDADOR:\n{}\n\nCorregí exactamente eso y devolvé el JSON completo con TODOS los campos.",
                 p.join("\n")
             );
-            if let Some((v2, _)) =
-                call_provider(&st, &key, &prov, &reintento, &schema, Some(&system)).await
+            if let Some(segunda) =
+                call_provider_cached(&st, &key, &prov, &reintento, &schema, Some(&system), &id).await
             {
-                let p2 = crate::artefactos::validar(&tipo, &v2);
+                let p2 = crate::artefactos::validar(&tipo, &segunda.valor);
                 intentos += 1;
+                consumo.sumar(&segunda.consumo);
+                estimado = estimado || segunda.estimado;
+                evitados += segunda.tokens_evitados;
+                if segunda.cache {
+                    cache_hits += 1;
+                }
                 if p2.len() < p.len() {
-                    v = v2;
+                    v = segunda.valor;
                     p = p2;
                 }
             }
         }
         let valido = p.is_empty();
+        consumo_total.sumar(&consumo);
+        estimado_total = estimado_total || estimado;
+        tokens_evitados += evitados;
         traza.push(json!({
-            "proveedor": prov, "modelo": modelo, "valido": valido,
+            "proveedor": prov, "modelo": llamada.modelo, "valido": valido,
             "problemas": p.clone(), "ms": t.elapsed().as_millis(),
+            "tokens": consumo.json(), "estimado": estimado,
+            "costo_usd": st.tarifas.costo(&llamada.modelo, &prov, &consumo),
+            "cache": if llamada.cache { "hit" } else { "miss" },
+            "tokens_evitados": evitados,
         }));
         if proveedor.is_empty() || p.len() < problemas.len() {
             artefacto = v;
             problemas = p.clone();
-            proveedor = format!("{modelo} ({prov})");
+            proveedor = format!("{} ({prov})", llamada.modelo);
+            modelo_final = llamada.modelo.clone();
+            prov_final = prov.clone();
         }
         if valido {
             break; // cumple el contrato: no gastamos un llamado más
         }
         log::warn!(
-            "experto: «{modelo}» no cumplió el contrato ({p:?}); escalo al siguiente proveedor"
+            "experto: «{}» no cumplió el contrato ({p:?}); escalo al siguiente proveedor",
+            llamada.modelo
         );
     }
 
@@ -1837,8 +2172,17 @@ Todo artefacto tiene que distinguir lo establecido de lo propuesto, y lo medido 
         );
     }
     let valido = problemas.is_empty();
+    // Fase 9 — costo del artefacto, medido o estimado (y declarado), nunca inventado.
+    let costo_total = st.tarifas.costo(&modelo_final, &prov_final, &consumo_total);
+    let costo_texto = crate::costo::texto_costo(
+        &consumo_total,
+        costo_total,
+        estimado_total,
+        cache_hits,
+        tokens_evitados,
+    );
     log::info!(
-        "experto: «{}» sobre «{titulo}» → {tipo} · {} · {intentos} intento(s) · {} ms",
+        "experto: «{}» sobre «{titulo}» → {tipo} · {} · {intentos} intento(s) · {} ms · {costo_texto}",
         exp["nombre"].as_str().unwrap_or(""),
         if valido { "válido" } else { "con problemas" },
         inicio.elapsed().as_millis()
@@ -1860,7 +2204,16 @@ Todo artefacto tiene que distinguir lo establecido de lo propuesto, y lo medido 
             "ms": inicio.elapsed().as_millis(),
             "fuentes": fuentes,
             "contexto_chars": prompt.chars().count(),
-            "costo": "sin costo medible (texto)",
+            "uso": {
+                "tokens": consumo_total.json(),
+                "estimado": estimado_total,
+                "costo_usd": costo_total,
+                "cache": cache_hits,
+                "tokens_evitados": tokens_evitados,
+                // Identifica el estado medido con el que se generó: si el lienzo cambia, cambia.
+                "huella_estado": huella,
+            },
+            "costo": costo_texto,
         })),
     )
 }
