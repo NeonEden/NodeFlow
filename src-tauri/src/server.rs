@@ -1409,31 +1409,6 @@ fn clave_del_motor(st: &AppState, m: &crate::motores::Motor) -> Option<String> {
     }
 }
 
-/// Llama a UN motor concreto (el elegido globalmente o el que pida una tarea).
-async fn call_provider(
-    st: &AppState,
-    key: &str,
-    provider: &str,
-    prompt: &str,
-    schema: &Value,
-    system: Option<&str>,
-) -> Option<crate::costo::Respuesta> {
-    match provider {
-        "ollama" => call_ollama(st, None, prompt, system).await,
-        "gemini" => {
-            if key.is_empty() {
-                None
-            } else {
-                call_gemini(st, key, None, prompt, schema, system).await
-            }
-        }
-        other => {
-            log::warn!("proveedor desconocido en la cadena: {other}");
-            None
-        }
-    }
-}
-
 /// Fase 9 — llama a un proveedor **con caché**: consulta `nodo + prompt + proveedor + esquema` antes
 /// de gastar la llamada y guarda el resultado si respondió. Siempre devuelve una `Llamada` con
 /// consumo, costo y origen (`cache: "hit" | "miss"`), que es lo que viaja en la traza.

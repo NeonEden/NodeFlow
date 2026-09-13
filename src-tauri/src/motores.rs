@@ -131,7 +131,7 @@ pub fn plan(catalogo: &[Motor], seleccionado: Option<&str>, modo: Option<&str>) 
     // `auto:local` / `auto:nube` son elecciones guardadas que eligen dentro de un grupo.
     let (modo, salto_de_id): (Option<&str>, bool) = match seleccionado.map(|s| s.trim().to_lowercase()).as_deref() {
         Some(AUTO_LOCAL) => (Some("local"), true),
-        Some("auto:nube") => (Some("nube"), true),
+        Some(AUTO_NUBE) => (Some("nube"), true),
         _ => (modo, false),
     };
     let grupo: Option<Vec<&str>> = match modo.map(|m| m.trim().to_lowercase()).as_deref() {
