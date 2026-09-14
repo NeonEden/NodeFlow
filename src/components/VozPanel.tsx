@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { X, Mic, Square, Loader2, Sparkles, Check, AlertTriangle, Wand2, Target, Layers, MessageSquarePlus, Link2, Quote, Gauge, Volume2, VolumeX } from 'lucide-react';
+import { X, Mic, Square, Loader2, Sparkles, Check, AlertTriangle, Wand2, Target, Layers, MessageSquarePlus, Link2, Quote, Gauge, Volume2, VolumeX, PenLine } from 'lucide-react';
 import { SpeechmaticsRt, EstadoVoz } from '../services/speechmaticsRt';
 import { apiUrl } from '../services/apiBase';
 import { getVozEstado, getVozJwt, pedirPlanVoz, describirComando, decir, VozEstado, PlanVoz, VozComando } from '../services/vozService';
@@ -26,6 +26,7 @@ const ICONO: Record<VozComando['accion'], React.ReactNode> = {
   condensar: <Layers size={12} />,
   criticar: <Quote size={12} />,
   delegar: <Sparkles size={12} />,
+  actualizar: <PenLine size={12} />,
 };
 
 const EJEMPLOS = [

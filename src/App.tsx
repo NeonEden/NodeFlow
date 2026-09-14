@@ -1762,6 +1762,8 @@ export default function App() {
       const enlaces: Edge[] = [];
       const colapsar: string[] = [];
       const criticar: string[] = [];
+      // Mutaciones a nodos que ya existen (`actualizar`): la evolución por fases de un nodo.
+      const cambios: { id: string; campos: Record<string, any> }[] = [];
       let enfocar: { ids: string[]; criterio?: string } | null = null;
       let creados = 0;
 
@@ -1811,12 +1813,25 @@ export default function App() {
           colapsar.push(...(c.nodos || []));
         } else if (c.accion === 'criticar') {
           criticar.push(...(c.nodos || []));
+        } else if (c.accion === 'actualizar' && c.nodo) {
+          const campos: Record<string, any> = {};
+          if (c.titulo) campos.title = c.titulo;
+          if (c.descripcion) campos.description = c.descripcion;
+          if (c.categoria) campos.category = c.categoria.toUpperCase();
+          if (typeof c.maturity === 'number') campos.maturity = c.maturity;
+          if (c.tags?.length) campos.tags = c.tags;
+          if (Object.keys(campos).length) cambios.push({ id: c.nodo, campos });
         }
       });
 
       let nds = [...nodes, ...nuevos];
       let eds = [...edges, ...enlaces];
       let afectados = 0;
+
+      // Mutar los nodos que el plan pidió actualizar (sin crear duplicados).
+      cambios.forEach(({ id, campos }) => {
+        nds = nds.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...campos } } : n));
+      });
 
       const hacerMacro = (ids: string[], titulo: string) => {
         const idsSet = new Set(ids.filter((id) => nds.some((n) => n.id === id)));
@@ -1881,7 +1896,7 @@ export default function App() {
       });
 
       showToast(
-        `Voz: ${creados} nodo(s) nuevo(s)${afectados ? ` · ${afectados} colapsado(s)` : ''}${criticar.length ? ` · ${criticar.length} a cuestionar` : ''}.`,
+        `Voz: ${creados} nodo(s) nuevo(s)${cambios.length ? ` · ${cambios.length} actualizado(s)` : ''}${afectados ? ` · ${afectados} colapsado(s)` : ''}${criticar.length ? ` · ${criticar.length} a cuestionar` : ''}.`,
         'success'
       );
 

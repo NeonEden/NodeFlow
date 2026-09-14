@@ -55,6 +55,10 @@ pub struct AppState {
     /// Fase 12 — motores que fallaron por créditos o clave (id → motivo). Se aprende en la primera
     /// corrida: el catálogo los declara y los automáticos los saltean, en vez de elegir un motor muerto.
     pub motores_caidos: Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,
+    /// Sello del config (tamaño + fecha). Si cambia, se olvidan los motores caídos: agregar una clave
+    /// es información nueva y el motivo viejo ("falta la clave", "requiere créditos") puede ya no
+    /// aplicar. Sin esto, pegar la clave no tenía efecto hasta reiniciar la app.
+    pub config_sello: Arc<std::sync::Mutex<u64>>,
 }
 
 impl AppState {
@@ -104,6 +108,7 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
             tarifas,
             borrador,
             motores_caidos: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+        config_sello: Arc::new(std::sync::Mutex::new(0)),
         };
 
         // Aprendizaje automático: revisa cada 2 minutos si juntó suficientes decisiones nuevas como
@@ -1569,7 +1574,18 @@ fn clave_del_motor(st: &AppState, m: &crate::motores::Motor) -> Option<String> {
             }
             let txt = std::fs::read_to_string(st.data_dir.join("nodeflow.config.json")).ok()?;
             let cfg: Value = serde_json::from_str(&txt).ok()?;
-            cfg[&nombre].as_str().map(|s| s.to_string()).filter(|s| !s.trim().is_empty())
+            let del_config = cfg[&nombre]
+                .as_str()
+                .map(|s| s.to_string())
+                .filter(|s| !s.trim().is_empty());
+            if del_config.is_some() {
+                return del_config;
+            }
+            // `clave_config` debería tener el NOMBRE del campo del config, pero es fácil pegar la clave
+            // ahí. Si el nombre no existe y lo que hay parece una clave, se usa tal cual: es la
+            // diferencia entre "falta la clave" y que el motor funcione.
+            let parece_clave = nombre.len() > 20 && !nombre.contains(char::is_whitespace);
+            parece_clave.then(|| nombre.clone())
         }
         _ => None,
     }
@@ -1751,8 +1767,13 @@ async fn catalogo(st: &AppState) -> Vec<crate::motores::Motor> {
             for p in cfg["proveedores"].as_array().into_iter().flatten() {
                 let (Some(modelo), Some(base)) = (p["modelo"].as_str(), p["base_url"].as_str()) else { continue };
                 let clave_ref = p["clave_env"].as_str().map(String::from);
+                let pegada = p["clave_config"]
+                    .as_str()
+                    .filter(|k| cfg[*k].as_str().is_none() && k.len() > 20 && !k.contains(char::is_whitespace))
+                    .is_some();
                 let propia = clave_ref.clone().map(|n| std::env::var(&n).is_ok()).unwrap_or(false)
-                    || p["clave_config"].as_str().and_then(|k| cfg[k].as_str()).is_some();
+                    || p["clave_config"].as_str().and_then(|k| cfg[k].as_str()).is_some()
+                    || pegada;
                 v.push(Motor {
                     id: format!("openai:{}", p["id"].as_str().unwrap_or(modelo)),
                     etiqueta: p["etiqueta"].as_str().map(String::from)
@@ -1766,6 +1787,28 @@ async fn catalogo(st: &AppState) -> Vec<crate::motores::Motor> {
                     clave_ref: p["clave_config"].as_str().map(String::from).or(clave_ref),
                 });
             }
+        }
+    }
+    // Antes de aplicar la memoria de fallos: ¿cambió el config? Entonces se olvida (el usuario pudo
+    // haber agregado la clave que faltaba). Es la diferencia entre "pegar la clave y que funcione" y
+    // "pegar la clave y que la app siga diciendo que no está".
+    if let Ok(meta) = std::fs::metadata(st.data_dir.join("nodeflow.config.json")) {
+        let sello = meta.len()
+            + meta
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+        if let Ok(mut previo) = st.config_sello.lock() {
+            if *previo != 0 && *previo != sello {
+                if let Ok(mut m) = st.motores_caidos.lock() {
+                    let cuantos = m.len();
+                    m.clear();
+                    log::info!("catálogo: el config cambió → se olvidan {cuantos} motor(es) caído(s) y se reintentan");
+                }
+            }
+            *previo = sello;
         }
     }
     // Motores que ya fallaron por créditos o clave: se declaran, no se ofrecen como si anduvieran.

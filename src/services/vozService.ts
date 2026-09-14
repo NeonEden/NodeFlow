@@ -20,7 +20,7 @@ export interface VozEstado {
   tts?: { disponible: boolean; url: string; motor: string };
 }
 
-export type AccionVoz = 'crear' | 'enlazar' | 'enfocar' | 'condensar' | 'criticar' | 'delegar';
+export type AccionVoz = 'crear' | 'enlazar' | 'enfocar' | 'condensar' | 'criticar' | 'delegar' | 'actualizar';
 
 export interface VozComando {
   accion: AccionVoz;
@@ -33,6 +33,10 @@ export interface VozComando {
   hasta?: string;
   /** Sólo en `delegar`: lo que hay que pedirle al motor profundo (Hermes, con sus herramientas). */
   pedido?: string;
+  /** Sólo en `actualizar`: el nodo que ya existe y los campos que cambian (fase, descripción…). */
+  nodo?: string;
+  maturity?: number;
+  tags?: string[];
 }
 
 export interface PlanVoz {
@@ -108,6 +112,11 @@ export function describirComando(c: VozComando, titulo: (id: string) => string):
       return `Cuestionar ${c.nodos?.length || 0} nodos`;
     case 'delegar':
       return `Pedirle al motor profundo: «${(c.pedido || '').slice(0, 60)}»`;
+    case 'actualizar': {
+      const que = [c.titulo && 'título', c.descripcion && 'descripción', c.categoria && 'categoría',
+                   c.maturity && `fase ${c.maturity}`, c.tags?.length && 'etiquetas'].filter(Boolean).join(', ');
+      return `Actualizar ${titulo(c.nodo || '') || c.nodo}: ${que || 'un campo'}`;
+    }
     default:
       return c.accion;
   }

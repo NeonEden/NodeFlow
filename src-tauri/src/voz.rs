@@ -13,7 +13,7 @@
 use serde_json::{json, Value};
 
 /// Lo que la voz puede pedir. Todo lo demás se descarta.
-pub const ACCIONES: [&str; 6] = ["crear", "enlazar", "enfocar", "condensar", "criticar", "delegar"];
+pub const ACCIONES: [&str; 7] = ["crear", "enlazar", "enfocar", "condensar", "criticar", "delegar", "actualizar"];
 
 /// Hermes como motor profundo de NodeFlow: cuando el pedido necesita lo que el modelo local no
 /// tiene (buscar en la web, leer un repo, razonar largo), el plan trae un `delegar` y el backend
@@ -83,6 +83,34 @@ pub fn debe_hablar(plan: &Value) -> bool {
 mod tests_voz_selectiva {
     use super::debe_hablar;
     use serde_json::json;
+
+    #[test]
+    fn actualizar_muta_un_nodo_que_existe() {
+        let ids = vec!["n-1".to_string()];
+        let plan = json!({"intencion": "comando", "comandos": [
+            {"accion": "actualizar", "nodo": "n-1", "descripcion": "Ya pasó a fase de síntesis.", "maturity": 3}
+        ]});
+        let limpio = super::validar(&plan, &ids);
+        let c = &limpio["comandos"][0];
+        assert_eq!(c["accion"], "actualizar");
+        assert_eq!(c["nodo"], "n-1");
+        assert_eq!(c["maturity"], 3);
+        assert!(c["descripcion"].as_str().unwrap().contains("síntesis"));
+    }
+
+    #[test]
+    fn actualizar_rechaza_lo_que_no_sirve() {
+        let ids = vec!["n-1".to_string()];
+        // nodo inexistente
+        let fuera = json!({"comandos": [{"accion": "actualizar", "nodo": "n-999", "titulo": "x"}]});
+        assert_eq!(super::validar(&fuera, &ids)["comandos"].as_array().unwrap().len(), 0);
+        // sin campos
+        let vacio = json!({"comandos": [{"accion": "actualizar", "nodo": "n-1"}]});
+        assert_eq!(super::validar(&vacio, &ids)["comandos"].as_array().unwrap().len(), 0);
+        // maturity fuera de rango se acota, no se descarta
+        let raro = json!({"comandos": [{"accion": "actualizar", "nodo": "n-1", "maturity": 99}]});
+        assert_eq!(super::validar(&raro, &ids)["comandos"][0]["maturity"], 5);
+    }
 
     #[test]
     fn delegar_solo_una_vez_por_plan() {
@@ -255,6 +283,50 @@ pub fn validar(plan: &Value, ids_validos: &[String]) -> Value {
                     continue;
                 }
                 limpio["pedido"] = json!(pedido);
+            }
+        "actualizar" => {
+                // Mutar un nodo que YA existe: es lo que hace posible la evolución por fases (el nodo
+                // de investigación cambia de estado sin crear otro con lo mismo).
+                let nodo = c["nodo"].as_str().unwrap_or("").trim().to_string();
+                if nodo.is_empty() || !existe(&nodo) {
+                    descartados.push("un «actualizar» que apunta a un nodo que no está en el lienzo".into());
+                    continue;
+                }
+                let mut campos = serde_json::Map::new();
+                for (clave, tope) in [("titulo", 140usize), ("descripcion", 700), ("categoria", 40)] {
+                    if let Some(v) = c[clave]
+                        .as_str()
+                        .map(|s| recorta(s, tope))
+                        .filter(|s| !s.is_empty())
+                    {
+                        campos.insert(clave.to_string(), json!(v));
+                    }
+                }
+                if let Some(m) = c["maturity"].as_u64() {
+                    campos.insert("maturity".into(), json!(m.clamp(1, 5)));
+                }
+                if let Some(ts) = c["tags"].as_array() {
+                    let limpios: Vec<String> = ts
+                        .iter()
+                        .filter_map(|t| t.as_str())
+                        .map(|s| recorta(s, 24))
+                        .filter(|s| !s.is_empty())
+                        .take(8)
+                        .collect();
+                    if !limpios.is_empty() {
+                        campos.insert("tags".into(), json!(limpios));
+                    }
+                }
+                if campos.is_empty() {
+                    descartados.push("un «actualizar» sin ningún campo para cambiar".into());
+                    continue;
+                }
+                if let Some(obj) = limpio.as_object_mut() {
+                    obj.insert("nodo".into(), json!(nodo));
+                    for (k, valor) in campos {
+                        obj.insert(k, valor);
+                    }
+                }
             }
         "crear" => {
                 let titulo = recorta(c["titulo"].as_str().unwrap_or(""), 140);
