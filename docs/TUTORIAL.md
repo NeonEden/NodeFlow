@@ -118,7 +118,7 @@ La parte más útil para nosotros: acá están los puntos ciegos, no las virtude
 | Jardín: diagnóstico y propuestas | ✅ funciona (el saneo limpia colgadas **y** repetidas) |
 | Voz entrada/salida | ✅ funciona (WAV real; el token de Speechmatics se firma) |
 | Delegar a Hermes | ✅ funciona sin bloquear |
-| Tavily con texto real de las páginas | 🟡 implementado; **necesita tu clave** para citar en vez de recordar |
+| Tavily con texto real de las páginas | 🟡 la clave **está puesta y verificada** (la API devuelve el contenido completo de las páginas: 5.492 y 7.176 caracteres en 1,18 s); falta **una corrida de investigación entera** con la clave viva para verla citar |
 | Escalada a la nube | 🟡 corre, pero los modelos `-cloud` del daemon devuelven HTTP 402 (sin créditos) |
 | Caché semántico | ❌ falta (hoy hay caché **exacta**: 20.519 tokens evitados medidos) |
 | Escritura de streaming (partial JSON) | ❌ falta: el primer nodo brota al terminar la fase, no antes |
