@@ -60,6 +60,11 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
     }
   });
   const [hablando, setHablando] = useState(false);
+  // Referencia viva del mute: el sondeo no se reinicia cada vez que se toca el botón.
+  const silencioRef = useRef(silencio);
+  useEffect(() => {
+    silencioRef.current = silencio;
+  }, [silencio]);
   const rtRef = useRef<SpeechmaticsRt | null>(null);
   const inicioRef = useRef(0);
 
@@ -95,6 +100,18 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
     });
   };
 
+  /**
+   * Lo que se dice de una investigación: las primeras frases, no el informe entero. Una respuesta
+   * larga leída completa es insoportable; el texto queda en pantalla para leerlo con calma.
+   */
+  const fraseParaDecir = (texto: string): string => {
+    const limpio = texto.replace(/\s+/g, ' ').trim();
+    if (limpio.length <= 240) return limpio;
+    const recorte = limpio.slice(0, 240);
+    const punto = Math.max(recorte.lastIndexOf('. '), recorte.lastIndexOf('? '), recorte.lastIndexOf('! '));
+    return punto > 80 ? recorte.slice(0, punto + 1) : `${recorte.trim()}…`;
+  };
+
   /** Habla sólo si el backend lo autorizó (regla de voz selectiva) y no está en silencio. */
   const hablar = async (texto: string) => {
     if (!texto.trim()) return;
@@ -125,6 +142,8 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
         if (res && res.salida) {
           setDelegado({ pedido: res.pedido || '', salida: res.salida, ms: res.ms || 0, ok: res.ok !== false });
           setInvestigando(false);
+          // El hallazgo se dice: es la razón de existir de la voz, y respeta el mute del panel.
+          if (silencioRef.current === false) void hablar(fraseParaDecir(res.salida));
         } else if (!d?.corriendo && res && !res.salida) {
           setInvestigando(false);
           setError('El motor profundo no pudo responder esta vez.');

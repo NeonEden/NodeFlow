@@ -53,11 +53,24 @@ verificar() {
   return 0
 }
 
+# ¿Hay un build en curso? Si lo hay, NO se guarda: el autoguardado se adelantaba y commiteaba
+# trabajo a medio hacer con un mensaje genérico (pasó tres veces). Se probó excluyendo rust-analyzer,
+# que "corre" todo el día en un editor y bloquearía los guardados sin motivo.
+compilando() {
+  ps -W 2>/dev/null | grep -iE "cargo\.exe|rustc\.exe|rust-lld|tauri" | grep -qiE -v "rust-analyzer|grep"
+}
+
 guardar() {
   local cambios
   cambios="$(git status --porcelain | wc -l | tr -d ' ')"
   if [ "$cambios" = "0" ]; then
     marcar "sin cambios"
+    return 0
+  fi
+
+  if compilando; then
+    marcar "build en curso: se espera a que termine"
+    anotar "NO guardado: hay un build compilando (se guarda en la próxima pasada)"
     return 0
   fi
 
