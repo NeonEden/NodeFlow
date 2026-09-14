@@ -1985,7 +1985,6 @@ export default function App() {
   // contador de pasos no se reiniciaba con una investigación nueva, y aplicar sin preguntar no deja
   // decidir. El contador ya no existe: cada corrida propone una vez, y el backend deduplica.)
   const [estadoInvestigacion, setEstadoInvestigacion] = useState<EstadoInvestigacion | null>(null);
-  const propuestaHecha = useRef('');
   useEffect(() => {
     let vivo = true;
 
@@ -2041,9 +2040,24 @@ export default function App() {
         if (!vivo) return;
         const inv: EstadoInvestigacion = { ...(d?.investigacion || {}), corriendo: Boolean(d?.corriendo) };
         setEstadoInvestigacion(inv);
-        const clave = `${inv.pedido || ''}|fin`;
-        if (inv.terminado && inv.pedido && propuestaHecha.current !== clave) {
-          propuestaHecha.current = clave;
+        const pasos: PasoInvestigacion[] = Array.isArray(inv.pasos) ? inv.pasos : [];
+        // Una vez por corrida, y que sobreviva a recargas y reinicios: si no, cada arranque
+        // vuelve a proponer la última investigación y —una vez aprobada— eso se convierte en
+        // propuestas de «Actualizar» que ensucian la cola y pueden pisar ediciones del usuario.
+        // La clave lleva el instante del primer paso: dos corridas del mismo tema son distintas.
+        const claveCorrida = `${inv.pedido || ''}|${pasos[0]?.cuando || ''}`;
+        let yaPropuesta = '';
+        try {
+          yaPropuesta = localStorage.getItem('nodeflow_inv_propuesta') || '';
+        } catch {
+          yaPropuesta = '';
+        }
+        if (inv.terminado && inv.pedido && pasos.length > 0 && yaPropuesta !== claveCorrida) {
+          try {
+            localStorage.setItem('nodeflow_inv_propuesta', claveCorrida);
+          } catch {
+            /* sin storage se reintenta en la próxima vuelta */
+          }
           await proponer(inv);
         }
       } catch {
