@@ -30,7 +30,14 @@ echo "v$actual → v$nueva"
 sed -i "s/\"version\": \"$actual\"/\"version\": \"$nueva\"/" src-tauri/tauri.conf.json
 sed -i "s/\"version\": \"$actual\"/\"version\": \"$nueva\"/" package.json
 
-bash scripts/checkpoint.sh "chore(release): v$nueva" || { echo "chequeos fallaron: no se libera"; exit 1; }
+# Chequeos y commit explícitos. NO se delega en el checkpoint: desde que el guardado automático
+# espera quietud, no commitearía el bump y el tag quedaría apuntando a una versión vieja.
+echo "chequeos…"
+npx --no-install tsc --noEmit >/tmp/nf-rel-tsc.log 2>&1 || { echo "✗ tsc falló"; tail -5 /tmp/nf-rel-tsc.log; exit 1; }
+(cd src-tauri && cargo test --lib 2>&1 | grep -q "test result: ok") || { echo "✗ los tests de Rust fallaron"; exit 1; }
+echo "  ✓ tsc y tests de Rust"
+git add -A
+git commit -q -m "chore(release): v$nueva" || echo "  (sin cambios que commitear)"
 
 # ── Firma ────────────────────────────────────────────────────────────────────────────────────
 # La clave privada NUNCA está en el repo: vive en el perfil del usuario. Sin ella, el build sale
@@ -57,7 +64,7 @@ else
 fi
 
 # createUpdaterArtifacts: true hace que Tauri emita el .zip del updater y su .sig además del .exe/.msi
-npx tauri build 2>&1 | tail -3
+node_modules/.bin/tauri build 2>&1 | tail -3
 
 # ── Publicación: release de GitHub con TODO adentro, manifiesto incluido ─────────────────────
 BUNDLE="src-tauri/target/release/bundle"
@@ -90,7 +97,9 @@ echo "✓ latest.json → $URL"
 
 git tag -a "v$nueva" -m "NodeFlow v$nueva"
 git push -q origin HEAD && git push -q origin "v$nueva"
-gh release create "v$nueva" --title "NodeFlow v$nueva" --notes "NodeFlow v$nueva" \
+NOTAS="docs/releases/v$nueva.md"
+if [ -f "$NOTAS" ]; then ARGS_N=(--notes-file "$NOTAS"); else ARGS_N=(--notes "NodeFlow v$nueva"); fi
+gh release create "v$nueva" --title "NodeFlow v$nueva" "${ARGS_N[@]}" \
   "$BUNDLE"/nsis/*.exe "$BUNDLE"/nsis/*.exe.sig \
   "$BUNDLE"/msi/*.msi "$BUNDLE"/msi/*.sig latest.json 2>&1 | tail -3
 echo "listo: v$nueva publicada, firmada y con manifiesto (la app instalada ya puede actualizarse sola)"
