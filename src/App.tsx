@@ -1888,27 +1888,19 @@ export default function App() {
       // Motor profundo: si el plan lo pidió, se corre DESPUÉS de aplicar el lienzo. Tarda (una
       // pasada completa con herramientas), así que no frena el cambio visual ni la voz.
       const pedido = plan.comandos.find((c) => c.accion === 'delegar')?.pedido;
-      let delegado: { pedido: string; salida: string; ms: number } | null = null;
+      let delegando = false;
       if (pedido) {
-        showToast('Consultando al motor profundo…', 'info');
-        try {
-          const r = await fetch(apiUrl('/api/ai/delegar'), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ pedido }),
-          });
-          const d = await r.json();
-          if (d?.success && d.salida) {
-            delegado = { pedido, salida: d.salida, ms: d.ms || 0 };
-            showToast(`Motor profundo: respondió en ${Math.round((d.ms || 0) / 1000)} s.`, 'success');
-          } else {
-            showToast(`Motor profundo: ${d?.error || 'no respondió'}`, 'error');
-          }
-        } catch (e: any) {
-          showToast(`Motor profundo: ${e?.message || 'falló'}`, 'error');
-        }
+        // Se dispara y **no se espera**: el motor profundo tarda minutos y el lienzo ya cambió. La
+        // respuesta llega sola y el panel la muestra cuando está (nada de spinner colgado).
+        delegando = true;
+        void fetch(apiUrl('/api/ai/delegar'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pedido }),
+        }).catch(() => undefined);
+        showToast('El motor profundo está investigando: la respuesta aparece en el panel.', 'info');
       }
-      return { creados, afectados, delegado };
+      return { creados, afectados, delegando };
     },
     [nodes, edges, takeSnapshot, setNodes, setEdges, setSelectedNodes, showToast]
   );

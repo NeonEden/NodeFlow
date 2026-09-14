@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { X, Mic, Square, Loader2, Sparkles, Check, AlertTriangle, Wand2, Target, Layers, MessageSquarePlus, Link2, Quote, Gauge, Volume2, VolumeX } from 'lucide-react';
 import { SpeechmaticsRt, EstadoVoz } from '../services/speechmaticsRt';
+import { apiUrl } from '../services/apiBase';
 import { getVozEstado, getVozJwt, pedirPlanVoz, describirComando, decir, VozEstado, PlanVoz, VozComando } from '../services/vozService';
 
 interface VozPanelProps {
@@ -10,8 +11,8 @@ interface VozPanelProps {
   onAplicar: (plan: PlanVoz) => Promise<{
     creados: number;
     afectados: number;
-    /** Si el plan pidió el motor profundo, acá vuelve lo que respondió Hermes con sus herramientas. */
-    delegado?: { pedido: string; salida: string; ms: number } | null;
+    /** Si el plan pidió el motor profundo: se disparó y la respuesta llega después, por su cuenta. */
+    delegando?: boolean;
   } | null>;
   /** Qué va a pasar, en números, para mostrarlo ANTES de aplicar. */
   onPrevisualizar: (plan: PlanVoz) => string;
@@ -49,7 +50,8 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
   const [pensando, setPensando] = useState(false);
   const [aplicando, setAplicando] = useState(false);
   const [resultado, setResultado] = useState('');
-  const [delegado, setDelegado] = useState<{ pedido: string; salida: string; ms: number } | null>(null);
+  const [delegado, setDelegado] = useState<{ pedido: string; salida: string; ms: number; ok?: boolean } | null>(null);
+  const [investigando, setInvestigando] = useState(false);
   const [silencio, setSilencio] = useState<boolean>(() => {
     try {
       return localStorage.getItem('nodeflow_voz_silencio') === '1';
@@ -110,6 +112,34 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
       setHablando(false);
     }
   };
+
+  // Mientras el motor profundo investiga, el panel consulta cada 5 s y muestra lo que llegue.
+  useEffect(() => {
+    if (!investigando) return;
+    let vivo = true;
+    const consultar = async () => {
+      try {
+        const d = await (await fetch(apiUrl('/api/ai/delegar'))).json();
+        if (!vivo) return;
+        const res = d?.resultado;
+        if (res && res.salida) {
+          setDelegado({ pedido: res.pedido || '', salida: res.salida, ms: res.ms || 0, ok: res.ok !== false });
+          setInvestigando(false);
+        } else if (!d?.corriendo && res && !res.salida) {
+          setInvestigando(false);
+          setError('El motor profundo no pudo responder esta vez.');
+        }
+      } catch {
+        /* si el backend no contesta, el panel sigue intentando */
+      }
+    };
+    const t = setInterval(consultar, 5000);
+    void consultar();
+    return () => {
+      vivo = false;
+      clearInterval(t);
+    };
+  }, [investigando]);
 
   const empezar = async () => {
     setError('');
@@ -181,7 +211,7 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
       const r = await onAplicar(plan);
       if (r) {
         setResultado(`Listo: ${r.creados} nodo(s) creado(s), ${r.afectados} afectado(s).`);
-        if (r.delegado) setDelegado(r.delegado);
+        if (r.delegando) setInvestigando(true);
       }
       setPlan(null);
     } finally {
@@ -373,13 +403,22 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
             </div>
           )}
 
+          {investigando && (
+            <div className="flex items-center gap-2 text-xs bg-slate-800 border border-slate-700 rounded-xl p-3" id="voz-investigando">
+              <Loader2 size={13} className="animate-spin text-violet-400" />
+              <span className="text-slate-200">
+                El motor profundo está investigando. Podés seguir trabajando: la respuesta aparece acá.
+              </span>
+            </div>
+          )}
+
           {delegado && (
             <div className="rounded-xl border border-slate-700 bg-slate-800 p-3 space-y-2" id="voz-delegado">
               <div className="flex items-center gap-2 text-[11px] text-slate-300">
                 <Sparkles size={13} className="text-violet-400" />
                 <span className="font-medium text-slate-100">Motor profundo</span>
                 <span className="text-slate-400">
-                  · {Math.round(delegado.ms / 1000)} s · te lo respondió Hermes con sus herramientas
+                  · {delegado.ms > 0 ? `${Math.round(delegado.ms / 1000)} s · ` : ''}te lo respondió Hermes con sus herramientas
                 </span>
               </div>
               <p className="text-xs text-slate-200 whitespace-pre-wrap">{delegado.salida}</p>

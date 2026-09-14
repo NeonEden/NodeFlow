@@ -245,20 +245,74 @@ pub fn orden_para(tarea: Tarea, catalogo: &[Motor]) -> Vec<Motor> {
     }
 }
 
-/// Igual que `plan`, pero si la selección es `auto:tarea` la cadena se arma según el tipo de tarea.
+/// Qué pruebas de la planilla hablan de una acción del spec. Es el puente entre lo que se está
+/// pidiendo ahora y lo que ya se midió.
+pub fn pruebas_de_accion(accion: &str) -> Vec<&'static str> {
+    match accion.trim().to_lowercase().as_str() {
+        "voz" => vec!["voz-enfocar", "voz-crear", "voz-delegar"],
+        "condensar" => vec!["condensar"],
+        "braindump" | "capturar" => vec!["braindump"],
+        _ => vec![],
+    }
+}
+
+/// **El ruteo alimentado por la planilla**: quién ganó, medido, las pruebas de esta acción.
+///
+/// Sólo cuentan los ganadores que **acertaron**: si en una prueba no acertó nadie, esa prueba no
+/// recomienda a nadie (y es una señal de que ahí hace falta más motor, no menos). A igualdad de
+/// victorias gana el más rápido. Sin planilla devuelve `None` y manda la heurística por tamaño.
+pub fn ganador_medido(accion: &str, planilla: Option<&Value>) -> Option<String> {
+    let pruebas = pruebas_de_accion(accion);
+    if pruebas.is_empty() {
+        return None;
+    }
+    let g = planilla?["ganador_por_prueba"].as_object()?;
+    let mut puntos: std::collections::HashMap<String, (u32, u64)> = std::collections::HashMap::new();
+    for p in pruebas {
+        if let Some(fila) = g.get(p) {
+            if fila["ok"].as_bool().unwrap_or(false) {
+                if let Some(id) = fila["motor"].as_str() {
+                    let e = puntos.entry(id.to_string()).or_insert((0, 0));
+                    e.0 += 1;
+                    e.1 += fila["ms"].as_u64().unwrap_or(0);
+                }
+            }
+        }
+    }
+    puntos
+        .into_iter()
+        .max_by(|a, b| a.1 .0.cmp(&b.1 .0).then(b.1 .1.cmp(&a.1 .1)))
+        .map(|(id, _)| id)
+}
+
+/// Igual que `plan`, pero si la selección es `auto:tarea` la cadena se arma según el tipo de tarea
+/// **y de lo que la planilla de evaluación ya midió**: el ganador de esa acción va primero.
 pub fn plan_tarea(
     catalogo: &[Motor],
     seleccionado: Option<&str>,
     modo: Option<&str>,
     tarea: Tarea,
+    accion: &str,
+    planilla: Option<&Value>,
 ) -> Vec<Motor> {
     let es_tarea = seleccionado
         .map(|s| s.trim().to_lowercase() == AUTO_TAREA)
         .unwrap_or(false);
-    if es_tarea {
-        return orden_para(tarea, catalogo);
+    if !es_tarea {
+        return plan(catalogo, seleccionado, modo);
     }
-    plan(catalogo, seleccionado, modo)
+    let mut orden = orden_para(tarea, catalogo);
+    if let Some(id) = ganador_medido(accion, planilla) {
+        if let Some(pos) = orden.iter().position(|m| m.id == id) {
+            let m = orden.remove(pos);
+            log::info!(
+                "ruteo: «{accion}» → {} (ganador medido por la planilla)",
+                m.id
+            );
+            orden.insert(0, m);
+        }
+    }
+    orden
 }
 
 /// Plan de ejecución para una llamada: **un solo motor**, el elegido.
@@ -327,6 +381,7 @@ pub fn guardar_seleccion(data_dir: &Path, id: Option<&str>) -> Result<(), String
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value;
 
     fn cat() -> Vec<Motor> {
         let mut v = motores_de_tags(
@@ -542,12 +597,53 @@ mod tests_ruteo_por_tarea {
         assert_eq!(ids(&orden)[0], "ollama:granite3.3:2b", "usa el que queda");
     }
 
+    fn planilla_de_prueba() -> Value {
+        // Lo que devolvió la corrida real: el chico gana enfocar, el grande gana crear,
+        // delegar no lo acierta ninguno.
+        serde_json::json!({
+            "ganador_por_prueba": {
+                "voz-enfocar":  {"motor": "ollama:granite3.3:2b", "ms": 9400,  "ok": true},
+                "voz-crear":    {"motor": "ollama:deepseek-r1:7b", "ms": 16200, "ok": true},
+                "voz-delegar":  {"motor": "ollama:deepseek-r1:7b", "ms": 13100, "ok": false},
+                "condensar":    {"motor": "ollama:granite3.3:2b", "ms": 2300,  "ok": true},
+                "braindump":    {"motor": "ollama:granite3.3:2b", "ms": 5100,  "ok": true}
+            }
+        })
+    }
+
+    #[test]
+    fn la_planilla_recomienda_por_accion() {
+        let p = planilla_de_prueba();
+        // El ganador medido de condensar es el chico: la planilla corrige a la heurística, que
+        // mandaba el más grande por ser "pensar despacio".
+        assert_eq!(ganador_medido("condensar", Some(&p)).unwrap(), "ollama:granite3.3:2b");
+        assert_eq!(ganador_medido("braindump", Some(&p)).unwrap(), "ollama:granite3.3:2b");
+        // En voz, empatan enfocar (chico) y crear (grande): gana el más rápido de los dos.
+        assert_eq!(ganador_medido("voz", Some(&p)).unwrap(), "ollama:granite3.3:2b");
+        // Delegar no lo acertó nadie: no recomienda a nadie.
+        assert_eq!(ganador_medido("delegar", Some(&p)), None);
+        assert_eq!(ganador_medido("voz", None), None, "sin planilla manda la heurística");
+    }
+
+    #[test]
+    fn el_ganador_medido_va_primero_y_el_resto_queda_de_respaldo() {
+        let p = planilla_de_prueba();
+        // Sin planilla, condensar arranca por el local más grande (heurística).
+        let sin = plan_tarea(&cat(), Some(AUTO_TAREA), None, Tarea::Sintesis, "condensar", None);
+        assert_eq!(ids(&sin)[0], "ollama:deepseek-r1:7b");
+        // Con planilla, arranca por el que ganó midiendo… y el resto sigue ahí por si falla.
+        let con = plan_tarea(&cat(), Some(AUTO_TAREA), None, Tarea::Sintesis, "condensar", Some(&p));
+        assert_eq!(ids(&con)[0], "ollama:granite3.3:2b");
+        assert_eq!(ids(&con).len(), ids(&sin).len(), "cambia el orden, no la red de seguridad");
+        assert!(ids(&con).contains(&"ollama:deepseek-r1:7b"));
+    }
+
     #[test]
     fn auto_tarea_usa_el_ruteo_y_un_motor_a_mano_manda() {
-        let elegido = plan_tarea(&cat(), Some(AUTO_TAREA), None, Tarea::Lienzo);
+        let elegido = plan_tarea(&cat(), Some(AUTO_TAREA), None, Tarea::Lienzo, "voz", None);
         assert_eq!(ids(&elegido)[0], "ollama:granite3.3:2b");
         // Si el usuario eligió uno a mano, su elección gana: el ruteo no lo pisa.
-        let manual = plan_tarea(&cat(), Some("deepseek:deepseek-flash"), None, Tarea::Lienzo);
+        let manual = plan_tarea(&cat(), Some("deepseek:deepseek-flash"), None, Tarea::Lienzo, "voz", None);
         assert_eq!(ids(&manual), vec!["deepseek:deepseek-flash"]);
     }
 }

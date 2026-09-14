@@ -192,7 +192,23 @@ fn cuerpo(prueba: &Prueba, lienzo: &[Value]) -> Value {
 pub async fn correr(st: &AppState, modelos: Vec<String>) -> Value {
     let bandera = st.data_dir.join("evaluacion.corriendo");
     let _ = std::fs::write(&bandera, "1");
+    // La elección del usuario se guarda APARTE antes de tocar nada: si una corrida se corta a mitad,
+    // la próxima la recupera en vez de quedarse con el motor que la planilla estaba midiendo.
+    let guardada = st.data_dir.join("evaluacion.seleccion.json");
+    if let Some(previa) = std::fs::read_to_string(&guardada)
+        .ok()
+        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+        .and_then(|v| v["seleccion"].as_str().map(String::from))
+    {
+        let _ = crate::motores::guardar_seleccion(&st.data_dir, Some(&previa));
+        let _ = std::fs::remove_file(&guardada);
+        log::info!("evaluación: restaurada la elección del usuario que quedó de una corrida cortada");
+    }
     let anterior = crate::motores::seleccionado(&st.data_dir);
+    let _ = std::fs::write(
+        &guardada,
+        serde_json::to_string(&json!({ "seleccion": anterior })).unwrap_or_default(),
+    );
     let lienzo: Vec<Value> = st
         .vault
         .read_state()
@@ -311,6 +327,7 @@ pub async fn correr(st: &AppState, modelos: Vec<String>) -> Value {
 
     // La selección del usuario vuelve como estaba: medir no tiene que cambiarle nada.
     let _ = crate::motores::guardar_seleccion(&st.data_dir, anterior.as_deref());
+    let _ = std::fs::remove_file(&guardada);
 
     // Ganador por prueba, en aciertos y —a igualdad— en velocidad. Esto es lo que después puede
     // alimentar el ruteo: la evidencia, no la corazonada.

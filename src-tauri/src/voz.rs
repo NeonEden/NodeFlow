@@ -150,6 +150,46 @@ mod tests_voz_selectiva {
     }
 }
 
+/// ¿Hay una investigación del motor profundo en curso?
+pub fn delegacion_en_curso(data_dir: &std::path::Path) -> bool {
+    data_dir.join("delegacion.corriendo").exists()
+}
+
+/// Guarda el resultado de una investigación del motor profundo (y baja la bandera de "en curso").
+pub fn guardar_delegacion(
+    data_dir: &std::path::Path,
+    pedido: &str,
+    ok: bool,
+    texto: &str,
+    ms: u64,
+) -> Result<(), String> {
+    let v = serde_json::json!({
+        "pedido": pedido,
+        "ok": ok,
+        "salida": texto,
+        "ms": ms,
+        "cuando": std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0),
+    });
+    std::fs::write(
+        data_dir.join("delegacion.json"),
+        serde_json::to_string_pretty(&v).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    let _ = std::fs::remove_file(data_dir.join("delegacion.corriendo"));
+    Ok(())
+}
+
+/// La última investigación terminada (o `null` si nunca hubo).
+pub fn leer_delegacion(data_dir: &std::path::Path) -> Value {
+    std::fs::read_to_string(data_dir.join("delegacion.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or(Value::Null)
+}
+
 /// Ajustes del servicio de voz (endpoint, modelo, idioma). Por entorno, para poder cambiar de
 /// región o de idioma sin recompilar: NODEFLOW_VOZ_URL / NODEFLOW_VOZ_MODELO / NODEFLOW_VOZ_IDIOMA.
 pub fn ajustes() -> (String, String, String) {

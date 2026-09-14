@@ -154,7 +154,7 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
             .route("/api/voz/estado", get(voz_estado))
             .route("/api/voz/jwt", get(voz_jwt))
             .route("/api/voz/decir", post(voz_decir))
-            .route("/api/ai/delegar", post(delegar))
+            .route("/api/ai/delegar", post(delegar).get(delegar_estado))
             .route("/api/ai/evaluar", post(ai_evaluar).get(ai_evaluar_leer))
             .route("/api/ai/motores", get(ai_motores))
             .route("/api/ai/motor", post(ai_motor))
@@ -665,8 +665,8 @@ async fn recalibrar_perfil_con_ia(st: &AppState, key: &str) -> Option<Value> {
         None,
         "",
         None,
-        crate::motores::Tarea::Lienzo, // borradores: rápido y gratis
-        false,                         // los borradores sí usan caché
+        "borrador", // rápido y gratis: es el bucle del lienzo
+        false,      // los borradores sí usan caché
     )
     .await?;
     let aprendido = llamada.valor["profile"].as_str()?.trim().to_string();
@@ -809,7 +809,7 @@ async fn ai_action(
                 Some(&system_instruction),
                 &nodo_id,
                 modo.as_deref(),
-                crate::motores::Tarea::de_accion(&action_type),
+                &action_type,
                 // La planilla de evaluación pide medir al modelo, no a la caché.
                 body["sin_cache"].as_bool().unwrap_or(false),
             )
@@ -847,6 +847,50 @@ async fn ai_action(
                     })
                     .unwrap_or_default();
                 let mut limpio = crate::voz::validar(&value, &ids);
+                // Escalada medida: la planilla mostró que hay pedidos que el motor local no resuelve
+                // (devolvió 0 comandos). Antes de devolver un plan vacío, se le pide una vez al motor
+                // de nube, en la misma corrida y sin que el usuario repita nada. Sólo se adopta si
+                // trae algo: si tampoco, se respeta el resultado local y se informa.
+                if limpio["comandos"].as_array().map(|c| c.is_empty()).unwrap_or(true) {
+                    let clave_escalada = resolve_key(&st, &headers).unwrap_or_default();
+                    let escalada = call_model(
+                        &st,
+                        &clave_escalada,
+                        &prompt,
+                        &schema,
+                        Some(&system_instruction),
+                        &nodo_id,
+                        Some("nube"),
+                        "voz",
+                        false,
+                    )
+                    .await;
+                    if escalada.is_none() {
+                        log::warn!(
+                            "voz: el plan local quedó vacío y no hay motor de nube disponible para escalar \
+                             (revisá el catálogo: los «-cloud» del daemon responden 402 sin créditos)"
+                        );
+                    }
+                    if let Some(llamada) = escalada {
+                        let alterno = match &nested {
+                            Some(k) => llamada.valor[k].clone(),
+                            None => llamada.valor.clone(),
+                        };
+                        let alt = crate::voz::validar(&alterno, &ids);
+                        let trajo = alt["comandos"].as_array().map(|c| !c.is_empty()).unwrap_or(false);
+                        if trajo {
+                            log::info!(
+                                "voz: el local no propuso nada → escaló a {} y trajo {} comandos",
+                                llamada.modelo,
+                                alt["comandos"].as_array().map(|a| a.len()).unwrap_or(0)
+                            );
+                            uso = llamada.uso_json(&st.tarifas);
+                            limpio = alt;
+                        } else {
+                            log::info!("voz: tampoco la nube propuso nada; se devuelve el plan local");
+                        }
+                    }
+                }
                 // La voz selectiva se decide acá (regla testeada en `voz::debe_hablar`): el frontend
                 // sólo obedece. Crear o enlazar es visible y va en silencio; enfocar, condensar,
                 // criticar o haber descartado algo son hallazgos: eso se dice.
@@ -1719,15 +1763,18 @@ async fn plan_de_motores(
     st: &AppState,
     modo: Option<&str>,
     tarea: crate::motores::Tarea,
+    accion: &str,
 ) -> Vec<crate::motores::Motor> {
     let cat = catalogo(st).await;
     let mut sel = crate::motores::seleccionado(&st.data_dir);
     if sel.is_none() && modo.is_none() {
         sel = seleccion_efectiva(st, &cat);
     }
-    // `auto:tarea` arma la cadena según lo que se está pidiendo: el bucle del lienzo no espera a
-    // nadie, pensar despacio usa el local más grande, y lo que necesita herramientas sube a la nube.
-    let plan = crate::motores::plan_tarea(&cat, sel.as_deref(), modo, tarea);
+    // `auto:tarea` arma la cadena según lo que se está pidiendo (el bucle del lienzo no espera a
+    // nadie, lo profundo usa el local más grande, lo que necesita herramientas sube a la nube) y
+    // **según lo que la planilla de evaluación ya midió**: el ganador de esa acción va primero.
+    let planilla = crate::eval::leer(st);
+    let plan = crate::motores::plan_tarea(&cat, sel.as_deref(), modo, tarea, accion, planilla.as_ref());
     if plan.is_empty() {
         log::warn!("no hay ningún motor disponible (Ollama apagado y sin clave de nube)");
     }
@@ -1742,10 +1789,15 @@ async fn call_model(
     system: Option<&str>,
     nodo: &str,
     modo: Option<&str>,
-    tarea: crate::motores::Tarea,
+    accion: &str,
     sin_cache: bool,
 ) -> Option<crate::costo::Llamada> {
-    for (i, m) in plan_de_motores(st, modo, tarea).await.into_iter().enumerate() {
+    let tarea = crate::motores::Tarea::de_accion(accion);
+    for (i, m) in plan_de_motores(st, modo, tarea, accion)
+        .await
+        .into_iter()
+        .enumerate()
+    {
         if i > 0 {
             // Estamos en la red de seguridad: quedó registrado para poder medirlo después.
             log::info!("ruteo: {} no alcanzó, sigo con {}", tarea.etiqueta(), m.id);
@@ -2320,6 +2372,8 @@ async fn ai_evaluar_leer(State(st): State<AppState>) -> impl IntoResponse {
 /// razonar largo), el backend corre una pasada completa de Hermes con SUS herramientas y devuelve
 /// el texto. Es la operación cara: el plan de voz la limita a una por pedido.
 async fn delegar(State(st): State<AppState>, Json(body): Json<Value>) -> impl IntoResponse {
+    // `POST` **arranca** la investigación y vuelve enseguida; `GET` informa si sigue y devuelve el
+    // resultado. Así el panel no queda esperando los minutos que tarda el motor profundo.
     let pedido = body["pedido"].as_str().unwrap_or("").trim().to_string();
     if pedido.chars().count() < 4 {
         return (
@@ -2328,55 +2382,61 @@ async fn delegar(State(st): State<AppState>, Json(body): Json<Value>) -> impl In
         )
             .into_response();
     }
-    let titulos: Vec<String> = st
-        .vault
-        .read_state()
-        .unwrap_or(json!({}))["nodes"]
-        .as_array()
-        .map(|ns| {
-            ns.iter()
-                .filter_map(|n| n["data"]["title"].as_str().map(String::from))
-                .collect()
-        })
-        .unwrap_or_default();
-    let prompt = crate::voz::prompt_delegar(&pedido, &titulos);
-    let exe = crate::voz::hermes_exe();
-    let t0 = std::time::Instant::now();
-    let corrida = tokio::task::spawn_blocking(move || {
-        correr_proceso(&exe, &prompt, std::time::Duration::from_secs(240))
-    })
-    .await;
-    let ms = t0.elapsed().as_millis() as u64;
-    match corrida {
-        Ok(Ok(salida)) => {
-            log::info!(
-                "delegar: Hermes devolvió {} caracteres en {} ms",
-                salida.chars().count(),
-                ms
-            );
-            (
-                StatusCode::OK,
-                Json(json!({
-                    "success": true,
-                    "salida": salida,
-                    "ms": ms,
-                    "motor": "Hermes (motor profundo con herramientas)",
-                })),
-            )
-                .into_response()
-        }
-        Ok(Err(e)) => (
-            StatusCode::BAD_GATEWAY,
-            Json(json!({ "success": false, "error": e, "ms": ms })),
+    if crate::voz::delegacion_en_curso(&st.data_dir) {
+        return (
+            StatusCode::CONFLICT,
+            Json(json!({ "success": false, "error": "Ya hay una investigación en curso." })),
         )
-            .into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "success": false, "error": format!("No pude correr el motor profundo: {e}") })),
-        )
-            .into_response(),
+            .into_response();
     }
+    // Bandera de "en curso": evita dos investigaciones a la vez y le dice al panel que espere.
+    let _ = std::fs::write(st.data_dir.join("delegacion.corriendo"), "1");
+    let st2 = st.clone();
+    let pedido2 = pedido.clone();
+    tokio::spawn(async move {
+        let t0 = std::time::Instant::now();
+        let salida = tokio::task::spawn_blocking({
+            let titulos = st2
+                .vault
+                .read_state()
+                .unwrap_or(json!({}))["nodes"]
+                .as_array()
+                .map(|ns| {
+                    ns.iter()
+                        .filter_map(|n| n["data"]["title"].as_str().map(String::from))
+                        .collect::<Vec<String>>()
+                })
+                .unwrap_or_default();
+            let prompt = crate::voz::prompt_delegar(&pedido2, &titulos);
+            let exe = crate::voz::hermes_exe();
+            move || correr_proceso(&exe, &prompt, std::time::Duration::from_secs(300))
+        })
+        .await;
+        let (ok, texto) = match salida {
+            Ok(Ok(t)) => (true, t),
+            Ok(Err(e)) => (false, e),
+            Err(e) => (false, format!("no pude correr el motor profundo: {e}")),
+        };
+        let ms = t0.elapsed().as_millis() as u64;
+        let _ = crate::voz::guardar_delegacion(&st2.data_dir, &pedido2, ok, &texto, ms);
+        log::info!("motor profundo: {} · {} caracteres", if ok { "listo" } else { "falló" }, texto.chars().count());
+    });
+    (
+        StatusCode::OK,
+        Json(json!({ "success": true, "corriendo": true, "pedido": pedido })),
+    )
+        .into_response()
 }
+
+/// `GET /api/ai/delegar` — ¿sigue investigando? ¿qué respondió?
+async fn delegar_estado(State(st): State<AppState>) -> impl IntoResponse {
+    Json(json!({
+        "success": true,
+        "corriendo": crate::voz::delegacion_en_curso(&st.data_dir),
+        "resultado": crate::voz::leer_delegacion(&st.data_dir),
+    }))
+}
+
 
 /// Corre un proceso y devuelve su salida con tope de tiempo. En Windows se lanza **sin consola**:
 /// nada de ventanas apareciendo mientras la app trabaja.
