@@ -35,6 +35,9 @@ const DIM_OPACITY = 0.1;
  *   el color del nodo origen; el resto al 10%.
  * - La etiqueta textual aparece sólo al pasar el mouse sobre la línea.
  */
+/** Relaciones del mapa del proyecto: se dibujan siempre, son la lectura del lienzo. */
+const SEMANTICAS = new Set(['contiene', 'requiere', 'bloquea', 'entrega', 'alimenta', 'decide', 'fuente', 'evoluciona a']);
+
 export const FlowEdge: React.FC<EdgeProps<FlowEdgeData>> = memo(
   ({
     id,
@@ -125,7 +128,11 @@ export const FlowEdge: React.FC<EdgeProps<FlowEdgeData>> = memo(
     const width = realzada ? baseWidth + 0.9 : baseWidth;
 
     const label = data?.label;
-    const showLabel = Boolean(label) && (isHovered || Boolean(selected));
+    // Las etiquetas del MAPA se dibujan siempre: son la relación entre los nodos (`requiere`, `bloquea`,
+  // `decide`, `fuente`, `evoluciona a`). El resto (la categoría del nodo: 52 de 53 aristas) sigue
+  // apareciendo sólo al pasar el mouse, que es lo que sacó el ruido del lienzo.
+  const esSemantica = Boolean(label) && SEMANTICAS.has(label);
+  const showLabel = Boolean(label) && (esSemantica || isHovered || Boolean(selected));
     const labelWidth = label ? label.length * 5.6 + 18 : 0;
     const wantsDash = Boolean(data?.animated);
     // El dash animado queda como señal de foco: en reposo 53 líneas en movimiento

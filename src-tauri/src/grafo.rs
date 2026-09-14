@@ -36,6 +36,23 @@ pub fn descripcion_de(n: &Value) -> String {
         .to_string()
 }
 
+pub fn categoria_de(n: &Value) -> String {
+    n["data"]["category"]
+        .as_str()
+        .or_else(|| n["category"].as_str())
+        .unwrap_or("")
+        .to_string()
+}
+
+/// Madurez del nodo. El estado la guarda en `data.maturity` (la forma de React Flow); la raíz sólo
+/// existe en los grafos viejos, y por eso se acepta como respaldo.
+pub fn madurez_de(n: &Value) -> u64 {
+    n["data"]["maturity"]
+        .as_u64()
+        .or_else(|| n["maturity"].as_u64())
+        .unwrap_or(0)
+}
+
 fn es_nucleo(n: &Value) -> bool {
     n["data"]["isRoot"].as_bool().unwrap_or(false)
 }
@@ -369,8 +386,8 @@ pub fn validar(nodes: &[Value], edges: &[Value]) -> Vec<Problema> {
     let titulo_de_id = |id: &str| {
         nodes.iter().find(|n| id_de(n) == id).map(titulo_de).unwrap_or_default()
     };
-    let madurez_de = |id: &str| {
-        nodes.iter().find(|n| id_de(n) == id).and_then(|n| n["maturity"].as_u64()).unwrap_or(0)
+    let madurez = |id: &str| {
+        nodes.iter().find(|n| id_de(n) == id).map(madurez_de).unwrap_or(0)
     };
     let grado_de = |id: &str| grados.get(id).map(|(i, o)| i + o).unwrap_or(0);
 
@@ -419,8 +436,8 @@ pub fn validar(nodes: &[Value], edges: &[Value]) -> Vec<Problema> {
                 &descripcion_de(&nodes[j]),
             );
             if s >= 0.88 {
-                let debil = if madurez_de(&a) < madurez_de(&b)
-                    || (madurez_de(&a) == madurez_de(&b) && grado_de(&a) <= grado_de(&b))
+                let debil = if madurez(&a) < madurez(&b)
+                    || (madurez(&a) == madurez(&b) && grado_de(&a) <= grado_de(&b))
                 {
                     a.clone()
                 } else {
@@ -473,7 +490,7 @@ pub fn validar(nodes: &[Value], edges: &[Value]) -> Vec<Problema> {
 pub fn siguiente(nodes: &[Value], edges: &[Value]) -> Value {
     let buscar = |id: &str| nodes.iter().find(|n| id_de(n) == id);
     let titulo_de_id = |id: &str| buscar(id).map(titulo_de).unwrap_or_default();
-    let madurez = |id: &str| buscar(id).and_then(|n| n["maturity"].as_u64()).unwrap_or(0);
+    let madurez = |id: &str| buscar(id).map(madurez_de).unwrap_or(0);
 
     let mut frena_a: HashMap<String, Vec<String>> = HashMap::new();   // capacidad → quiénes la frenan
     let mut desbloqueos: HashMap<String, usize> = HashMap::new();     // bloqueante → a cuántas desbloquea
@@ -508,13 +525,13 @@ pub fn siguiente(nodes: &[Value], edges: &[Value]) -> Value {
 
     let mut jugadas: Vec<Value> = nodes
         .iter()
-        .filter(|n| matches!(n["category"].as_str().unwrap_or(""), "PENDIENTE" | "RIESGO"))
+        .filter(|n| matches!(categoria_de(n).as_str(), "PENDIENTE" | "RIESGO"))
         .map(|n| {
             let id = id_de(n);
             let desbloquea = *desbloqueos.get(&id).unwrap_or(&0);
             let frena = frena_a.get(&id).map(|v| v.len()).unwrap_or(0);
             json!({
-                "id": id, "titulo": titulo_de(n), "categoria": n["category"].as_str().unwrap_or(""),
+                "id": id, "titulo": titulo_de(n), "categoria": categoria_de(n),
                 "desbloquea": desbloquea, "frenado_por": frena,
                 "peso": desbloquea as i64 * 3 - frena as i64,
                 "requisitos_sin_cumplir": sin_cumplir.get(&id).map(|v| v.iter().map(|q| titulo_de_id(q)).collect::<Vec<_>>()).unwrap_or_default(),
@@ -1202,7 +1219,7 @@ mod tests {
         let desc = "Una descripcion larga identica que un lote genero para todos sus nodos sin cambiar una \
                    coma, que es exactamente la firma del relleno automatico que hay que detectar.";
         let n = |id: &str, t: &str, d: &str, m: u64| {
-            json!({"id": id, "title": t, "description": d, "maturity": m})
+            json!({"id": id, "data": {"title": t, "description": d, "maturity": m}})
         };
         let nodes = vec![
             n("a", "Uno", desc, 1),
@@ -1235,8 +1252,10 @@ mod tests {
 
     #[test]
     fn el_camino_critico_ordena_por_lo_que_desbloquea() {
+        // OJO: la forma REAL del estado (todo dentro de `data`, como lo guarda React Flow). Un test con
+        // los campos en la raíz pasa aunque la app falle: eso fue exactamente el bug del 14/09.
         let n = |id: &str, t: &str, c: &str, m: u64| {
-            json!({"id": id, "title": t, "category": c, "maturity": m, "description": "x"})
+            json!({"id": id, "data": {"title": t, "category": c, "maturity": m, "description": "x"}})
         };
         let nodes = vec![
             n("capacidad", "Motor dual", "ARQUITECTURA", 2),

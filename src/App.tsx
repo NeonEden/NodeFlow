@@ -2312,11 +2312,6 @@ export default function App() {
  * del **mapa del proyecto** son otra cosa: son la relación entre los nodos (qué contiene a qué, qué
  * requiere qué, qué está bloqueado), son ~20 de 107 aristas y sin ellas el mapa no se puede leer.
  */
-const ARISTAS_SEMANTICAS = new Set([
-  'contiene', 'requiere', 'bloquea', 'entrega', 'alimenta', 'decide',  // el mapa del proyecto
-  'evoluciona a', 'fuente',                                            // cómo muta un nodo y qué lo respalda
-]);
-
   /**
    * Aristas de render. NO se toca el estado guardado (el vault sigue con las
    * mismas aristas): acá se cambia sólo lo que necesita la vista —
@@ -2332,11 +2327,8 @@ const ARISTAS_SEMANTICAS = new Set([
         ...edge,
         type: 'flowEdge',
         animated: false,
-        label: ARISTAS_SEMANTICAS.has(String(edge.label ?? '')) ? String(edge.label) : undefined,
-        labelStyle: { fill: '#e9d5ff', fontWeight: 600, fontSize: 10 },
-        labelBgStyle: { fill: '#0f172a', fillOpacity: 0.92, stroke: '#7c3aed', strokeWidth: 1 },
-        labelBgPadding: [4, 2] as [number, number],
-        labelBgBorderRadius: 6,
+        // La etiqueta viaja en `data.label`: el tipo propio `flowEdge` decide cuándo dibujarla
+        // (siempre para las relaciones del mapa, en hover para el resto).
         data: {
           ...(edge.data || {}),
           label: (edge.label as string) || undefined,
