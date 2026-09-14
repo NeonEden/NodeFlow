@@ -28,6 +28,6 @@ axum = "0.8"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"] }
 tower-http = { version = "0.6", features = ["cors"] }
 reqwest = { version = "0.12", features = ["json"] }
-notify = "6"
+notify = "8"
 tauri-plugin-updater = "2.11.0"
 tauri-plugin-process = "2.3.1"
