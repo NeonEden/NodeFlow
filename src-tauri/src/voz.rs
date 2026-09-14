@@ -13,7 +13,36 @@
 use serde_json::{json, Value};
 
 /// Lo que la voz puede pedir. Todo lo demás se descarta.
-pub const ACCIONES: [&str; 5] = ["crear", "enlazar", "enfocar", "condensar", "criticar"];
+pub const ACCIONES: [&str; 6] = ["crear", "enlazar", "enfocar", "condensar", "criticar", "delegar"];
+
+/// Hermes como motor profundo de NodeFlow: cuando el pedido necesita lo que el modelo local no
+/// tiene (buscar en la web, leer un repo, razonar largo), el plan trae un `delegar` y el backend
+/// corre una pasada completa de Hermes con **sus** herramientas. La ruta es configurable
+/// (`NODEFLOW_HERMES`) para no depender de un único lugar de instalación.
+pub fn hermes_exe() -> String {
+    std::env::var("NODEFLOW_HERMES").unwrap_or_else(|_| {
+        let candidato = r"C:\Users\tomas\AppData\Local\hermes\hermes-agent\venv\Scripts\hermes.exe";
+        if std::path::Path::new(candidato).exists() {
+            candidato.to_string()
+        } else {
+            "hermes".to_string()
+        }
+    })
+}
+
+/// Prompt que se le manda a Hermes: contexto del lienzo + el pedido, y una respuesta corta
+/// (se muestra en el panel y puede volverse un nodo).
+pub fn prompt_delegar(pedido: &str, titulos: &[String]) -> String {
+    let contexto = if titulos.is_empty() {
+        "(lienzo vacío)".to_string()
+    } else {
+        titulos.iter().take(40).cloned().collect::<Vec<_>>().join(" · ")
+    };
+    format!(
+        "Sos el motor profundo de NodeFlow, un lienzo visual de ideas. El usuario pidió: {pedido}\n\n         Nodos que hay hoy en el lienzo: {contexto}\n\n         Respondé en 2 a 4 frases, en español, concreto y sin adornos: es lo que se va a mostrar en el\
+         panel y puede convertirse en un nodo nuevo del lienzo."
+    )
+}
 /// Tope de operaciones por dictado. Medido: un pedido de "dejá sólo lo que se conecta con X"
 /// llegó como 5 condensaciones y colapsó media lienzo, cuando la intención era UNA operación.
 /// Una frase son pocas operaciones; si el motor propone más, no se aplica el excedente.
@@ -54,6 +83,44 @@ pub fn debe_hablar(plan: &Value) -> bool {
 mod tests_voz_selectiva {
     use super::debe_hablar;
     use serde_json::json;
+
+    #[test]
+    fn delegar_solo_una_vez_por_plan() {
+        let plan = json!({"intencion": "comando", "comandos": [
+            {"accion": "delegar", "pedido": "buscá en la web precios de sensores de humedad"},
+            {"accion": "delegar", "pedido": "y también compará con otro proveedor"}
+        ]});
+        let limpio = super::validar(&plan, &[]);
+        assert_eq!(limpio["comandos"].as_array().unwrap().len(), 1, "el segundo delegar no debe pasar");
+        assert_eq!(limpio["descartados"].as_u64().unwrap(), 1, "debe quedar 1 descarte");
+        assert_eq!(limpio["motivo_descarte"].as_array().unwrap().len(), 1);
+        assert!(limpio["motivo_descarte"][0].as_str().unwrap().contains("delegar"));
+    }
+
+    #[test]
+    fn delegar_sin_pedido_se_descarta() {
+        let plan = json!({"intencion": "comando", "comandos": [{"accion": "delegar", "pedido": "ab"}]});
+        let limpio = super::validar(&plan, &[]);
+        assert_eq!(limpio["comandos"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn delegar_conserva_el_pedido() {
+        let plan = json!({"intencion": "comando", "comandos": [
+            {"accion": "delegar", "pedido": "averiguá si el sensor SHT31 está discontinuado"}
+        ]});
+        let limpio = super::validar(&plan, &[]);
+        let c = &limpio["comandos"][0];
+        assert_eq!(c["accion"], "delegar");
+        assert!(c["pedido"].as_str().unwrap().contains("SHT31"));
+    }
+
+    #[test]
+    fn el_prompt_de_hermes_lleva_contexto_y_pedido() {
+        let p = super::prompt_delegar("buscá precios", &["Motor dual".to_string(), "Voz local".to_string()]);
+        assert!(p.contains("buscá precios"));
+        assert!(p.contains("Motor dual") && p.contains("Voz local"));
+    }
 
     #[test]
     fn crear_y_enlazar_son_silencio() {
@@ -136,7 +203,20 @@ pub fn validar(plan: &Value, ids_validos: &[String]) -> Value {
 
         let mut limpio = json!({ "accion": accion });
         match accion.as_str() {
-            "crear" => {
+            "delegar" => {
+                // Un `delegar` por plan: es la operación cara (una pasada completa del motor profundo).
+                if limpios.iter().any(|c| c["accion"] == "delegar") {
+                    descartados.push("un segundo «delegar» en el mismo plan (es la operación cara)".into());
+                    continue;
+                }
+                let pedido = recorta(c["pedido"].as_str().unwrap_or(""), 600);
+                if pedido.chars().count() < 4 {
+                    descartados.push("un «delegar» sin pedido".into());
+                    continue;
+                }
+                limpio["pedido"] = json!(pedido);
+            }
+        "crear" => {
                 let titulo = recorta(c["titulo"].as_str().unwrap_or(""), 140);
                 if titulo.is_empty() {
                     descartados.push("un «crear» sin título".into());

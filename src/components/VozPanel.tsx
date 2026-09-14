@@ -7,7 +7,12 @@ interface VozPanelProps {
   isOpen: boolean;
   onClose: () => void;
   /** Aplica el plan aprobado. Devuelve cuántos nodos creó y a cuántos afectó. */
-  onAplicar: (plan: PlanVoz) => Promise<{ creados: number; afectados: number } | null>;
+  onAplicar: (plan: PlanVoz) => Promise<{
+    creados: number;
+    afectados: number;
+    /** Si el plan pidió el motor profundo, acá vuelve lo que respondió Hermes con sus herramientas. */
+    delegado?: { pedido: string; salida: string; ms: number } | null;
+  } | null>;
   /** Qué va a pasar, en números, para mostrarlo ANTES de aplicar. */
   onPrevisualizar: (plan: PlanVoz) => string;
   tituloNodo: (id: string) => string;
@@ -19,11 +24,13 @@ const ICONO: Record<VozComando['accion'], React.ReactNode> = {
   enfocar: <Target size={12} />,
   condensar: <Layers size={12} />,
   criticar: <Quote size={12} />,
+  delegar: <Sparkles size={12} />,
 };
 
 const EJEMPLOS = [
   'Dictá ideas nuevas: «el orquestador de voz se integra con NodeFlow y con el mapa conceptual por nodos»',
   'O comandá: «limpiá el lienzo y dejá sólo lo que se conecta con el orquestador de voz»',
+  'O pedí lo que necesita herramientas: «averiguá si el sensor SHT31 sigue fabricándose y decime alternativas»',
 ];
 
 /**
@@ -42,6 +49,7 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
   const [pensando, setPensando] = useState(false);
   const [aplicando, setAplicando] = useState(false);
   const [resultado, setResultado] = useState('');
+  const [delegado, setDelegado] = useState<{ pedido: string; salida: string; ms: number } | null>(null);
   const [silencio, setSilencio] = useState<boolean>(() => {
     try {
       return localStorage.getItem('nodeflow_voz_silencio') === '1';
@@ -171,7 +179,10 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
     setAplicando(true);
     try {
       const r = await onAplicar(plan);
-      if (r) setResultado(`Listo: ${r.creados} nodo(s) creado(s), ${r.afectados} afectado(s).`);
+      if (r) {
+        setResultado(`Listo: ${r.creados} nodo(s) creado(s), ${r.afectados} afectado(s).`);
+        if (r.delegado) setDelegado(r.delegado);
+      }
       setPlan(null);
     } finally {
       setAplicando(false);
@@ -359,6 +370,20 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
           {resultado && (
             <div className="flex items-center gap-2 text-xs bg-slate-800 border border-slate-700 rounded-xl p-3">
               <Wand2 size={13} className="text-emerald-400" /> <span className="text-slate-200">{resultado}</span>
+            </div>
+          )}
+
+          {delegado && (
+            <div className="rounded-xl border border-slate-700 bg-slate-800 p-3 space-y-2" id="voz-delegado">
+              <div className="flex items-center gap-2 text-[11px] text-slate-300">
+                <Sparkles size={13} className="text-violet-400" />
+                <span className="font-medium text-slate-100">Motor profundo</span>
+                <span className="text-slate-400">
+                  · {Math.round(delegado.ms / 1000)} s · te lo respondió Hermes con sus herramientas
+                </span>
+              </div>
+              <p className="text-xs text-slate-200 whitespace-pre-wrap">{delegado.salida}</p>
+              <p className="text-[10px] text-slate-400">Lo pediste: «{delegado.pedido}»</p>
             </div>
           )}
         </div>

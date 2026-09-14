@@ -154,6 +154,7 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
             .route("/api/voz/estado", get(voz_estado))
             .route("/api/voz/jwt", get(voz_jwt))
             .route("/api/voz/decir", post(voz_decir))
+            .route("/api/ai/delegar", post(delegar))
             .route("/api/ai/motores", get(ai_motores))
             .route("/api/ai/motor", post(ai_motor))
             .route("/api/ai/proveedor", post(ai_proveedor))
@@ -2210,6 +2211,130 @@ async fn voz_estado(State(st): State<AppState>) -> impl IntoResponse {
             "Falta la clave: SPEECHMATICS_API_KEY en el entorno, o \"speechmatics_api_key\" en nodeflow.config.json."
         }
     }))
+}
+
+/// `POST /api/ai/delegar` — el **motor profundo** de NodeFlow.
+///
+/// Cuando el pedido necesita lo que el modelo local no tiene (buscar en la web, leer un repo,
+/// razonar largo), el backend corre una pasada completa de Hermes con SUS herramientas y devuelve
+/// el texto. Es la operación cara: el plan de voz la limita a una por pedido.
+async fn delegar(State(st): State<AppState>, Json(body): Json<Value>) -> impl IntoResponse {
+    let pedido = body["pedido"].as_str().unwrap_or("").trim().to_string();
+    if pedido.chars().count() < 4 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "success": false, "error": "Falta el pedido para delegar." })),
+        )
+            .into_response();
+    }
+    let titulos: Vec<String> = st
+        .vault
+        .read_state()
+        .unwrap_or(json!({}))["nodes"]
+        .as_array()
+        .map(|ns| {
+            ns.iter()
+                .filter_map(|n| n["data"]["title"].as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+    let prompt = crate::voz::prompt_delegar(&pedido, &titulos);
+    let exe = crate::voz::hermes_exe();
+    let t0 = std::time::Instant::now();
+    let corrida = tokio::task::spawn_blocking(move || {
+        correr_proceso(&exe, &prompt, std::time::Duration::from_secs(240))
+    })
+    .await;
+    let ms = t0.elapsed().as_millis() as u64;
+    match corrida {
+        Ok(Ok(salida)) => {
+            log::info!(
+                "delegar: Hermes devolvió {} caracteres en {} ms",
+                salida.chars().count(),
+                ms
+            );
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "success": true,
+                    "salida": salida,
+                    "ms": ms,
+                    "motor": "Hermes (motor profundo con herramientas)",
+                })),
+            )
+                .into_response()
+        }
+        Ok(Err(e)) => (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({ "success": false, "error": e, "ms": ms })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "success": false, "error": format!("No pude correr el motor profundo: {e}") })),
+        )
+            .into_response(),
+    }
+}
+
+/// Corre un proceso y devuelve su salida con tope de tiempo. En Windows se lanza **sin consola**:
+/// nada de ventanas apareciendo mientras la app trabaja.
+fn correr_proceso(exe: &str, arg: &str, tope: std::time::Duration) -> Result<String, String> {
+    use std::process::{Command, Stdio};
+    let mut cmd = Command::new(exe);
+    cmd.arg("-z")
+        .arg(arg)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    let mut hijo = cmd
+        .spawn()
+        .map_err(|e| format!("No pude iniciar el motor profundo ({exe}): {e}"))?;
+    let inicio = std::time::Instant::now();
+    loop {
+        match hijo.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) => {
+                if inicio.elapsed() > tope {
+                    let _ = hijo.kill();
+                    return Err(format!(
+                        "El motor profundo tardó más de {} s y lo detuve.",
+                        tope.as_secs()
+                    ));
+                }
+                std::thread::sleep(std::time::Duration::from_millis(150));
+            }
+            Err(e) => return Err(format!("Error esperando al motor profundo: {e}")),
+        }
+    }
+    let salida = hijo
+        .wait_with_output()
+        .map_err(|e| format!("No pude leer la respuesta: {e}"))?;
+    let crudo = String::from_utf8_lossy(&salida.stdout);
+    // Hermes puede avisar cosas al arrancar (gateway viejo, actualizaciones): eso no es la respuesta.
+    let texto: String = crudo
+        .lines()
+        .skip_while(|l| {
+            let l = l.trim();
+            l.is_empty() || l.starts_with('⚠') || l.starts_with("Gateways") || l.starts_with("Run `hermes")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string();
+    if texto.is_empty() {
+        let err = String::from_utf8_lossy(&salida.stderr);
+        return Err(format!(
+            "El motor profundo no devolvió texto. {}",
+            err.lines().last().unwrap_or("").trim()
+        ));
+    }
+    Ok(texto)
 }
 
 /// `POST /api/voz/decir` — sintetiza una frase con la voz LOCAL (Kokoro) y devuelve el WAV.

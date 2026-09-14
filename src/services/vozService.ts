@@ -20,7 +20,7 @@ export interface VozEstado {
   tts?: { disponible: boolean; url: string; motor: string };
 }
 
-export type AccionVoz = 'crear' | 'enlazar' | 'enfocar' | 'condensar' | 'criticar';
+export type AccionVoz = 'crear' | 'enlazar' | 'enfocar' | 'condensar' | 'criticar' | 'delegar';
 
 export interface VozComando {
   accion: AccionVoz;
@@ -31,6 +31,8 @@ export interface VozComando {
   nodos?: string[];
   desde?: string;
   hasta?: string;
+  /** Sólo en `delegar`: lo que hay que pedirle al motor profundo (Hermes, con sus herramientas). */
+  pedido?: string;
 }
 
 export interface PlanVoz {
@@ -104,6 +106,8 @@ export function describirComando(c: VozComando, titulo: (id: string) => string):
       return `Condensar ${c.nodos?.length || 0} nodos en uno`;
     case 'criticar':
       return `Cuestionar ${c.nodos?.length || 0} nodos`;
+    case 'delegar':
+      return `Pedirle al motor profundo: «${(c.pedido || '').slice(0, 60)}»`;
     default:
       return c.accion;
   }
