@@ -42,7 +42,9 @@ for d in $dias; do
     echo
     seccion() {  # $1 = prefijo, $2 = título
       local items
-      items=$(git log --since="$d 00:00" --until="$d 23:59" --pretty=format:'%s' | grep -E "^$1" | sed -E "s/^$1(\([^)]*\))?: /- /" )
+      # Los guardados automáticos de seguridad no son historia: se cuentan aparte, no se listan
+      # (si aparecen acá, la bitácora deja de contar el proyecto y cuenta el ruido).
+      items=$(git log --since="$d 00:00" --until="$d 23:59" --pretty=format:'%s' | grep -E "^$1" | grep -vE "^chore\(checkpoint\)" | sed -E "s/^$1(\([^)]*\))?: /- /" )
       [ -z "$items" ] && return 0
       echo "**$2**"
       echo
@@ -56,6 +58,13 @@ for d in $dias; do
     seccion "docs" "Documentación"
     seccion "test" "Pruebas"
     seccion "chore" "Infraestructura"
+    auto=$(git log --since="$d 00:00" --until="$d 23:59" --pretty=format:'%s' | grep -cE "^chore\(checkpoint\)" || true)
+    if [ "${auto:-0}" != "0" ]; then
+      echo "**Guardado automático**"
+      echo
+      echo "- $auto punto(s) de seguridad sin mensaje propio (omitidos de la bitácora)"
+      echo
+    fi
   } >> "$DOC"
 done
 

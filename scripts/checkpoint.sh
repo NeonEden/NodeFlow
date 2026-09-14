@@ -16,6 +16,9 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO" || exit 1
 LOG="$REPO/.git/checkpoint.log"
 MIN="${NF_CHECKPOINT_MIN:-10}"
+# Minutos de quietud que tienen que pasar desde el último cambio para que el guardado automático
+# tome los archivos. Es el freno que impide que commitee trabajo ajeno a medio hacer.
+QUIETO="${NF_QUIETO_MIN:-10}"
 
 anotar() { printf '[%s] %s\n' "$(date '+%F %T')" "$1" >> "$LOG"; echo "$1"; }
 
@@ -60,8 +63,32 @@ compilando() {
   ps -W 2>/dev/null | grep -iE "cargo\.exe|rustc\.exe|rust-lld|tauri" | grep -qiE -v "rust-analyzer|grep"
 }
 
+# ¿Alguien está trabajando AHORA? Si algún archivo sucio se tocó hace menos de QUIETO minutos, el
+# guardado automático no los toma: son de alguien que todavía no terminó (un agente, un editor) y
+# commitearlos con mensaje genérico borra el porqué — pasó cuatro veces, y es justo lo que rompe la
+# memoria del proyecto. El guardado entra cuando el trabajo se queda quieto: ahí ya no hay autoría
+# en curso que pisar, y un equipo apagado a mitad de una edición igual queda a salvo.
+trabajo_reciente() {
+  local ahora=0 ultimo=0 t edad f
+  ahora="$(date +%s)"
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    t="$(stat -c %Y "$f" 2>/dev/null || echo 0)"
+    case "${t:-0}" in ''|*[!0-9]*) t=0 ;; esac
+    [ "$t" -gt "$ultimo" ] && ultimo="$t"
+  done < <(git status --porcelain | awk '{print $NF}')
+  # Sin mtime fiable no se arriesga: se considera que hay trabajo en curso.
+  if [ "$ultimo" -eq 0 ]; then
+    ULTIMO_MIN="?"
+    return 0
+  fi
+  edad=$(( (ahora - ultimo) / 60 ))
+  ULTIMO_MIN="$edad"
+  [ "$edad" -lt "$QUIETO" ]
+}
+
 guardar() {
-  local cambios
+  local cambios ULTIMO_MIN="?"
   cambios="$(git status --porcelain | wc -l | tr -d ' ')"
   if [ "$cambios" = "0" ]; then
     marcar "sin cambios"
@@ -74,11 +101,17 @@ guardar() {
     return 0
   fi
 
+  if trabajo_reciente; then
+    marcar "trabajo en curso (último cambio hace ${ULTIMO_MIN} min): se espera quietud"
+    anotar "NO guardado: hay trabajo reciente (menos de ${QUIETO} min). Se guarda cuando se detenga."
+    return 0
+  fi
+
   verificar || return 1
 
   local resumen
   resumen="$(git status --porcelain | awk '{print $2}' | head -6 | tr '\n' ' ')"
-  local mensaje="${1:-chore(checkpoint): $cambios archivo(s) · $(date '+%F %H:%M')}"
+  local mensaje="${1:-chore(checkpoint): guardado automático · $cambios archivo(s) · ${ULTIMO_MIN} min sin actividad}"
   git add -A
   git commit -q -m "$mensaje
 
