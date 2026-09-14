@@ -11,9 +11,14 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO" || exit 1
 
 PARTE="${1:-}"
+# Con --solo-publicar se publica lo que ya está compilado y firmado en disco (la versión que declara
+# tauri.conf.json), sin volver a bumper ni compilar: sirve cuando el build ya salió bien y sólo faltó
+# la publicación.
+SOLO_PUBLICAR=0
+[ "$PARTE" = "--solo-publicar" ] && SOLO_PUBLICAR=1
 case "$PARTE" in
-  patch|minor|major|--dry-run) ;;
-  *) echo "uso: scripts/release.sh patch|minor|major|--dry-run"; exit 2 ;;
+  patch|minor|major|--dry-run|--solo-publicar) ;;
+  *) echo "uso: scripts/release.sh patch|minor|major|--dry-run|--solo-publicar"; exit 2 ;;
 esac
 
 actual=$(grep -m1 '"version"' src-tauri/tauri.conf.json | sed -E 's/.*"version": "([^"]+)".*/\1/')
@@ -26,6 +31,10 @@ case "$PARTE" in
 esac
 nueva="$MA.$MI.$PA"
 
+if [ "$SOLO_PUBLICAR" = "1" ]; then
+  nueva="$actual"
+  echo "publicando lo ya construido: v$nueva (sin bump, sin rebuild)"
+else
 echo "v$actual → v$nueva"
 sed -i "s/\"version\": \"$actual\"/\"version\": \"$nueva\"/" src-tauri/tauri.conf.json
 sed -i "s/\"version\": \"$actual\"/\"version\": \"$nueva\"/" package.json
@@ -38,6 +47,8 @@ npx --no-install tsc --noEmit >/tmp/nf-rel-tsc.log 2>&1 || { echo "✗ tsc fall�
 echo "  ✓ tsc y tests de Rust"
 git add -A
 git commit -q -m "chore(release): v$nueva" || echo "  (sin cambios que commitear)"
+
+fi
 
 # ── Firma ────────────────────────────────────────────────────────────────────────────────────
 # La clave privada NUNCA está en el repo: vive en el perfil del usuario. Sin ella, el build sale
@@ -71,9 +82,11 @@ BUNDLE="src-tauri/target/release/bundle"
 # Con NSIS el artefacto del updater es el propio .exe firmado (createUpdaterArtifacts emite el .sig
 # al lado); si Tauri emitiera además el .zip del updater, se prefiere ese. Lo que NO puede faltar es
 # la firma: sin ella la app instalada rechazaría la actualización.
-UP="$(ls -1 "$BUNDLE"/nsis/*.nsis.zip 2>/dev/null | head -1 || true)"
-[ -n "$UP" ] || UP="$(ls -1 "$BUNDLE"/nsis/*.exe 2>/dev/null | head -1 || true)"
-[ -n "$UP" ] || { echo "✗ no hay instalador en $BUNDLE/nsis"; exit 1; }
+# Por VERSIÓN, nunca el primero del directorio: ahí viven los instaladores de todas las versiones
+# (`ls | head -1` elegía NodeFlow_0.1.0 y el guardián frenaba la publicación, con razón).
+UP="$(ls -1 "$BUNDLE"/nsis/NodeFlow_${nueva}_x64-setup.nsis.zip 2>/dev/null | head -1 || true)"
+[ -n "$UP" ] || UP="$BUNDLE/nsis/NodeFlow_${nueva}_x64-setup.exe"
+[ -f "$UP" ] || { echo "✗ no encuentro el instalador de v$nueva en $BUNDLE/nsis"; ls -1 "$BUNDLE"/nsis | tail -6; exit 1; }
 SIG="$UP.sig"
 if [ ! -f "$SIG" ]; then
   echo "✗ falta la firma de $UP: sin clave privada el updater no puede instalar nada"
@@ -100,8 +113,8 @@ git push -q origin HEAD && git push -q origin "v$nueva"
 NOTAS="docs/releases/v$nueva.md"
 if [ -f "$NOTAS" ]; then ARGS_N=(--notes-file "$NOTAS"); else ARGS_N=(--notes "NodeFlow v$nueva"); fi
 gh release create "v$nueva" --title "NodeFlow v$nueva" "${ARGS_N[@]}" \
-  "$BUNDLE"/nsis/*.exe "$BUNDLE"/nsis/*.exe.sig \
-  "$BUNDLE"/msi/*.msi "$BUNDLE"/msi/*.sig latest.json 2>&1 | tail -3
+  "$BUNDLE"/nsis/NodeFlow_${nueva}_x64-setup.exe "$BUNDLE"/nsis/NodeFlow_${nueva}_x64-setup.exe.sig \
+  "$BUNDLE"/msi/NodeFlow_${nueva}_x64_en-US.msi "$BUNDLE"/msi/NodeFlow_${nueva}_x64_en-US.msi.sig latest.json 2>&1 | tail -3
 echo "listo: v$nueva publicada, firmada y con manifiesto (la app instalada ya puede actualizarse sola)"
 rm -f latest.json
 ls -1 "$BUNDLE"/nsis/ | tail -5
