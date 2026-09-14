@@ -22,6 +22,13 @@ interface Motor {
   nota?: string;
 }
 
+interface NivelesCache {
+  hits: number;
+  tokens_evitados: number;
+  hits_semanticos: number;
+  tokens_evitados_semanticos: number;
+}
+
 interface Traza {
   proveedor: string;
   modelo?: string;
@@ -39,10 +46,31 @@ const GRUPOS: { donde: Motor['donde']; etiqueta: string; icono: any; color: stri
 ];
 
 export function MotorSelector() {
+  // La caché tiene DOS niveles: la exacta (misma clave) y la semántica (pedido parecido). El
+  // endpoint ya devuelve los dos y el ahorro grande hoy viene del segundo — que no se veía en
+  // ningún lado. Se relee en cada traza: cada pedido mueve los contadores.
   const [motores, setMotores] = useState<Motor[]>([]);
   const [elegido, setElegido] = useState('');
   const [efectivo, setEfectivo] = useState('');
   const [traza, setTraza] = useState<Traza | null>(null);
+  const [cache, setCache] = useState<NivelesCache | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    const leer = async () => {
+      try {
+        const d = await (await fetch(apiUrl('/api/ai/cache'))).json();
+        if (vivo && d?.cache) setCache(d.cache as NivelesCache);
+      } catch {
+        /* sin backend no hay nada que mostrar */
+      }
+    };
+    void leer();
+    window.addEventListener('nodeflow:traza', leer);
+    return () => {
+      vivo = false;
+      window.removeEventListener('nodeflow:traza', leer);
+    };
+  }, []);
   const [cargando, setCargando] = useState(false);
   const [alta, setAlta] = useState(false);
   const [form, setForm] = useState({ id: '', etiqueta: '', base_url: '', modelo: '', api_key: '', donde: 'pago' });
@@ -196,6 +224,16 @@ export function MotorSelector() {
           title="Traza real de la última corrida: motor, latencia, tokens, costo y caché"
         >
           {etiquetaTraza}
+        </span>
+      )}
+
+      {cache && (
+        <span
+          id="cache-niveles"
+          className="hidden xl:inline text-[10px] font-mono px-2 py-1 rounded-xl border border-slate-700 bg-slate-900/70 text-slate-300"
+          title={`Dos niveles de caché. Exacta: ${cache.hits} acierto(s) · ${cache.tokens_evitados} tokens evitados. Semántica: ${cache.hits_semanticos} acierto(s) por pedidos parecidos · ${cache.tokens_evitados_semanticos} tokens evitados.`}
+        >
+          caché {cache.hits}/{cache.hits_semanticos} · {cache.tokens_evitados + cache.tokens_evitados_semanticos} tok
         </span>
       )}
 
