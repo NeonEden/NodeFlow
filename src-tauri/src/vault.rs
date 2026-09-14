@@ -609,7 +609,7 @@ impl Vault {
                 let id = crate::grafo::id_de(n);
                 !id.is_empty() && ids.insert(id)
             })
-            .cloned()
+            .map(sin_banderas_ui)
             .collect();
         let antes_aristas = edges.len();
         let edges_ok: Vec<Value> = edges
@@ -2663,4 +2663,34 @@ mod tests_padre_pendiente {
         ));
         assert!(!pendiente_es_padre("Puente MCP", &propuesta("nodo", "")));
     }
+}
+
+/// Las banderas de INTERFAZ (`isEditing`, `selected`, `isSearchMatch`) son estado transitorio del
+/// render, no del concepto. Si se persisten, un nodo puede quedar "en edición" para siempre y su barra
+/// de acciones —que exige no estar editando— no vuelve a aparecer nunca (reporte del usuario: "algunos
+/// nodos nuevos no muestran las opciones al seleccionarlos"). Se limpian en el borde de escritura,
+/// junto al resto de la reparación silenciosa.
+fn sin_banderas_ui(n: &Value) -> Value {
+    let mut n = n.clone();
+    if let Some(d) = n.get_mut("data").and_then(|d| d.as_object_mut()) {
+        for k in ["isEditing", "selected", "isSearchMatch"] {
+            d.remove(k);
+        }
+    }
+    n
+}
+
+#[cfg(test)]
+#[test]
+fn al_guardar_no_se_persisten_banderas_de_interfaz() {
+    let n = serde_json::json!({"id": "x", "data": {
+        "title": "Idea", "maturity": 2, "isEditing": true, "selected": true, "isSearchMatch": false
+    }});
+    let limpio = sin_banderas_ui(&n);
+    let d = limpio["data"].as_object().unwrap();
+    assert!(!d.contains_key("isEditing"), "un nodo no puede nacer editándose");
+    assert!(!d.contains_key("selected"));
+    assert!(!d.contains_key("isSearchMatch"));
+    assert_eq!(d["title"], "Idea", "lo del concepto se conserva");
+    assert_eq!(d["maturity"], 2);
 }

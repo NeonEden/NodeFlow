@@ -161,6 +161,10 @@ export const IdeaNode: React.FC<NodeProps<IdeaNodeData>> = memo(({ id, data, sel
   const titleClass = isHub ? 'text-[15px] font-bold' : isLeaf ? 'text-[13px] font-semibold' : 'text-sm font-semibold';
 
   return (
+    // El recorte de la forma (`clip-path`) va sobre la TARJETA: si la barra de acciones y los handles
+    // fueran hijos suyos, el recorte se los comería — el menú "no aparecía" en octágono y hexágono:
+    // no faltaba, estaba recortado e invisible. Este contenedor no recorta y da las mismas coordenadas.
+    <div className="relative">
     <div
       id={`node-${id}`}
       onDoubleClick={(e) => {
@@ -404,6 +408,9 @@ export const IdeaNode: React.FC<NodeProps<IdeaNodeData>> = memo(({ id, data, sel
       {/* Barra flotante de acciones: sólo con el nodo seleccionado. Sacar estos
           botones del cuerpo recorta ~40% de la altura de la tarjeta. Sigue siendo
           oscura a propósito: es un overlay sobre el lienzo. */}
+
+      {/* Abajo y Derecha */}
+    </div>
       {selected && !isInlineEditing && (
         <div
           className="absolute -top-11 left-1/2 -translate-x-1/2 nf-dark flex items-center gap-0.5 backdrop-blur-md border rounded-xl px-1 py-1 shadow-2xl nodrag nowheel z-50 whitespace-nowrap"
@@ -466,8 +473,6 @@ export const IdeaNode: React.FC<NodeProps<IdeaNodeData>> = memo(({ id, data, sel
           </ToolBtn>
         </div>
       )}
-
-      {/* Abajo y Derecha */}
       <Handle
         className="w-3 h-3 hover:scale-125 transition-transform"
         id="bottom"
