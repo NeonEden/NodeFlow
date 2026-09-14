@@ -74,7 +74,7 @@ export const InvestigacionPanel: React.FC<Props> = ({ isOpen, onClose, estado, o
           <div className="flex items-center gap-2">
             <Telescope size={16} className="text-violet-400" />
             <h2 className="text-sm font-medium text-slate-100">Investigación por fases</h2>
-            <span className="text-[11px] text-slate-400">el nodo crece en el lienzo mientras investiga</span>
+            <span className="text-[11px] text-slate-400">al terminar, sus hallazgos quedan como propuestas para que decidas</span>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors cursor-pointer" title="Cerrar">
             <X size={16} />
@@ -164,7 +164,7 @@ export const InvestigacionPanel: React.FC<Props> = ({ isOpen, onClose, estado, o
                     <span className="text-xs font-medium text-slate-100">{p.titulo}</span>
                     {Array.isArray(p.comandos) && p.comandos.length > 0 && (
                       <span className="text-[9px] font-mono text-violet-200 bg-violet-950/60 border border-violet-800/60 px-1.5 py-0.5 rounded">
-                        {p.comandos.length} al lienzo
+                        {p.comandos.length} propuesto(s)
                       </span>
                     )}
                     {typeof p.cuando === 'number' && p.cuando > 0 && (

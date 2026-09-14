@@ -1974,45 +1974,89 @@ export default function App() {
     [showToast]
   );
 
-  // ── Investigación por fases: se aplica ACÁ, no en un panel ────────────────────────────────
-  // `App` vive siempre montado, así que el nodo crece en el lienzo aunque ninguna ventana esté
-  // abierta. Antes el aplicador estaba dentro del panel de voz: con el panel cerrado, las fases se
-  // generaban y nunca llegaban al lienzo (se veía nacer el nodo y después nada). Cada paso se
-  // aplica UNA vez; la primera lectura adopta lo ya existente para no duplicarlo al recargar.
+  // ── Investigación por fases: se MIRA crecer y al terminar PROPONE ─────────────────────────
+  // El backend genera las fases; la app las observa. Cuando la investigación termina, sus hallazgos
+  // entran a la cola de «Cambios del agente» para que el humano decida: **nada toca el lienzo sin
+  // aprobación**. Los enlaces viajan como `parent` en el alta, porque el backend resuelve un padre
+  // que todavía es una propuesta (el mismo camino del hub → pilares): así el nodo central y sus
+  // fuentes se proponen de una sola pasada y quedan conectados al aprobarlos.
+  //
+  // (Antes esto aplicaba los comandos directo desde acá. Dos errores: el nodo nunca aparecía si el
+  // contador de pasos no se reiniciaba con una investigación nueva, y aplicar sin preguntar no deja
+  // decidir. El contador ya no existe: cada corrida propone una vez, y el backend deduplica.)
   const [estadoInvestigacion, setEstadoInvestigacion] = useState<EstadoInvestigacion | null>(null);
-  const primeraLecturaInv = useRef(true);
-  const aplicadasInv = useRef(0);
+  const propuestaHecha = useRef('');
   useEffect(() => {
     let vivo = true;
+
+    /** Un tema investigado se vuelve propuestas: el nodo central (con la síntesis adentro) y sus
+     *  fuentes colgadas de él. Idempotente: el backend reconoce una propuesta repetida por resumen. */
+    const proponer = async (inv: EstadoInvestigacion) => {
+      const pasos: PasoInvestigacion[] = Array.isArray(inv?.pasos) ? inv.pasos : [];
+      const central = `Investigación: ${(inv.pedido || '').slice(0, 60)}`;
+      const sintesis = (inv.salida || '').trim();
+      const fuentes: { titulo: string; descripcion: string }[] = [];
+      for (const paso of pasos) {
+        for (const c of (paso.comandos || []) as Record<string, string>[]) {
+          if (c?.accion === 'crear' && String(c?.categoria || '').toUpperCase() === 'FUENTE') {
+            fuentes.push({ titulo: String(c.titulo || ''), descripcion: String(c.descripcion || '') });
+          }
+        }
+      }
+      const pedir = (cuerpo: Record<string, unknown>) =>
+        fetch(apiUrl('/api/graph/node'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...cuerpo, prompt_original: 'Investigación por fases' }),
+        }).catch(() => undefined);
+
+      // 1) el nodo central: la conclusión utilizable ES el nodo (madurez de hexágono 🚀)
+      await pedir({
+        title: central,
+        description: sintesis || `Investigación por fases sobre ${inv.pedido}`,
+        category: 'INVESTIGACIÓN',
+        maturity: 5,
+      });
+      // 2) las fuentes, colgadas del central en la misma pasada
+      for (const f of fuentes) {
+        if (!f.titulo) continue;
+        await pedir({
+          title: f.titulo,
+          description: f.descripcion,
+          category: 'FUENTE',
+          maturity: 2,
+          parent: central,
+          link_label: 'fuente',
+        });
+      }
+      showToast(
+        `Investigación lista: ${1 + fuentes.length} propuesta(s) en «Cambios del agente» para que decidas.`,
+        'success'
+      );
+    };
+
     const consultar = async () => {
       try {
         const d = await (await fetch(apiUrl('/api/ai/investigar'))).json();
         if (!vivo) return;
-        setEstadoInvestigacion({ ...(d?.investigacion || {}), corriendo: Boolean(d?.corriendo) });
-        const pasos: PasoInvestigacion[] = Array.isArray(d?.investigacion?.pasos) ? d.investigacion.pasos : [];
-        if (primeraLecturaInv.current) {
-          aplicadasInv.current = pasos.length;
-          primeraLecturaInv.current = false;
-          return;
-        }
-        for (let i = aplicadasInv.current; i < pasos.length; i++) {
-          const paso = pasos[i];
-          aplicadasInv.current = i + 1;
-          if (Array.isArray(paso?.comandos) && paso.comandos.length) {
-            await aplicarComandosDeFase(paso.comandos as PlanVoz['comandos'], paso.que || '');
-          }
+        const inv: EstadoInvestigacion = { ...(d?.investigacion || {}), corriendo: Boolean(d?.corriendo) };
+        setEstadoInvestigacion(inv);
+        const clave = `${inv.pedido || ''}|fin`;
+        if (inv.terminado && inv.pedido && propuestaHecha.current !== clave) {
+          propuestaHecha.current = clave;
+          await proponer(inv);
         }
       } catch {
         /* el backend puede estar ocupado: se reintenta solo */
       }
     };
     void consultar();
-    const t = setInterval(consultar, 3000);
+    const t = setInterval(consultar, 4000);
     return () => {
       vivo = false;
       clearInterval(t);
     };
-  }, []);
+  }, [showToast]);
 
   /** Restaurar el sub-grafo original de un macro-nodo: vuelven sus nodos y sus aristas tal cual. */
   const handleRestaurarLinaje = useCallback(
