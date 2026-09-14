@@ -90,6 +90,15 @@ pub fn foco_del_plan(plan: &Value, titulos: &[String]) -> Vec<String> {
     }
 }
 
+/// ¿Hay una **conversación** en curso? Con dos turnos o más, el pedido ya no es una orden suelta: es
+/// parte de un razonamiento, y merece que lo lea un modelo a la altura (lo usa el ruteo por tarea).
+pub fn tiene_hilo(data_dir: &Path) -> bool {
+    leer(data_dir)["turnos"]
+        .as_array()
+        .map(|t| t.len() >= 2)
+        .unwrap_or(false)
+}
+
 /// La sesión en curso (vacía si venció o si nunca hubo).
 pub fn leer(data_dir: &Path) -> Value {
     let crudo = std::fs::read_to_string(data_dir.join("dialogo.json"))
@@ -203,6 +212,20 @@ mod tests_dialogo {
         assert!(foco[0].starts_with("n-1"));
         // Un plan que no enfoca no cambia el foco (lo conserva `registrar`).
         assert!(foco_del_plan(&json!({"comandos": [{"accion": "crear", "titulo": "x"}]}), &titulos).is_empty());
+    }
+
+    #[test]
+    fn una_conversacion_necesita_dos_turnos() {
+        let dir = std::env::temp_dir().join(format!("nf-hilo-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let _ = std::fs::remove_file(dir.join("dialogo.json"));
+        assert!(!tiene_hilo(&dir), "sin nada, no hay conversación");
+        let plan = json!({"comandos": [{"accion": "crear"}], "respuesta": "ok"});
+        registrar(&dir, "una idea", &plan, &[]).unwrap();
+        assert!(!tiene_hilo(&dir), "un pedido suelto no es una conversación");
+        registrar(&dir, "y ahora eso", &plan, &[]).unwrap();
+        assert!(tiene_hilo(&dir), "con dos turnos ya hay hilo");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

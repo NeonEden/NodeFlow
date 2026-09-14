@@ -1826,7 +1826,18 @@ async fn call_model(
     accion: &str,
     sin_cache: bool,
 ) -> Option<crate::costo::Llamada> {
-    let tarea = crate::motores::Tarea::de_accion(accion);
+    // El perfil lo decide la acción… salvo que haya una **conversación en curso**: a partir del segundo
+    // turno el pedido ya no es una orden suelta ("ahora enfocá eso"), y el hilo sólo sirve si el modelo
+    // lo entiende. Ahí manda el perfil Diálogo (nube primero, local como último recurso).
+    let hay_hilo = accion == "voz" && crate::dialogo::tiene_hilo(&st.vault.raiz().join(".nodeflow"));
+    if hay_hilo {
+        log::info!("ruteo: conversación en curso → perfil Diálogo para «{accion}»");
+    }
+    let tarea = if hay_hilo {
+        crate::motores::Tarea::Dialogo
+    } else {
+        crate::motores::Tarea::de_accion(accion)
+    };
     for (i, m) in plan_de_motores(st, modo, tarea, accion)
         .await
         .into_iter()

@@ -185,6 +185,12 @@ pub fn es_razonador(modelo: &str) -> bool {
     ["deepseek-r1", "r1:", "-r1", "qwq", "reason", "think", "magistral"].iter().any(|m| n.contains(m))
 }
 
+fn gracias_y_pagas(gratis: Vec<Motor>, paga: Vec<Motor>) -> Vec<Motor> {
+    let mut v = gratis;
+    v.extend(paga);
+    v
+}
+
 /// Cadena de motores para una tarea, **de más barato a más caro**. El criterio es el costo: lo local
 /// gana los empates y la nube es la red de seguridad, no el camino principal.
 pub fn orden_para(tarea: Tarea, catalogo: &[Motor]) -> Vec<Motor> {
@@ -219,9 +225,17 @@ pub fn orden_para(tarea: Tarea, catalogo: &[Motor]) -> Vec<Motor> {
             v.extend(paga);
             v
         }
-        // Calidad: el local más grande primero (sigue siendo gratis), y entre iguales, el que
+        // Conversación: acá la calidad manda sobre el ahorro, porque el hilo sólo sirve si el modelo
+        // lo entiende. Nube primero (gratis y después paga) y el local queda como último recurso.
+        Tarea::Dialogo => {
+            let mut v = gracias_y_pagas(gratis, paga);
+            local.reverse();
+            v.extend(local);
+            v
+        }
+        // Pensar despacio: el local más grande primero (sigue siendo gratis), y entre iguales, el que
         // razona; después la nube.
-        Tarea::Sintesis | Tarea::Dialogo => {
+        Tarea::Sintesis => {
             local.sort_by(|a, b| {
                 let (ta, tb) = (
                     tamano_b(&a.modelo).unwrap_or(6.0),
@@ -572,6 +586,14 @@ mod tests_ruteo_por_tarea {
         let rapido = orden_para(Tarea::Lienzo, &c);
         assert!(rapido.iter().any(|m| m.modelo == "qwen2.5vl:7b" || m.modelo == "deepseek-r1:7b"));
         assert!(super::es_razonador("deepseek-r1:7b") && !super::es_razonador("granite3.3:2b"));
+    }
+
+    #[test]
+    fn la_conversacion_prioriza_la_nube() {
+        let orden = orden_para(Tarea::Dialogo, &cat());
+        assert!(orden[0].donde != EN_TU_PLACA, "el hilo lo lee un modelo a la altura");
+        assert_eq!(ids(&orden)[0], "ollama:gpt-oss:120b-cloud", "nube gratuita primero");
+        assert_eq!(ids(&orden).last().map(|s| *s), Some("ollama:granite3.3:2b"), "el local queda de último recurso");
     }
 
     #[test]
