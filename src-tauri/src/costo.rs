@@ -41,6 +41,10 @@ pub const CACHE_TOPE: usize = 300;
 pub struct Consumo {
     pub prompt: u64,
     pub completion: u64,
+    /// Tokens de entrada que el **proveedor** sirvió desde su caché de prefijo (DeepSeek lo reporta como
+    /// `prompt_cache_hit_tokens`). Cuestan una fracción del precio normal: es el ahorro que el documento
+    /// del usuario llama "prompt caching" — y sin medirlo no se sabe si el orden del prompt sirve.
+    pub cache_hit: u64,
 }
 
 impl Consumo {
@@ -51,10 +55,17 @@ impl Consumo {
     pub fn sumar(&mut self, otro: &Consumo) {
         self.prompt += otro.prompt;
         self.completion += otro.completion;
+        self.cache_hit += otro.cache_hit;
     }
 
     pub fn json(&self) -> Value {
-        json!({ "prompt": self.prompt, "completion": self.completion, "total": self.total() })
+        json!({
+            "prompt": self.prompt,
+            "completion": self.completion,
+            "total": self.total(),
+            "cache_hit": self.cache_hit,
+            "cache_miss": self.prompt.saturating_sub(self.cache_hit),
+        })
     }
 }
 
@@ -92,6 +103,7 @@ impl Llamada {
             "costo_usd": tarifas.costo(&self.modelo, &self.proveedor, &self.consumo),
             "cache": if self.cache { "hit" } else { "miss" },
             "tokens_evitados": self.tokens_evitados,
+            "cache_proveedor": self.consumo.cache_hit,
             "ms": self.ms,
         })
     }
@@ -105,14 +117,14 @@ pub fn consumo_gemini(v: &Value) -> Option<Consumo> {
         .get("candidatesTokenCount")
         .and_then(|x| x.as_u64())
         .unwrap_or(0);
-    Some(Consumo { prompt, completion })
+    Some(Consumo { prompt, completion, cache_hit: 0 })
 }
 
 /// Tokens de la API nativa de Ollama (`/api/chat`): `prompt_eval_count` + `eval_count`.
 pub fn consumo_ollama_nativo(v: &Value) -> Option<Consumo> {
     let prompt = v.get("prompt_eval_count").and_then(|x| x.as_u64())?;
     let completion = v.get("eval_count").and_then(|x| x.as_u64()).unwrap_or(0);
-    Some(Consumo { prompt, completion })
+    Some(Consumo { prompt, completion, cache_hit: 0 })
 }
 
 /// Tokens de una respuesta compatible con OpenAI (el daemon local de Ollama los reporta así).
@@ -123,7 +135,17 @@ pub fn consumo_openai(v: &Value) -> Option<Consumo> {
         .get("completion_tokens")
         .and_then(|x| x.as_u64())
         .unwrap_or(0);
-    Some(Consumo { prompt, completion })
+    // DeepSeek: `prompt_cache_hit_tokens`. OpenAI: `prompt_tokens_details.cached_tokens`.
+    let cache_hit = u
+        .get("prompt_cache_hit_tokens")
+        .and_then(|x| x.as_u64())
+        .or_else(|| {
+            u.get("prompt_tokens_details")
+                .and_then(|d| d.get("cached_tokens"))
+                .and_then(|x| x.as_u64())
+        })
+        .unwrap_or(0);
+    Some(Consumo { prompt, completion, cache_hit })
 }
 
 /// Estimación ≈4 caracteres por token, para cuando el proveedor no reporta `usage`.
@@ -132,7 +154,7 @@ pub fn aprox_tokens(texto: &str) -> u64 {
 }
 
 pub fn consumo_estimado(prompt: &str, salida: &str) -> Consumo {
-    Consumo { prompt: aprox_tokens(prompt), completion: aprox_tokens(salida) }
+    Consumo { prompt: aprox_tokens(prompt), completion: aprox_tokens(salida), cache_hit: 0 }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -430,10 +452,10 @@ mod tests {
             "candidates": [{"content": {"parts": [{"text": "{}"}]}}],
             "usageMetadata": { "promptTokenCount": 812, "candidatesTokenCount": 430 }
         });
-        assert_eq!(consumo_gemini(&g), Some(Consumo { prompt: 812, completion: 430 }));
+        assert_eq!(consumo_gemini(&g), Some(Consumo { prompt: 812, completion: 430, cache_hit: 0 }));
 
         let o = json!({ "usage": { "prompt_tokens": 120, "completion_tokens": 80, "total_tokens": 200 } });
-        assert_eq!(consumo_openai(&o), Some(Consumo { prompt: 120, completion: 80 }));
+        assert_eq!(consumo_openai(&o), Some(Consumo { prompt: 120, completion: 80, cache_hit: 0 }));
 
         // Sin `usage` no se inventa: None, para que aguas arriba se estime y se declare.
         assert_eq!(consumo_gemini(&json!({ "candidates": [] })), None);
@@ -441,7 +463,7 @@ mod tests {
         // `completion_tokens` ausente no invalida el prompt medido.
         assert_eq!(
             consumo_openai(&json!({ "usage": { "prompt_tokens": 7 } })),
-            Some(Consumo { prompt: 7, completion: 0 })
+            Some(Consumo { prompt: 7, completion: 0, cache_hit: 0 })
         );
     }
 
@@ -451,7 +473,7 @@ mod tests {
         assert_eq!(aprox_tokens("abcd"), 1);
         assert_eq!(aprox_tokens("abcde"), 2);
         let c = consumo_estimado("abcd", "abcdefgh");
-        assert_eq!(c, Consumo { prompt: 1, completion: 2 });
+        assert_eq!(c, Consumo { prompt: 1, completion: 2, cache_hit: 0 });
         assert_eq!(c.total(), 3);
     }
 
@@ -498,9 +520,9 @@ mod tests {
         assert_eq!(t.tarifa_de("gemini-3.6-flash-001"), Some((0.30, 2.50)));
         assert_eq!(t.tarifa_de("modelo-desconocido"), None);
 
-        let un_millon = Consumo { prompt: 1_000_000, completion: 0 };
+        let un_millon = Consumo { prompt: 1_000_000, completion: 0, cache_hit: 0 };
         assert_eq!(t.costo("gemini-3.6-flash", "gemini", &un_millon), Some(0.30));
-        let mixto = Consumo { prompt: 500_000, completion: 200_000 };
+        let mixto = Consumo { prompt: 500_000, completion: 200_000, cache_hit: 0 };
         assert_eq!(t.costo("gemini-3.6-flash", "gemini", &mixto), Some(0.65));
         // Gratis se declara, y se declara por proveedor: 0.0 es un dato, no una ausencia.
         assert_eq!(t.costo("cualquiera", "ollama", &mixto), Some(0.0));
@@ -511,7 +533,7 @@ mod tests {
 
     #[test]
     fn el_texto_del_costo_marca_estimado_y_cache() {
-        let c = Consumo { prompt: 100, completion: 20 };
+        let c = Consumo { prompt: 100, completion: 20, cache_hit: 0 };
         let t = texto_costo(&c, Some(0.000123), false, 0, 0);
         assert!(t.contains("120 tokens (100 in / 20 out)"));
         assert!(t.contains("US$ 0.000123"));
@@ -589,7 +611,7 @@ mod tests {
         assert!(tarifas.es_gratis("ollama@granite3.3:2b"));
         assert!(tarifas.es_gratis("OLLAMA@qwen2.5vl:7b"));
         assert!(!tarifas.es_gratis("gemini@gemini-3.6-flash"));
-        let c = Consumo { prompt: 1000, completion: 1000 };
+        let c = Consumo { prompt: 1000, completion: 1000, cache_hit: 0 };
         assert_eq!(tarifas.costo("granite3.3:2b", "ollama@granite3.3:2b", &c), Some(0.0));
     }
 
