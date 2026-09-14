@@ -1,12 +1,15 @@
 import { Node, Edge } from 'reactflow';
 
-export type IdeaMaturityLevel = 1 | 2 | 3 | 4;
+export type IdeaMaturityLevel = 1 | 2 | 3 | 4 | 5;
 
 export interface MaturityConfig {
   level: IdeaMaturityLevel;
   label: string;
   icon: string;
   desc: string;
+  /** La forma que le da el estado epistémico al nodo (taxonomía geométrica del usuario).
+   *  `clip` recorta el contenedor; `radius` redondea; `dashed` marca lo todavía maleable. */
+  forma?: { clip?: string; radius?: string; dashed?: boolean };
   textColor: string;
   barBg: string;
   borderColor: string;
@@ -19,6 +22,7 @@ export const MATURITY_CONFIGS: Record<IdeaMaturityLevel, MaturityConfig> = {
     label: 'Semilla',
     icon: '🌱',
     desc: 'Chispa inicial / hipótesis sin validar',
+    forma: { radius: '20px', dashed: true },
     textColor: 'text-slate-300',
     barBg: 'bg-slate-400',
     borderColor: 'border-slate-700',
@@ -26,9 +30,10 @@ export const MATURITY_CONFIGS: Record<IdeaMaturityLevel, MaturityConfig> = {
   },
   2: {
     level: 2,
-    label: 'En Exploración',
-    icon: '⚡',
-    desc: 'Desglosada en componentes y preguntas',
+    label: 'Fricción',
+    icon: '⚔️',
+    desc: 'En debate: pregunta activa o contradicción sin resolver',
+    forma: { clip: 'polygon(7% 0, 93% 0, 100% 12%, 100% 88%, 93% 100%, 7% 100%, 0 88%, 0 12%)' },
     textColor: 'text-amber-300',
     barBg: 'bg-amber-400',
     borderColor: 'border-amber-700/60',
@@ -36,9 +41,10 @@ export const MATURITY_CONFIGS: Record<IdeaMaturityLevel, MaturityConfig> = {
   },
   3: {
     level: 3,
-    label: 'Validada',
-    icon: '🛡️',
-    desc: 'Auditada críticamente, resistente y sólida',
+    label: 'Probada',
+    icon: '🧪',
+    desc: 'En síntesis: auditada críticamente, resistente y sólida',
+    forma: { radius: '28px' },
     textColor: 'text-cyan-300',
     barBg: 'bg-cyan-400',
     borderColor: 'border-cyan-700/60',
@@ -46,13 +52,25 @@ export const MATURITY_CONFIGS: Record<IdeaMaturityLevel, MaturityConfig> = {
   },
   4: {
     level: 4,
-    label: 'Ejecutable',
-    icon: '🚀',
-    desc: 'Madura y lista para implementación directa',
+    label: 'Axioma',
+    icon: '💎',
+    desc: 'Verdad verificada: fundamento inamovible del sistema',
+    forma: { radius: '3px' },
     textColor: 'text-emerald-300',
     barBg: 'bg-emerald-400',
     borderColor: 'border-emerald-700/60',
     badgeBg: 'bg-emerald-950/60',
+  },
+  5: {
+    level: 5,
+    label: 'Artefacto',
+    icon: '🚀',
+    desc: 'Cristalizado: salida ejecutable (nota, código, prompt)',
+    textColor: 'text-violet-300',
+    barBg: 'bg-violet-400',
+    borderColor: 'border-violet-700/60',
+    badgeBg: 'bg-violet-950/60',
+    forma: { clip: 'polygon(9% 0, 91% 0, 100% 50%, 91% 100%, 9% 100%, 0 50%)' },
   },
 };
 

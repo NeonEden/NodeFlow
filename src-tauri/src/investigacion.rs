@@ -120,6 +120,7 @@ pub fn comandos_de_fuentes(pedido: &str, fuentes: &[Value]) -> Vec<Value> {
             "titulo": titulo,
             "descripcion": format!("{}\n{}", f["url"].as_str().unwrap_or(""), f["por_que"].as_str().unwrap_or("")),
             "categoria": "FUENTE",
+            "maturity": 2,
         }));
         comandos.push(json!({
             "accion": "enlazar",
@@ -182,11 +183,20 @@ pub async fn correr(st: &AppState, pedido: String) {
          {{\"fuentes\":[{{\"titulo\":\"…\",\"url\":\"https://…\",\"por_que\":\"…por qué sirve…\"}}]}}\n\
          Las URL tienen que existir de verdad: son la evidencia de esta investigación."
     );
-    let fuentes = match correr_hermes(st, &prompt_fuentes, 300).await {
-        Ok(texto) => primer_json(&texto).map(|v| fuentes_validas(&v)).unwrap_or_default(),
-        Err(e) => {
-            terminar(&dir, &format!("No pude salir a buscar: {e}"), false);
-            return;
+    let fuentes: Vec<Value> = match buscar_con_tavily(st, &pedido).await {
+        Ok(f) => {
+            log::info!("investigación: {} fuentes de Tavily", f.len());
+            f
+        }
+        Err(motivo) => {
+            log::info!("investigación: Tavily no está disponible ({motivo}); salgo con Hermes");
+            match correr_hermes(st, &prompt_fuentes, 300).await {
+                Ok(texto) => primer_json(&texto).map(|v| fuentes_validas(&v)).unwrap_or_default(),
+                Err(e) => {
+                    terminar(&dir, &format!("No pude salir a buscar: {e}"), false);
+                    return;
+                }
+            }
         }
     };
     if fuentes.is_empty() {
@@ -203,12 +213,26 @@ pub async fn correr(st: &AppState, pedido: String) {
     // ── 🧪 Cápsula: razona la síntesis (DeepSeek, que mide 5/5) ──────────────────────────────
     let listado = fuentes
         .iter()
-        .map(|f| format!("- {} ({}) {}", f["titulo"].as_str().unwrap_or(""), f["url"].as_str().unwrap_or(""), f["por_que"].as_str().unwrap_or("")))
+        .enumerate()
+        .map(|(i, f)| {
+            let cabeza = format!(
+                "[{}] {} ({})\n{}",
+                i + 1,
+                f["titulo"].as_str().unwrap_or(""),
+                f["url"].as_str().unwrap_or(""),
+                f["por_que"].as_str().unwrap_or("")
+            );
+            match f["contenido"].as_str() {
+                Some(c) if !c.trim().is_empty() => format!("{cabeza}\nExtracto real: {}", c.chars().take(1200).collect::<String>()),
+                _ => cabeza,
+            }
+        })
         .collect::<Vec<_>>()
-        .join("\n");
+        .join("\n\n");
     let prompt_sintesis = format!(
         "Investigación: {pedido}\n\nFuentes encontradas:\n{listado}\n\n\
-         Con eso, devolvé SOLO un JSON:\n\
+         Con eso, devolvé SOLO un JSON. Apoyate en los extractos reales cuando estén, y si algo no está en\n\
+         las fuentes, no lo afirmes.\n\
          {{\"resumen\":\"3 o 4 frases con el hallazgo concreto\",\"principio\":\"una oración: el principio sólido que queda\",\
          \"descartar\":[\"títulos de fuentes que no aportan, si hay\"]}}\n\
          Si una fuente no aporta al hallazgo, decila en 'descartar'."
@@ -253,6 +277,80 @@ pub async fn correr(st: &AppState, pedido: String) {
         })],
     );
     terminar(&dir, &resumen, true);
+}
+
+/// La clave de Tavily: variable de entorno o campo del config (o pegada en el campo, por las dudas).
+pub fn clave_tavily(st: &AppState) -> Option<String> {
+    if let Ok(v) = std::env::var("TAVILY_API_KEY") {
+        if !v.trim().is_empty() {
+            return Some(v.trim().to_string());
+        }
+    }
+    let txt = std::fs::read_to_string(st.data_dir.join("nodeflow.config.json")).ok()?;
+    let cfg: Value = serde_json::from_str(&txt).ok()?;
+    let del_config = cfg["tavily_api_key"]
+        .as_str()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(String::from);
+    del_config.or_else(|| {
+        // Si pegaron la clave en el campo de otra forma, igual sirve.
+        cfg["proveedores"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|p| p["clave_config"].as_str())
+            .find(|k| k.starts_with("tvly-"))
+            .map(String::from)
+    })
+}
+
+/// **Tavily** — búsqueda estructurada para LLMs: trae fuentes limpias **y su contenido**, que es lo que
+/// permite sintetizar citando en vez de recordar. Si no hay clave, la investigación sigue con Hermes.
+pub async fn buscar_con_tavily(st: &AppState, consulta: &str) -> Result<Vec<Value>, String> {
+    let clave = clave_tavily(st).ok_or("sin clave de Tavily")?;
+    let r = st
+        .http
+        .post("https://api.tavily.com/search")
+        .bearer_auth(clave)
+        .json(&json!({
+            "query": consulta,
+            "search_depth": "advanced",
+            "max_results": 5,
+            "include_raw_content": "markdown",
+        }))
+        .timeout(std::time::Duration::from_secs(90))
+        .send()
+        .await
+        .map_err(|e| format!("Tavily no respondió: {e}"))?;
+    if !r.status().is_success() {
+        return Err(format!("Tavily respondió {}", r.status()));
+    }
+    let v: Value = r.json().await.map_err(|e| format!("respuesta ilegible: {e}"))?;
+    let fuentes: Vec<Value> = v["results"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .take(5)
+        .filter_map(|x| {
+            let url = x["url"].as_str()?.trim();
+            if !url.starts_with("http") {
+                return None;
+            }
+            let titulo = x["title"].as_str().unwrap_or(url).trim();
+            let contenido = x["raw_content"].as_str().unwrap_or("").trim();
+            Some(json!({
+                "titulo": titulo.chars().take(120).collect::<String>(),
+                "url": url.chars().take(300).collect::<String>(),
+                "por_que": x["content"].as_str().unwrap_or("").chars().take(240).collect::<String>(),
+                "contenido": contenido.chars().take(2000).collect::<String>(),
+            }))
+        })
+        .collect();
+    if fuentes.is_empty() {
+        return Err("Tavily no devolvió resultados usables".into());
+    }
+    Ok(fuentes)
 }
 
 /// Una pasada de Hermes (tiene las herramientas: web, archivos, terminal).

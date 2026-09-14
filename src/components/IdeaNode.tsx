@@ -74,6 +74,14 @@ export const IdeaNode: React.FC<NodeProps<IdeaNodeData>> = memo(({ id, data, sel
   const currentMaturity: IdeaMaturityLevel =
     data.maturity || (data.isRoot ? 3 : data.aiOrigin?.actionType === 'hybrid' ? 3 : 1);
   const maturityConfig = MATURITY_CONFIGS[currentMaturity] || MATURITY_CONFIGS[1];
+  // Taxonomía geométrica: la forma dice el estado epistémico de un vistazo (y **muta** con la fase,
+  // porque `clip-path` y `border-radius` se animan). Todo con CSS: sin dependencias nuevas.
+  const forma = maturityConfig.forma;
+  const estiloForma: React.CSSProperties = {
+    ...(forma?.clip ? { clipPath: forma.clip } : {}),
+    ...(forma?.radius ? { borderRadius: forma.radius } : {}),
+    transition: 'clip-path 500ms ease, border-radius 500ms ease, box-shadow 300ms ease',
+  };
 
   const handleSetMaturity = (level: IdeaMaturityLevel) => {
     data.onAction?.('set-maturity', id, { ...data, maturity: level });
@@ -156,7 +164,7 @@ export const IdeaNode: React.FC<NodeProps<IdeaNodeData>> = memo(({ id, data, sel
         e.stopPropagation();
         data.onAction?.('edit', id, data);
       }}
-      className={`relative group nf-card border-2 rounded-xl shadow-2xl transition-[box-shadow,border-color,transform] z-10 select-none cursor-grab active:cursor-grabbing ${widthClass} ${
+      className={`relative group nf-card border-2 ${forma?.dashed ? 'border-dashed' : ''} rounded-xl shadow-2xl transition-[box-shadow,border-color,transform] z-10 select-none cursor-grab active:cursor-grabbing ${widthClass} ${
         lod === 'compacto' ? 'p-3' : 'p-4'
       } ${
         selected
@@ -166,6 +174,7 @@ export const IdeaNode: React.FC<NodeProps<IdeaNodeData>> = memo(({ id, data, sel
           : ''
       }`}
       style={{
+        ...estiloForma,
         borderColor: selected ? accentColor : isSearchMatch ? '#fbbf24' : `${accentColor}${isHub ? 'cc' : '99'}`,
         boxShadow: data.lente
           ? `0 0 0 3px ${accentColor}40, 0 12px 24px -10px ${accentColor}66`
