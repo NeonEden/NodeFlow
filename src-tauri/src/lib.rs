@@ -6,6 +6,7 @@ mod expertos;
 mod grafo;
 mod memoria;
 mod motores;
+mod eval;
 mod server;
 mod vault;
 mod voz;

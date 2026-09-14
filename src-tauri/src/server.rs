@@ -155,6 +155,7 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
             .route("/api/voz/jwt", get(voz_jwt))
             .route("/api/voz/decir", post(voz_decir))
             .route("/api/ai/delegar", post(delegar))
+            .route("/api/ai/evaluar", post(ai_evaluar).get(ai_evaluar_leer))
             .route("/api/ai/motores", get(ai_motores))
             .route("/api/ai/motor", post(ai_motor))
             .route("/api/ai/proveedor", post(ai_proveedor))
@@ -2241,6 +2242,64 @@ async fn voz_estado(State(st): State<AppState>) -> impl IntoResponse {
         } else {
             "Falta la clave: SPEECHMATICS_API_KEY en el entorno, o \"speechmatics_api_key\" en nodeflow.config.json."
         }
+    }))
+}
+
+/// `POST /api/ai/evaluar` — corre la planilla sobre los motores pedidos (por defecto, los locales).
+///
+/// Tarda minutos, así que **no bloquea**: arranca en segundo plano y el frontend consulta el estado.
+/// `GET` devuelve la última planilla guardada y si hay una corrida en curso.
+async fn ai_evaluar(State(st): State<AppState>, Json(body): Json<Value>) -> impl IntoResponse {
+    let pedidos: Vec<String> = body["motores"]
+        .as_array()
+        .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .unwrap_or_default();
+    let modelos = if pedidos.is_empty() {
+        catalogo(&st)
+            .await
+            .iter()
+            .filter(|m| {
+                m.disponible
+                    && m.donde == crate::motores::EN_TU_PLACA
+                    && !crate::eval::es_multimodal(&m.modelo) // los de visión ocupan VRAM y no aportan acá
+            })
+            .map(|m| m.id.clone())
+            .collect::<Vec<String>>()
+    } else {
+        pedidos
+    };
+    if modelos.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "success": false, "error": "No hay motores locales que evaluar." })),
+        )
+            .into_response();
+    }
+    if crate::eval::en_curso(&st.data_dir) {
+        return (
+            StatusCode::CONFLICT,
+            Json(json!({ "success": false, "error": "Ya hay una evaluación corriendo." })),
+        )
+            .into_response();
+    }
+    let st2 = st.clone();
+    let cuantos = modelos.len();
+    tokio::spawn(async move {
+        crate::eval::correr(&st2, modelos).await;
+    });
+    log::info!("evaluación: arrancada sobre {cuantos} motor(es)");
+    (
+        StatusCode::OK,
+        Json(json!({ "success": true, "corriendo": true, "motores": cuantos })),
+    )
+        .into_response()
+}
+
+async fn ai_evaluar_leer(State(st): State<AppState>) -> impl IntoResponse {
+    Json(json!({
+        "success": true,
+        "corriendo": crate::eval::en_curso(&st.data_dir),
+        "tabla": crate::eval::leer(&st),
     }))
 }
 

@@ -20,7 +20,7 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 
-import {
+import { FlaskConical,
   Sparkles,
   Inbox,
   Database,
@@ -69,6 +69,7 @@ import { NodeEditModal } from './components/NodeEditModal';
 import { SynthesisModal, MapSynthesis } from './components/SynthesisModal';
 import { LinajeModal } from './components/LinajeModal';
 import { VozPanel } from './components/VozPanel';
+import { EvaluacionPanel } from './components/EvaluacionPanel';
 import type { PlanVoz } from './services/vozService';
 import { medirContraste, resumenContraste } from './utils/contraste';
 import { TemplatesModal } from './components/TemplatesModal';
@@ -247,6 +248,7 @@ export default function App() {
   const [isConocimientoOpen, setIsConocimientoOpen] = useState(false);
   const [isJardinOpen, setIsJardinOpen] = useState(false);
   const [isVozOpen, setIsVozOpen] = useState(false);
+  const [isEvaluacionOpen, setIsEvaluacionOpen] = useState(false);
 
   // Auditoría de contraste a mano: en la consola del WebView (o desde devtools) `nfContraste()`.
   // Recorre la UI real y devuelve los textos que no llegan al mínimo AA. Sirve para que este tipo
@@ -3114,6 +3116,18 @@ export default function App() {
                   <span className="truncate">Voz</span>
                   <span className="ml-auto shrink-0 whitespace-nowrap text-[9px] text-cyan-300 font-mono bg-cyan-900/50 px-1.5 py-0.5 rounded border border-cyan-700/50">hablar</span>
                 </button>
+                {/* Planilla de evaluación: medir los motores con las tareas reales */}
+                <button
+                  type="button"
+                  id="btn-panel-evaluacion"
+                  onClick={() => setIsEvaluacionOpen(true)}
+                  title="Corré las tareas reales del lienzo contra cada motor: aciertos, tiempo y costo medidos"
+                  className="w-full flex items-center gap-2 px-3 py-2 bg-slate-900/70 hover:bg-slate-800/70 text-violet-200 border border-slate-800 hover:border-violet-700/60 rounded-xl text-xs font-medium transition-colors cursor-pointer group"
+                >
+                  <FlaskConical size={14} className="text-violet-400 shrink-0" />
+                  <span className="truncate">Evaluación</span>
+                  <span className="ml-auto shrink-0 whitespace-nowrap text-[9px] text-violet-300 font-mono bg-violet-900/50 px-1.5 py-0.5 rounded border border-violet-700/50">medir</span>
+                </button>
 
                 {/* Fase 7a: el agente jardín */}
                 <button
@@ -3591,6 +3605,8 @@ export default function App() {
       />
 
       {/* AI Synthesis Modal */}
+      <EvaluacionPanel isOpen={isEvaluacionOpen} onClose={() => setIsEvaluacionOpen(false)} />
+
       <VozPanel
         isOpen={isVozOpen}
         onClose={() => setIsVozOpen(false)}
