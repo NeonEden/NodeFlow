@@ -123,6 +123,144 @@ pub fn esquema_para_ollama(v: &Value) -> Value {
 pub const AUTO_LOCAL: &str = "auto:local";
 pub const AUTO_NUBE: &str = "auto:nube";
 
+/// **Recomendado**: el motor se elige por tipo de tarea (ver `Tarea`). El bucle de la voz no espera
+/// a nadie; lo que puede pensar despacio usa el modelo local más grande; lo que necesita el mundo
+/// sube a la nube. El usuario siempre puede pisarlo eligiendo un motor a mano.
+pub const AUTO_TAREA: &str = "auto:tarea";
+
+/// Qué se le está pidiendo al motor. Se deduce de la acción del spec: **determinista**, no lo
+/// adivina un modelo (medido: un router por LLM chico acierta 1 de 5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tarea {
+    /// El bucle interactivo: hablás y el lienzo responde. Tiene que ser rápido y gratis.
+    Lienzo,
+    /// Puede esperar y gana con razonamiento: condensar, cuestionar, sintetizar.
+    Sintesis,
+    /// Conversar largo.
+    Dialogo,
+    /// Necesita el mundo (web, archivos, terminal): el modelo local no puede.
+    Herramientas,
+}
+
+impl Tarea {
+    pub fn de_accion(accion: &str) -> Tarea {
+        match accion.trim().to_lowercase().as_str() {
+            "condensar" | "criticar" | "critique" | "socratic" | "hybrid" | "hybridize" | "sintesis"
+            | "synthesize" | "resonar" => Tarea::Sintesis,
+            "delegar" | "investigar" | "herramientas" | "buscar" => Tarea::Herramientas,
+            "chat" | "conversar" | "dialogo" => Tarea::Dialogo,
+            // voz, braindump, borradores, expansión: el bucle de todos los días.
+            _ => Tarea::Lienzo,
+        }
+    }
+
+    /// En una frase, para mostrarlo en la UI o en el log.
+    pub fn etiqueta(self) -> &'static str {
+        match self {
+            Tarea::Lienzo => "bucle del lienzo (rápido y gratis)",
+            Tarea::Sintesis => "pensar despacio (razonamiento, puede esperar)",
+            Tarea::Dialogo => "conversación",
+            Tarea::Herramientas => "necesita herramientas (nube)",
+        }
+    }
+}
+
+/// Tamaño que declara el nombre del modelo (`granite3.3:2b` → 2, `deepseek-r1:7b` → 7,
+/// `nemotron-3-nano:30b-cloud` → 30). Sin dato devuelve `None`: el orden nunca queda indefinido.
+pub fn tamano_b(modelo: &str) -> Option<f32> {
+    modelo
+        .to_lowercase()
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '.'))
+        .filter_map(|p| p.strip_suffix('b'))
+        .filter_map(|n| n.parse::<f32>().ok())
+        .filter(|n| (0.1..=2000.0).contains(n))
+        .fold(None, |acc: Option<f32>, n| Some(acc.map_or(n, |a| a.max(n))))
+}
+
+/// ¿Es un modelo de razonamiento, según su propio nombre? Entre locales del mismo tamaño, el que
+/// piensa antes de responder gana para "pensar despacio"; para el bucle del lienzo perdería, porque
+/// su cadena de pensamiento es justamente lo que lo hace lento (medido: 31 s contra 3,8 s).
+pub fn es_razonador(modelo: &str) -> bool {
+    let n = modelo.to_lowercase();
+    ["deepseek-r1", "r1:", "-r1", "qwq", "reason", "think", "magistral"].iter().any(|m| n.contains(m))
+}
+
+/// Cadena de motores para una tarea, **de más barato a más caro**. El criterio es el costo: lo local
+/// gana los empates y la nube es la red de seguridad, no el camino principal.
+pub fn orden_para(tarea: Tarea, catalogo: &[Motor]) -> Vec<Motor> {
+    let mut local: Vec<Motor> = catalogo
+        .iter()
+        .filter(|m| m.disponible && m.donde == EN_TU_PLACA)
+        .cloned()
+        .collect();
+    // Del más chico al más grande (None = mediano, va en el medio del orden comparativo).
+    local.sort_by(|a, b| {
+        tamano_b(&a.modelo)
+            .unwrap_or(6.0)
+            .partial_cmp(&tamano_b(&b.modelo).unwrap_or(6.0))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    let gratis: Vec<Motor> = catalogo
+        .iter()
+        .filter(|m| m.disponible && m.donde == NUBE_GRATIS)
+        .cloned()
+        .collect();
+    let paga: Vec<Motor> = catalogo
+        .iter()
+        .filter(|m| m.disponible && m.donde == NUBE_PAGA)
+        .cloned()
+        .collect();
+
+    match tarea {
+        // Rápido y gratis: el local más chico; si no hay, la nube.
+        Tarea::Lienzo => {
+            let mut v = local;
+            v.extend(gratis);
+            v.extend(paga);
+            v
+        }
+        // Calidad: el local más grande primero (sigue siendo gratis), y entre iguales, el que
+        // razona; después la nube.
+        Tarea::Sintesis | Tarea::Dialogo => {
+            local.sort_by(|a, b| {
+                let (ta, tb) = (
+                    tamano_b(&a.modelo).unwrap_or(6.0),
+                    tamano_b(&b.modelo).unwrap_or(6.0),
+                );
+                tb.partial_cmp(&ta)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then(es_razonador(&b.modelo).cmp(&es_razonador(&a.modelo)))
+            });
+            let mut v = local;
+            v.extend(gratis);
+            v.extend(paga);
+            v
+        }
+        // Herramientas: el modelo local no puede tocar el mundo, así que arranca en la nube.
+        Tarea::Herramientas => {
+            let mut v = gratis;
+            v.extend(paga);
+            v
+        }
+    }
+}
+
+/// Igual que `plan`, pero si la selección es `auto:tarea` la cadena se arma según el tipo de tarea.
+pub fn plan_tarea(
+    catalogo: &[Motor],
+    seleccionado: Option<&str>,
+    modo: Option<&str>,
+    tarea: Tarea,
+) -> Vec<Motor> {
+    let es_tarea = seleccionado
+        .map(|s| s.trim().to_lowercase() == AUTO_TAREA)
+        .unwrap_or(false);
+    if es_tarea {
+        return orden_para(tarea, catalogo);
+    }
+    plan(catalogo, seleccionado, modo)
+}
+
 /// Plan de ejecución para una llamada: **un solo motor**, el elegido.
 ///
 /// `modo` (opcional, por tarea) restringe el grupo: `local` → sólo hardware del usuario,
@@ -311,5 +449,105 @@ mod tests {
         assert_eq!(seleccionado(&dir), None);
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+}
+
+
+#[cfg(test)]
+mod tests_ruteo_por_tarea {
+    use super::*;
+
+    fn cat() -> Vec<Motor> {
+        // El catálogo real de esta máquina, en miniatura.
+        vec![
+            Motor::nuevo("ollama", "granite3.3:2b", EN_TU_PLACA, None, None),
+            Motor::nuevo("ollama", "deepseek-r1:7b", EN_TU_PLACA, None, None),
+            Motor::nuevo("ollama", "gpt-oss:120b-cloud", NUBE_GRATIS, None, None),
+            Motor::nuevo("deepseek", "deepseek-flash", NUBE_PAGA, None, None),
+        ]
+    }
+
+    fn ids(ms: &[Motor]) -> Vec<&str> {
+        ms.iter().map(|m| m.id.as_str()).collect()
+    }
+
+    #[test]
+    fn la_tarea_se_deduce_de_la_accion() {
+        assert_eq!(Tarea::de_accion("voz"), Tarea::Lienzo);
+        assert_eq!(Tarea::de_accion("braindump"), Tarea::Lienzo);
+        assert_eq!(Tarea::de_accion("condensar"), Tarea::Sintesis);
+        assert_eq!(Tarea::de_accion("criticar"), Tarea::Sintesis);
+        assert_eq!(Tarea::de_accion("delegar"), Tarea::Herramientas);
+        assert_eq!(Tarea::de_accion("  VOZ "), Tarea::Lienzo, "no distingue mayúsculas ni espacios");
+    }
+
+    #[test]
+    fn el_tamano_se_lee_del_nombre() {
+        assert_eq!(tamano_b("granite3.3:2b"), Some(2.0));
+        assert_eq!(tamano_b("deepseek-r1:7b"), Some(7.0));
+        assert_eq!(tamano_b("nemotron-3-nano:30b-cloud"), Some(30.0));
+        assert_eq!(tamano_b("qwen2.5vl:7b"), Some(7.0));
+        assert_eq!(tamano_b("glm-5.3-flash:cloud"), None, "sin tamaño declarado");
+    }
+
+    #[test]
+    fn el_bucle_del_lienzo_prefiere_el_local_mas_chico() {
+        let orden = orden_para(Tarea::Lienzo, &cat());
+        assert_eq!(ids(&orden)[0], "ollama:granite3.3:2b", "rápido y gratis primero");
+        assert_eq!(ids(&orden)[1], "ollama:deepseek-r1:7b", "después el local grande");
+        assert!(ids(&orden)[2].contains("cloud"), "la nube es la red de seguridad");
+    }
+
+    #[test]
+    fn pensar_despacio_prefiere_el_local_mas_grande() {
+        let orden = orden_para(Tarea::Sintesis, &cat());
+        assert_eq!(ids(&orden)[0], "ollama:deepseek-r1:7b");
+        assert_eq!(ids(&orden)[1], "ollama:granite3.3:2b");
+    }
+
+    #[test]
+    fn entre_locales_iguales_gana_el_que_razona() {
+        let c = vec![
+            Motor::nuevo("ollama", "qwen2.5vl:7b", EN_TU_PLACA, None, None),
+            Motor::nuevo("ollama", "deepseek-r1:7b", EN_TU_PLACA, None, None),
+        ];
+        let orden = orden_para(Tarea::Sintesis, &c);
+        assert_eq!(ids(&orden)[0], "ollama:deepseek-r1:7b", "piensa antes de responder");
+        // Pero en el bucle del lienzo el razonador NO va primero: la cadena de pensamiento es lenta.
+        let rapido = orden_para(Tarea::Lienzo, &c);
+        assert!(rapido.iter().any(|m| m.modelo == "qwen2.5vl:7b" || m.modelo == "deepseek-r1:7b"));
+        assert!(super::es_razonador("deepseek-r1:7b") && !super::es_razonador("granite3.3:2b"));
+    }
+
+    #[test]
+    fn sin_local_el_lienzo_igual_tiene_red() {
+        let solo_nube: Vec<Motor> = cat().into_iter().filter(|m| m.donde != EN_TU_PLACA).collect();
+        let orden = orden_para(Tarea::Lienzo, &solo_nube);
+        assert!(!orden.is_empty(), "nunca se queda sin motor");
+        assert!(orden.iter().all(|m| m.donde != EN_TU_PLACA));
+    }
+
+    #[test]
+    fn las_herramientas_no_usan_el_local() {
+        let orden = orden_para(Tarea::Herramientas, &cat());
+        assert!(orden.iter().all(|m| m.donde != EN_TU_PLACA), "el local no puede tocar el mundo");
+        assert_eq!(ids(&orden)[0], "ollama:gpt-oss:120b-cloud");
+    }
+
+    #[test]
+    fn un_motor_no_disponible_no_entra() {
+        let mut c = cat();
+        c[1].disponible = false; // el R1 se cayó
+        let orden = orden_para(Tarea::Sintesis, &c);
+        assert_eq!(ids(&orden)[0], "ollama:granite3.3:2b", "usa el que queda");
+    }
+
+    #[test]
+    fn auto_tarea_usa_el_ruteo_y_un_motor_a_mano_manda() {
+        let elegido = plan_tarea(&cat(), Some(AUTO_TAREA), None, Tarea::Lienzo);
+        assert_eq!(ids(&elegido)[0], "ollama:granite3.3:2b");
+        // Si el usuario eligió uno a mano, su elección gana: el ruteo no lo pisa.
+        let manual = plan_tarea(&cat(), Some("deepseek:deepseek-flash"), None, Tarea::Lienzo);
+        assert_eq!(ids(&manual), vec!["deepseek:deepseek-flash"]);
     }
 }

@@ -656,7 +656,17 @@ async fn recalibrar_perfil_con_ia(st: &AppState, key: &str) -> Option<Value> {
         "properties": { "profile": { "type": "STRING" } },
         "required": ["profile"]
     });
-    let llamada = call_model(st, key, &prompt, &schema, None, "", None).await?;
+    let llamada = call_model(
+        st,
+        key,
+        &prompt,
+        &schema,
+        None,
+        "",
+        None,
+        crate::motores::Tarea::Lienzo, // borradores: rápido y gratis
+    )
+    .await?;
     let aprendido = llamada.valor["profile"].as_str()?.trim().to_string();
     if aprendido.is_empty() {
         return None;
@@ -789,7 +799,17 @@ async fn ai_action(
         .filter(|m| !m.is_empty());
     let called = match resolve_key(&st, &headers) {
         Some(key) if !prompt.is_empty() && !schema.is_null() => {
-            call_model(&st, &key, &prompt, &schema, Some(&system_instruction), &nodo_id, modo.as_deref()).await
+            call_model(
+                &st,
+                &key,
+                &prompt,
+                &schema,
+                Some(&system_instruction),
+                &nodo_id,
+                modo.as_deref(),
+                crate::motores::Tarea::de_accion(&action_type),
+            )
+            .await
         }
         _ => None,
     };
@@ -1684,13 +1704,19 @@ fn seleccion_efectiva(st: &AppState, cat: &[crate::motores::Motor]) -> Option<St
         .map(|m| m.id.clone())
 }
 
-async fn plan_de_motores(st: &AppState, modo: Option<&str>) -> Vec<crate::motores::Motor> {
+async fn plan_de_motores(
+    st: &AppState,
+    modo: Option<&str>,
+    tarea: crate::motores::Tarea,
+) -> Vec<crate::motores::Motor> {
     let cat = catalogo(st).await;
     let mut sel = crate::motores::seleccionado(&st.data_dir);
     if sel.is_none() && modo.is_none() {
         sel = seleccion_efectiva(st, &cat);
     }
-    let plan = crate::motores::plan(&cat, sel.as_deref(), modo);
+    // `auto:tarea` arma la cadena según lo que se está pidiendo: el bucle del lienzo no espera a
+    // nadie, pensar despacio usa el local más grande, y lo que necesita herramientas sube a la nube.
+    let plan = crate::motores::plan_tarea(&cat, sel.as_deref(), modo, tarea);
     if plan.is_empty() {
         log::warn!("no hay ningún motor disponible (Ollama apagado y sin clave de nube)");
     }
@@ -1705,8 +1731,13 @@ async fn call_model(
     system: Option<&str>,
     nodo: &str,
     modo: Option<&str>,
+    tarea: crate::motores::Tarea,
 ) -> Option<crate::costo::Llamada> {
-    for m in plan_de_motores(st, modo).await {
+    for (i, m) in plan_de_motores(st, modo, tarea).await.into_iter().enumerate() {
+        if i > 0 {
+            // Estamos en la red de seguridad: quedó registrado para poder medirlo después.
+            log::info!("ruteo: {} no alcanzó, sigo con {}", tarea.etiqueta(), m.id);
+        }
         if let Some(llamada) =
             call_provider_cached(st, key, &m, prompt, schema, system, nodo).await
         {

@@ -114,8 +114,11 @@ export function MotorSelector() {
     }
   };
 
+  const esPorTarea = (elegido || '').trim() === 'auto:tarea';
   const actual = motores.find((m) => m.id === (elegido || efectivo));
-  const grupoActual = GRUPOS.find((g) => g.donde === actual?.donde);
+  const grupoActual = esPorTarea
+    ? GRUPOS.find((g) => g.donde === 'local')
+    : GRUPOS.find((g) => g.donde === actual?.donde);
   const IconoGrupo = grupoActual?.icono ?? Cpu;
   const costo = traza ? (traza.costo_usd > 0 ? `$${traza.costo_usd.toFixed(4)}` : '$0') : '';
   const etiquetaTraza = traza
@@ -129,7 +132,11 @@ export function MotorSelector() {
       <div
         id="selector-motor"
         className="flex items-center gap-1.5 bg-slate-900/70 border border-slate-800 rounded-xl px-2 py-1"
-        title="Dónde corre la IA de toda la app. Se guarda y vale también para la API."
+        title={
+          esPorTarea
+            ? 'Automático por tarea: la voz usa el modelo local más rápido (gratis), pensar despacio usa el local más grande, y lo que necesita herramientas sube a la nube.'
+            : 'Dónde corre la IA de toda la app. Se guarda y vale también para la API.'
+        }
       >
         <IconoGrupo size={13} className={grupoActual?.color ?? 'text-slate-400'} />
         <select
@@ -138,8 +145,11 @@ export function MotorSelector() {
           disabled={cargando}
           className="bg-transparent text-[11px] text-slate-200 outline-none cursor-pointer max-w-[120px] xl:max-w-[150px]"
         >
+          <option value="auto:tarea" className="bg-slate-900">
+            Automático por tarea{esPorTarea ? ' · según lo que se pida' : ''}
+          </option>
           <option value="auto:local" className="bg-slate-900">
-            Automático: local{grupoActual?.donde === 'local' && nombreEfectivo ? ` (${nombreEfectivo})` : ''}
+            Automático: local{!esPorTarea && grupoActual?.donde === 'local' && nombreEfectivo ? ` (${nombreEfectivo})` : ''}
           </option>
           <option value="auto:nube" className="bg-slate-900">
             Automático: nube{grupoActual && grupoActual.donde !== 'local' && nombreEfectivo ? ` (${nombreEfectivo})` : ''}
