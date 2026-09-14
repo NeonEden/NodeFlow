@@ -666,6 +666,7 @@ async fn recalibrar_perfil_con_ia(st: &AppState, key: &str) -> Option<Value> {
         "",
         None,
         crate::motores::Tarea::Lienzo, // borradores: rápido y gratis
+        false,                         // los borradores sí usan caché
     )
     .await?;
     let aprendido = llamada.valor["profile"].as_str()?.trim().to_string();
@@ -809,6 +810,8 @@ async fn ai_action(
                 &nodo_id,
                 modo.as_deref(),
                 crate::motores::Tarea::de_accion(&action_type),
+                // La planilla de evaluación pide medir al modelo, no a la caché.
+                body["sin_cache"].as_bool().unwrap_or(false),
             )
             .await
         }
@@ -1505,28 +1508,33 @@ async fn call_provider_cached(
     schema: &Value,
     system: Option<&str>,
     nodo: &str,
+    sin_cache: bool,
 ) -> Option<crate::costo::Llamada> {
     // La caché se identifica por **motor** (proveedor@modelo): cambiar de motor no reusa nada.
+    // `sin_cache` la saltea por completo (lectura y escritura): lo usa la planilla de evaluación,
+    // que mide al modelo real y no a la caché — si no, una segunda corrida reporta 0 ms y 0 tokens.
     let etiqueta = format!("{}@{}", motor.proveedor, motor.modelo);
     let provider = etiqueta.as_str();
     let clave = crate::costo::clave_cache(nodo, prompt, provider, schema);
-    if let Some(e) = st.cache.get(&clave) {
+    if !sin_cache {
+        if let Some(e) = st.cache.get(&clave) {
         log::info!(
             "ia: caché HIT para «{nodo}» con {provider} · {} tokens evitados (modelo {}) · clave {}",
             e.tokens,
             e.modelo,
             &clave[..12]
         );
-        return Some(crate::costo::Llamada {
-            valor: e.valor,
-            proveedor: provider.to_string(),
-            modelo: e.modelo,
-            consumo: crate::costo::Consumo::default(),
-            estimado: false,
-            cache: true,
-            tokens_evitados: e.tokens,
-            ms: 0,
-        });
+            return Some(crate::costo::Llamada {
+                valor: e.valor,
+                proveedor: provider.to_string(),
+                modelo: e.modelo,
+                consumo: crate::costo::Consumo::default(),
+                estimado: false,
+                cache: true,
+                tokens_evitados: e.tokens,
+                ms: 0,
+            });
+        }
     }
 
     let t = std::time::Instant::now();
@@ -1549,15 +1557,17 @@ async fn call_provider_cached(
         tokens_evitados: 0,
         ms: t.elapsed().as_millis(),
     };
-    st.cache.put(
-        &clave,
-        crate::costo::entrada_nueva(
-            llamada.valor.clone(),
-            provider,
-            &llamada.modelo,
-            llamada.consumo.total(),
-        ),
-    );
+    if !sin_cache {
+        st.cache.put(
+            &clave,
+            crate::costo::entrada_nueva(
+                llamada.valor.clone(),
+                provider,
+                &llamada.modelo,
+                llamada.consumo.total(),
+            ),
+        );
+    }
     log::info!(
         "ia: {provider} «{}» · {} tokens ({}) · {} ms · nodo «{nodo}» · clave {}",
         llamada.modelo,
@@ -1733,6 +1743,7 @@ async fn call_model(
     nodo: &str,
     modo: Option<&str>,
     tarea: crate::motores::Tarea,
+    sin_cache: bool,
 ) -> Option<crate::costo::Llamada> {
     for (i, m) in plan_de_motores(st, modo, tarea).await.into_iter().enumerate() {
         if i > 0 {
@@ -1740,7 +1751,7 @@ async fn call_model(
             log::info!("ruteo: {} no alcanzó, sigo con {}", tarea.etiqueta(), m.id);
         }
         if let Some(llamada) =
-            call_provider_cached(st, key, &m, prompt, schema, system, nodo).await
+            call_provider_cached(st, key, &m, prompt, schema, system, nodo, sin_cache).await
         {
             return Some(llamada);
         }
@@ -3188,7 +3199,7 @@ Todo artefacto tiene que distinguir lo establecido de lo propuesto, y lo medido 
     for m in plan {
         let t = std::time::Instant::now();
         let Some(llamada) =
-            call_provider_cached(&st, &key, &m, &prompt, &schema, Some(&system), &id).await
+            call_provider_cached(&st, &key, &m, &prompt, &schema, Some(&system), &id, false).await
         else {
             traza.push(json!({"motor": m.id, "proveedor": m.proveedor, "resultado": "sin respuesta", "ms": t.elapsed().as_millis()}));
             continue;
@@ -3210,7 +3221,7 @@ Todo artefacto tiene que distinguir lo establecido de lo propuesto, y lo medido 
                 p.join("\n")
             );
             if let Some(segunda) =
-                call_provider_cached(&st, &key, &m, &reintento, &schema, Some(&system), &id).await
+                call_provider_cached(&st, &key, &m, &reintento, &schema, Some(&system), &id, false).await
             {
                 let p2 = crate::artefactos::validar(&tipo, &segunda.valor);
                 intentos += 1;

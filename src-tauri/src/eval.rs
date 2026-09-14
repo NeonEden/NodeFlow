@@ -175,11 +175,11 @@ pub fn es_multimodal(modelo: &str) -> bool {
 /// Arma el cuerpo de la petición para una prueba (mismo contrato que usa la app).
 fn cuerpo(prueba: &Prueba, lienzo: &[Value]) -> Value {
     match prueba.accion {
-        "voz" => json!({ "type": "voz", "texto": prueba.entrada }),
-        "braindump" => json!({ "type": "braindump", "rawText": prueba.entrada }),
+        "voz" => json!({ "type": "voz", "texto": prueba.entrada, "sin_cache": true }),
+        "braindump" => json!({ "type": "braindump", "rawText": prueba.entrada, "sin_cache": true }),
         "condensar" => {
             let muestra: Vec<Value> = lienzo.iter().take(4).cloned().collect();
-            json!({ "type": "condensar", "objetivo": prueba.entrada, "selectedNodes": muestra })
+            json!({ "type": "condensar", "objetivo": prueba.entrada, "selectedNodes": muestra, "sin_cache": true })
         }
         _ => json!({ "type": prueba.accion }),
     }
