@@ -237,6 +237,14 @@ export function MotorSelector() {
         </span>
       )}
 
+      <span
+        id="sello-build"
+        className="hidden xl:inline text-[10px] font-mono px-2 py-1 rounded-xl border border-slate-700 bg-slate-900/70 text-slate-400"
+        title={`Build en ejecución: ${__SELLO_BUILD__}. Si no es el que esperabas, estás corriendo otro binario.`}
+      >
+        build {__SELLO_BUILD__}
+      </span>
+
       {alta && (
         <div className="absolute right-0 top-full mt-2 z-50 w-72 bg-slate-900 border border-slate-700 rounded-xl p-3 space-y-2 shadow-2xl">
           <div className="flex items-center justify-between">

@@ -8,3 +8,6 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+/** Sello del build (versión · commit · hora), inyectado por `vite.config.ts` al construir. */
+declare const __SELLO_BUILD__: string;
