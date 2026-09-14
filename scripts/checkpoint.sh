@@ -118,6 +118,13 @@ guardar() {
 Verificado antes de guardar: $CHECKS.
 Archivos: $resumen"
 
+  # El mapa del proyecto se regenera de la evidencia (git) y, si algo cambió, deja UNA propuesta
+  # en la cola. Si no cambió nada, se calla: ese silencio es la señal de que está al día.
+  if command -v python >/dev/null 2>&1; then
+    mapa="$(python scripts/mapa.py 2>&1 | head -2)"
+    [ -n "$mapa" ] && anotar "$mapa"
+  fi
+
   if git push -q origin HEAD 2>/dev/null; then
     anotar "guardado y subido: $mensaje"
     marcar "guardado y subido ($cambios archivos)"
