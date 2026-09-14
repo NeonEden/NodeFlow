@@ -25,3 +25,5 @@ tools/tts/.venv/
 tools/tts/*.onnx
 tools/tts/voices-*.bin
 tools/tts/*.wav
+# manifiesto temporal del updater: se genera al publicar
+latest.json

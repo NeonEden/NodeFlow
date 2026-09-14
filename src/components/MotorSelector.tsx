@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Cpu, Cloud, Coins, Plus, RefreshCw, X } from 'lucide-react';
+import { Cpu, Cloud, Coins, Plus, RefreshCw, X, Download, CheckCircle2 } from 'lucide-react';
 import { apiUrl } from '../services/apiBase';
+import { buscarActualizacion, instalarActualizacion, type EstadoUpdater } from '../services/updater';
 import { fijarMotorActual } from '../state/motorActual';
 
 /**
@@ -54,6 +55,19 @@ export function MotorSelector() {
   const [efectivo, setEfectivo] = useState('');
   const [traza, setTraza] = useState<Traza | null>(null);
   const [cache, setCache] = useState<NivelesCache | null>(null);
+  const [act, setAct] = useState<{ estado: EstadoUpdater; version?: string }>({ estado: 'inactivo' });
+  // Al abrir, la app se busca sola: si hay versión nueva lo dice sin interrumpir (el botón se
+  // enciende). Sin esto, actualizar dependía de que alguien se acordara de reinstalar a mano.
+  useEffect(() => {
+    let vivo = true;
+    void buscarActualizacion().then((r) => {
+      if (vivo) setAct({ estado: r.estado, version: r.version });
+    });
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
   useEffect(() => {
     let vivo = true;
     const leer = async () => {
@@ -235,6 +249,34 @@ export function MotorSelector() {
         >
           caché {cache.hits}/{cache.hits_semanticos} · {cache.tokens_evitados + cache.tokens_evitados_semanticos} tok
         </span>
+      )}
+
+      {(act.estado === 'disponible' || act.estado === 'buscando' || act.estado === 'instalando' || act.estado === 'error') && (
+        <button
+          type="button"
+          id="btn-actualizar"
+          onClick={async () => {
+            setAct({ estado: 'buscando' });
+            const r = await buscarActualizacion();
+            if (r.estado === 'disponible') {
+              setAct({ estado: 'instalando', version: r.version });
+              await instalarActualizacion();
+            } else {
+              setAct({ estado: r.estado, version: r.version });
+            }
+          }}
+          title={
+            act.estado === 'disponible'
+              ? `Hay una versión nueva (${act.version}). Descarga, verifica la firma y reinicia sola.`
+              : act.estado === 'error'
+                ? 'No se pudo consultar el release. Reintentar.'
+                : 'Buscando actualizaciones…'
+          }
+          className="flex items-center gap-1 text-[10px] font-mono px-2 py-1 rounded-xl border border-emerald-800/60 bg-emerald-950/40 text-emerald-300 hover:bg-emerald-900/50 cursor-pointer"
+        >
+          {act.estado === 'disponible' ? <Download size={11} /> : act.estado === 'error' ? <RefreshCw size={11} /> : <CheckCircle2 size={11} className="animate-pulse" />}
+          {act.estado === 'disponible' ? `actualizar a ${act.version}` : act.estado === 'instalando' ? 'instalando…' : act.estado === 'error' ? 'reintentar' : 'buscando…'}
+        </button>
       )}
 
       <span

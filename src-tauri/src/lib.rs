@@ -72,6 +72,10 @@ pub fn run() {
                 let _ = w.set_focus();
             }
         }))
+        // Updater: la app puede buscarse, descargar y aplicar una version nueva firmada.
+        // La clave PUBLICA vive en tauri.conf.json; la privada, en el perfil del usuario.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             // Log SIEMPRE activo, también en la app instalada: es la única forma de diagnosticar un
             // .exe suelto (en dev además sale por stdout, que es lo que leo yo).
