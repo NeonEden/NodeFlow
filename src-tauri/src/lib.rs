@@ -7,6 +7,7 @@ mod grafo;
 mod memoria;
 mod motores;
 mod eval;
+mod dialogo;
 mod server;
 mod vault;
 mod voz;

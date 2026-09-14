@@ -154,6 +154,7 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
             .route("/api/voz/estado", get(voz_estado))
             .route("/api/voz/jwt", get(voz_jwt))
             .route("/api/voz/decir", post(voz_decir))
+            .route("/api/voz/dialogo", get(voz_dialogo))
             .route("/api/ai/delegar", post(delegar).get(delegar_estado))
             .route("/api/ai/evaluar", post(ai_evaluar).get(ai_evaluar_leer))
             .route("/api/ai/motores", get(ai_motores))
@@ -835,15 +836,19 @@ async fn ai_action(
             // Voz: el plan se valida contra el lienzo REAL (sólo ids que existen, sólo acciones
             // permitidas, topes). Lo que no pasa, se descarta y se informa; nunca se ejecuta a ciegas.
             if action_type == "voz" {
-                let ids: Vec<String> = st
+                let (ids, titulos): (Vec<String>, Vec<String>) = st
                     .vault
                     .read_state()
                     .unwrap_or(serde_json::json!({}))["nodes"]
                     .as_array()
                     .map(|ns| {
                         ns.iter()
-                            .filter_map(|n| n["id"].as_str().map(String::from))
-                            .collect()
+                            .map(|n| {
+                                let id = n["id"].as_str().unwrap_or("").to_string();
+                                let titulo = n["data"]["title"].as_str().unwrap_or("");
+                                (id.clone(), format!("{id} · {titulo}"))
+                            })
+                            .unzip()
                     })
                     .unwrap_or_default();
                 let mut limpio = crate::voz::validar(&value, &ids);
@@ -902,6 +907,16 @@ async fn ai_action(
                     limpio["descartados"].as_u64().unwrap_or(0),
                     if habla { "activa" } else { "en silencio" }
                 );
+                // El turno queda anotado (con el foco que dejó) para que el próximo pedido tenga
+                // de dónde agarrarse: es lo que convierte comandos sueltos en conversación.
+                if let Err(e) = crate::dialogo::registrar(
+                    &st.vault.raiz().join(".nodeflow"),
+                    body["texto"].as_str().unwrap_or(""),
+                    &limpio,
+                    &titulos,
+                ) {
+                    log::warn!("diálogo: no pude anotar el turno: {e}");
+                }
                 value = limpio;
             }
             let ok = match &value {
@@ -1145,6 +1160,25 @@ fn build_context(
     // referirse a nodos que existen. Se acota a 120 nodos para no inflar el prompt.
     if action == "voz" {
         ctx.insert("texto".into(), body["texto"].as_str().unwrap_or("").trim().to_string());
+        // Hilo de diálogo: sin esto cada frase es un plan aislado y "¿y si lo damos vuelta?" no tiene
+        // referente. Se le pasan los últimos intercambios y en qué quedó enfocada la conversación.
+        // El hilo vive en la bóveda (`.nodeflow/dialogo.json`), junto a la caché: es del usuario.
+        let sesion_previa = ctx_memoria
+            .map(|(v, _)| crate::dialogo::leer(&v.raiz().join(".nodeflow")))
+            .unwrap_or_else(|| serde_json::json!({ "turnos": [], "foco": [] }));
+        let turnos = sesion_previa["turnos"].as_array().cloned().unwrap_or_default();
+        ctx.insert("dialogo".into(), crate::dialogo::como_texto(&turnos));
+        let foco = sesion_previa["foco"]
+            .as_array()
+            .map(|f| {
+                f.iter()
+                    .filter_map(|x| x.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" · ")
+            })
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "(todavía no hay un foco: se define con el primer pedido de dirección)".to_string());
+        ctx.insert("foco".into(), foco);
         if let Some((vault, _)) = ctx_memoria {
             let estado = vault.read_state().unwrap_or(serde_json::json!({}));
             let lienzo = estado["nodes"]
@@ -2496,6 +2530,17 @@ fn correr_proceso(exe: &str, arg: &str, tope: std::time::Duration) -> Result<Str
         ));
     }
     Ok(texto)
+}
+
+/// `GET /api/voz/dialogo` — el hilo de la conversación en curso (turnos y foco).
+async fn voz_dialogo(State(st): State<AppState>) -> impl IntoResponse {
+    let sesion = crate::dialogo::leer(&st.vault.raiz().join(".nodeflow"));
+    Json(json!({
+        "success": true,
+        "turnos": sesion["turnos"],
+        "foco": sesion["foco"],
+        "minutos_de_vida": crate::dialogo::MINUTOS_DE_VIDA,
+    }))
 }
 
 /// `POST /api/voz/decir` — sintetiza una frase con la voz LOCAL (Kokoro) y devuelve el WAV.
