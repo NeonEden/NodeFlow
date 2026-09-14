@@ -16,6 +16,8 @@ interface VozPanelProps {
   } | null>;
   /** Qué va a pasar, en números, para mostrarlo ANTES de aplicar. */
   onPrevisualizar: (plan: PlanVoz) => string;
+  /** Aplica los comandos de una fase de investigación (el nodo crece mientras investiga). */
+  onAplicarComandos: (comandos: VozComando[], que: string) => Promise<void>;
   tituloNodo: (id: string) => string;
 }
 
@@ -39,7 +41,7 @@ const EJEMPLOS = [
  * Panel de Voz (Speechmatics). Hablás, la transcripción aparece en vivo y al cortar el motor
  * propone un PLAN de operaciones sobre el lienzo — que se aprueba antes de aplicarse.
  */
-export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, onPrevisualizar, tituloNodo }) => {
+export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, onPrevisualizar, onAplicarComandos, tituloNodo }) => {
   const [servicio, setServicio] = useState<VozEstado | null>(null);
   const [estado, setEstado] = useState<EstadoVoz>('inactivo');
   const [detalleEstado, setDetalleEstado] = useState('');
@@ -53,6 +55,8 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
   const [resultado, setResultado] = useState('');
   const [delegado, setDelegado] = useState<{ pedido: string; salida: string; ms: number; ok?: boolean } | null>(null);
   const [investigando, setInvestigando] = useState(false);
+  const [fases, setFases] = useState<{ fase: string; titulo: string; emoji: string; que: string }[]>([]);
+  const aplicadas = useRef(0);
   const [silencio, setSilencio] = useState<boolean>(() => {
     try {
       return localStorage.getItem('nodeflow_voz_silencio') === '1';
@@ -137,29 +141,39 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
     let vivo = true;
     const consultar = async () => {
       try {
-        const d = await (await fetch(apiUrl('/api/ai/delegar'))).json();
+        const d = await (await fetch(apiUrl('/api/ai/investigar'))).json();
         if (!vivo) return;
-        const res = d?.resultado;
-        if (res && res.salida) {
-          setDelegado({ pedido: res.pedido || '', salida: res.salida, ms: res.ms || 0, ok: res.ok !== false });
+        const inv = d?.investigacion;
+        const pasos: any[] = Array.isArray(inv?.pasos) ? inv.pasos : [];
+        setFases(pasos.map((x) => ({ fase: x.fase, titulo: x.titulo, emoji: x.emoji, que: x.que })));
+        // Cada fase se aplica al lienzo UNA vez, apenas llega: el nodo crece mientras investiga.
+        for (let i = aplicadas.current; i < pasos.length; i++) {
+          const paso = pasos[i];
+          aplicadas.current = i + 1;
+          if (Array.isArray(paso.comandos) && paso.comandos.length) {
+            void onAplicarComandos(paso.comandos as VozComando[], paso.que || '');
+          }
+        }
+        if (inv?.terminado) {
           setInvestigando(false);
-          // El hallazgo se dice: es la razón de existir de la voz, y respeta el mute del panel.
-          if (silencioRef.current === false) void hablar(fraseParaDecir(res.salida));
-        } else if (!d?.corriendo && res && !res.salida) {
-          setInvestigando(false);
-          setError('El motor profundo no pudo responder esta vez.');
+          if (inv.salida) {
+            setDelegado({ pedido: inv.pedido || '', salida: inv.salida, ms: 0, ok: inv.ok !== false });
+            if (silencioRef.current === false) void hablar(fraseParaDecir(inv.salida));
+          } else if (inv.ok === false) {
+            setError('La investigación no llegó a buen puerto esta vez.');
+          }
         }
       } catch {
         /* si el backend no contesta, el panel sigue intentando */
       }
     };
-    const t = setInterval(consultar, 5000);
+    const t = setInterval(consultar, 4000);
     void consultar();
     return () => {
       vivo = false;
       clearInterval(t);
     };
-  }, [investigando]);
+  }, [investigando, onAplicarComandos]);
 
   const empezar = async () => {
     setError('');
@@ -424,11 +438,32 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
           )}
 
           {investigando && (
-            <div className="flex items-center gap-2 text-xs bg-slate-800 border border-slate-700 rounded-xl p-3" id="voz-investigando">
-              <Loader2 size={13} className="animate-spin text-violet-400" />
-              <span className="text-slate-200">
-                El motor profundo está investigando. Podés seguir trabajando: la respuesta aparece acá.
-              </span>
+            <div className="rounded-xl border border-slate-700 bg-slate-800 p-3 space-y-2" id="voz-investigando">
+              <div className="flex items-center gap-2 text-xs">
+                <Loader2 size={13} className="animate-spin text-violet-400" />
+                <span className="text-slate-100 font-medium">Investigando por fases</span>
+                <span className="text-slate-400">· el nodo crece en el lienzo mientras tanto</span>
+              </div>
+              {fases.length === 0 ? (
+                <p className="text-[11px] text-slate-300">🌱 Arrancando: nace el nodo y sale a buscar fuentes…</p>
+              ) : (
+                <div className="space-y-1">
+                  {['🌱', '⚔️', '🧪', '🚀'].map((e, idx) => {
+                    const f = fases.find((x) => x.emoji === e);
+                    const ultima = fases[fases.length - 1];
+                    const activa = !!f && !!ultima && f.fase === ultima.fase;
+                    return (
+                      <div key={e} className={`flex items-start gap-2 text-[11px] ${f ? 'text-slate-200' : 'text-slate-500'}`}>
+                        <span>{e}</span>
+                        <span className={activa ? 'text-slate-100' : ''}>
+                          {f ? f.que : 'pendiente'}
+                          {activa && <Loader2 size={10} className="inline ml-1 animate-spin text-violet-300" />}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
 

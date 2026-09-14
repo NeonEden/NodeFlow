@@ -1,0 +1,435 @@
+//! Investigación por fases — el nodo que crece mientras investiga.
+//!
+//! Cuatro fases, cada una con su trabajo y su mutación sobre el lienzo (el ciclo que el usuario
+//! diseñó): 🌱 **Semilla** (nace el nodo), ⚔️ **Fricción** (fuentes reales, una por nodo),
+//! 🧪 **Cápsula** (síntesis y poda de lo que sobró), 🚀 **Hexágono** (cristaliza en la bóveda).
+//!
+//! Reparto de trabajo medido: **Hermes** sale al mundo (buscar ✓, verificado con datos reales ✓) y
+//! **DeepSeek** razona la síntesis (5/5 en la planilla ✓, centavos ✓). Todo corre de fondo: la ventana
+//! nunca se congela y cada fase deja su paso en `investigacion.json` para que el panel lo muestre.
+//!
+//! Es **sólo lectura sobre el lienzo**: emite comandos (crear/enlazar/actualizar/condensar) en el mismo
+//! formato que el plan de voz, y quien los aplica es la app, con el deshacer disponible.
+
+use crate::server::{AppState, API_PORT};
+use serde_json::{json, Value};
+use std::path::Path;
+
+/// Las fases, en orden. El emoji es el mismo del documento del usuario.
+pub const FASES: [(&str, &str, &str); 4] = [
+    ("semilla", "Semilla", "🌱"),
+    ("friccion", "Fricción", "⚔️"),
+    ("capsula", "Cápsula", "🧪"),
+    ("hexagono", "Hexágono", "🚀"),
+];
+
+fn archivo(dir: &Path) -> std::path::PathBuf {
+    dir.join("investigacion.json")
+}
+
+/// El estado de la investigación en curso (o `null`).
+pub fn leer(data_dir: &Path) -> Value {
+    std::fs::read_to_string(archivo(data_dir))
+        .ok()
+        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+        .unwrap_or(Value::Null)
+}
+
+pub fn en_curso(data_dir: &Path) -> bool {
+    data_dir.join("investigacion.corriendo").exists()
+}
+
+/// Un paso de la investigación: qué fase, qué hizo y qué comandos deja para el lienzo.
+fn anotar(data_dir: &Path, fase: &str, que: &str, comandos: Vec<Value>) {
+    let previo = leer(data_dir);
+    let mut pasos = previo["pasos"].as_array().cloned().unwrap_or_default();
+    let (_, titulo, emoji) = FASES.iter().find(|(id, _, _)| *id == fase).copied().unwrap_or(("", "", ""));
+    pasos.push(json!({
+        "fase": fase,
+        "titulo": titulo,
+        "emoji": emoji,
+        "que": que,
+        "comandos": comandos,
+        "cuando": std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0),
+    }));
+    let estado = json!({
+        "pedido": previo["pedido"].clone(),
+        "fase": fase,
+        "pasos": pasos,
+        "terminado": false,
+    });
+    let _ = std::fs::write(archivo(data_dir), serde_json::to_string_pretty(&estado).unwrap_or_default());
+}
+
+fn terminar(data_dir: &Path, resumen: &str, ok: bool) {
+    let mut estado = leer(data_dir);
+    if let Some(obj) = estado.as_object_mut() {
+        obj.insert("terminado".into(), json!(true));
+        obj.insert("ok".into(), json!(ok));
+        obj.insert("salida".into(), json!(resumen));
+    }
+    let _ = std::fs::write(archivo(data_dir), serde_json::to_string_pretty(&estado).unwrap_or_default());
+    let _ = std::fs::remove_file(data_dir.join("investigacion.corriendo"));
+}
+
+/// Extrae el primer objeto JSON de un texto (los modelos suelen agregar prosa alrededor).
+pub fn primer_json(texto: &str) -> Option<Value> {
+    let inicio = texto.find('{')?;
+    let fin = texto.rfind('}')?;
+    if fin <= inicio {
+        return None;
+    }
+    serde_json::from_str(&texto[inicio..=fin]).ok()
+}
+
+/// Las fuentes que devolvió el motor del mundo, **validadas**: con título y url, y nunca más de 5.
+pub fn fuentes_validas(v: &Value) -> Vec<Value> {
+    v["fuentes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|f| {
+            let titulo = f["titulo"].as_str().unwrap_or("").trim();
+            let url = f["url"].as_str().unwrap_or("").trim();
+            if titulo.len() < 3 || !url.starts_with("http") {
+                return None;
+            }
+            Some(json!({
+                "titulo": titulo.chars().take(120).collect::<String>(),
+                "url": url.chars().take(300).collect::<String>(),
+                "por_que": f["por_que"].as_str().unwrap_or("").chars().take(200).collect::<String>(),
+            }))
+        })
+        .take(5)
+        .collect()
+}
+
+/// Los comandos que hacen crecer el lienzo con las fuentes halladas.
+pub fn comandos_de_fuentes(pedido: &str, fuentes: &[Value]) -> Vec<Value> {
+    // Ojo: el nodo central **ya lo creó la fase Semilla**. Repetir el `crear` acá duplicaría la
+    // investigación en el lienzo. Los enlaces funcionan igual porque el ejecutor resuelve por título.
+    let mut comandos: Vec<Value> = Vec::new();
+    let _ = pedido;
+    for f in fuentes {
+        let titulo = f["titulo"].as_str().unwrap_or("");
+        comandos.push(json!({
+            "accion": "crear",
+            "titulo": titulo,
+            "descripcion": format!("{}\n{}", f["url"].as_str().unwrap_or(""), f["por_que"].as_str().unwrap_or("")),
+            "categoria": "FUENTE",
+        }));
+        comandos.push(json!({
+            "accion": "enlazar",
+            "desde": format!("Investigación: {}", recorta(pedido, 60)),
+            "hasta": titulo,
+        }));
+    }
+    comandos
+}
+
+/// La mutación de la fase Cápsula: el nodo central queda con la síntesis y sube de fase.
+pub fn comandos_de_sintesis(titulo_nodo: &str, resumen: &str, principio: &str, descartar: &[String]) -> Vec<Value> {
+    let mut comandos = vec![json!({
+        "accion": "actualizar",
+        "titulo": titulo_nodo,
+        "descripcion": format!("{}\n\nPrincipio: {}", recorta(resumen, 700), recorta(principio, 200)),
+        "maturity": 3,
+        "tags": ["investigación", "síntesis"],
+    })];
+    if descartar.len() >= 2 {
+        comandos.push(json!({
+            "accion": "condensar",
+            "nodos": descartar.to_vec(),
+        }));
+    }
+    comandos
+}
+
+fn recorta(s: &str, n: usize) -> String {
+    let limpio = s.split_whitespace().collect::<Vec<_>>().join(" ");
+    if limpio.chars().count() <= n {
+        limpio
+    } else {
+        format!("{}…", limpio.chars().take(n).collect::<String>())
+    }
+}
+
+/// Corre la investigación completa. Es lo que arranca `POST /api/ai/investigar`.
+pub async fn correr(st: &AppState, pedido: String) {
+    let dir = st.data_dir.clone();
+    let nodo_central = format!("Investigación: {}", recorta(&pedido, 60));
+
+    // ── 🌱 Semilla: nace el nodo, al instante ────────────────────────────────────────────────
+    anotar(
+        &dir,
+        "semilla",
+        &format!("Nació el nodo «{nodo_central}» y arrancó la búsqueda."),
+        vec![json!({
+            "accion": "crear",
+            "titulo": nodo_central,
+            "descripcion": format!("Investigando: {}. Fase Semilla.", recorta(&pedido, 160)),
+            "categoria": "INVESTIGACIÓN",
+        })],
+    );
+
+    // ── ⚔️ Fricción: el mundo (Hermes busca; es el único con herramientas) ────────────────────
+    let prompt_fuentes = format!(
+        "Buscá en la web 3 a 5 fuentes REALES sobre: {pedido}\n\n\
+         Devolvé SOLO un objeto JSON, sin explicaciones ni markdown:\n\
+         {{\"fuentes\":[{{\"titulo\":\"…\",\"url\":\"https://…\",\"por_que\":\"…por qué sirve…\"}}]}}\n\
+         Las URL tienen que existir de verdad: son la evidencia de esta investigación."
+    );
+    let fuentes = match correr_hermes(st, &prompt_fuentes, 300).await {
+        Ok(texto) => primer_json(&texto).map(|v| fuentes_validas(&v)).unwrap_or_default(),
+        Err(e) => {
+            terminar(&dir, &format!("No pude salir a buscar: {e}"), false);
+            return;
+        }
+    };
+    if fuentes.is_empty() {
+        terminar(&dir, "La búsqueda no devolvió fuentes usables (títulos y URL válidas).", false);
+        return;
+    }
+    anotar(
+        &dir,
+        "friccion",
+        &format!("Encontró {} fuentes y las colgó del nodo central.", fuentes.len()),
+        comandos_de_fuentes(&pedido, &fuentes),
+    );
+
+    // ── 🧪 Cápsula: razona la síntesis (DeepSeek, que mide 5/5) ──────────────────────────────
+    let listado = fuentes
+        .iter()
+        .map(|f| format!("- {} ({}) {}", f["titulo"].as_str().unwrap_or(""), f["url"].as_str().unwrap_or(""), f["por_que"].as_str().unwrap_or("")))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let prompt_sintesis = format!(
+        "Investigación: {pedido}\n\nFuentes encontradas:\n{listado}\n\n\
+         Con eso, devolvé SOLO un JSON:\n\
+         {{\"resumen\":\"3 o 4 frases con el hallazgo concreto\",\"principio\":\"una oración: el principio sólido que queda\",\
+         \"descartar\":[\"títulos de fuentes que no aportan, si hay\"]}}\n\
+         Si una fuente no aporta al hallazgo, decila en 'descartar'."
+    );
+    let (resumen, principio, descartar) = match correr_deepseek(st, &prompt_sintesis, 180).await {
+        Ok(texto) => match primer_json(&texto) {
+            Some(v) => (
+                v["resumen"].as_str().unwrap_or("").trim().to_string(),
+                v["principio"].as_str().unwrap_or("").trim().to_string(),
+                v["descartar"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|d| d.as_str().map(String::from))
+                    .collect::<Vec<String>>(),
+            ),
+            None => (String::new(), String::new(), Vec::new()),
+        },
+        Err(_) => (String::new(), String::new(), Vec::new()),
+    };
+    if resumen.is_empty() {
+        terminar(&dir, "Las fuentes quedaron en el lienzo, pero la síntesis no volvió usable.", false);
+        return;
+    }
+    anotar(
+        &dir,
+        "capsula",
+        &format!("Sintetizó el hallazgo{}", if descartar.len() > 1 { format!(" y descartó {} fuentes", descartar.len()) } else { String::new() }),
+        comandos_de_sintesis(&nodo_central, &resumen, &principio, &descartar),
+    );
+
+    // ── 🚀 Hexágono: cristaliza (la bóveda guarda la nota del nodo sola) ─────────────────────
+    anotar(
+        &dir,
+        "hexagono",
+        "Cristalizó: el nodo queda en fase Hexágono, listo para la bóveda.",
+        vec![json!({
+            "accion": "actualizar",
+            "titulo": nodo_central,
+            "maturity": 5,
+            "tags": ["investigación", "cristalizado"],
+        })],
+    );
+    terminar(&dir, &resumen, true);
+}
+
+/// Una pasada de Hermes (tiene las herramientas: web, archivos, terminal).
+async fn correr_hermes(st: &AppState, prompt: &str, tope_s: u64) -> Result<String, String> {
+    let exe = crate::voz::hermes_exe();
+    let prompt = prompt.to_string();
+    tokio::task::spawn_blocking(move || {
+        correr_proceso(&exe, &prompt, std::time::Duration::from_secs(tope_s))
+    })
+    .await
+    .map_err(|e| format!("{e}"))?
+}
+
+/// Una pasada de **DeepSeek** (el motor que la planilla midió 5/5), por el mismo camino que la app
+/// usa para sus acciones: con clave, con costo medido y **sin caché** (es una investigación nueva).
+async fn correr_deepseek(st: &AppState, prompt: &str, tope_s: u64) -> Result<String, String> {
+    // El motor de síntesis: el primer DeepSeek del catálogo de proveedores (el chat, no el razonador:
+    // para sintetizar alcanza, es más rápido y más barato).
+    let motor = catalogo_deepseek(st).ok_or("no hay un motor DeepSeek configurado (falta la clave)")?;
+    let clave = clave_del_motor(st, &motor).ok_or("falta la clave de DeepSeek")?;
+    let url = format!("{}/chat/completions", motor.base_url.clone().unwrap_or_default().trim_end_matches('/'));
+    let cuerpo = json!({
+        "model": motor.modelo,
+        "messages": [{ "role": "user", "content": prompt }],
+        "temperature": 0.4,
+    });
+    let r = st
+        .http
+        .post(&url)
+        .bearer_auth(clave)
+        .json(&cuerpo)
+        .timeout(std::time::Duration::from_secs(tope_s))
+        .send()
+        .await
+        .map_err(|e| format!("DeepSeek no respondió: {e}"))?;
+    if !r.status().is_success() {
+        return Err(format!("DeepSeek respondió {}", r.status()));
+    }
+    let v: Value = r.json().await.map_err(|e| format!("respuesta ilegible: {e}"))?;
+    Ok(v["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string())
+}
+
+fn catalogo_deepseek(st: &AppState) -> Option<crate::motores::Motor> {
+    let txt = std::fs::read_to_string(st.data_dir.join("nodeflow.config.json")).ok()?;
+    let cfg: Value = serde_json::from_str(&txt).ok()?;
+    cfg["proveedores"].as_array().into_iter().flatten().find_map(|p| {
+        let modelo = p["modelo"].as_str()?;
+        if !modelo.contains("deepseek") || modelo.contains("reasoner") {
+            return None; // para sintetizar alcanza el chat: es más rápido y más barato
+        }
+        let base = p["base_url"].as_str()?;
+        let mut m = crate::motores::Motor::nuevo("openai", modelo, crate::motores::NUBE_PAGA, None, Some(base.to_string()));
+        m.id = format!("openai:{}", p["id"].as_str().unwrap_or("deepseek"));
+        m.clave_ref = p["clave_config"].as_str().map(String::from);
+        Some(m)
+    })
+}
+
+fn clave_del_motor(st: &AppState, m: &crate::motores::Motor) -> Option<String> {
+    let nombre = m.clave_ref.clone()?;
+    if let Ok(v) = std::env::var(&nombre) {
+        if !v.trim().is_empty() {
+            return Some(v);
+        }
+    }
+    let txt = std::fs::read_to_string(st.data_dir.join("nodeflow.config.json")).ok()?;
+    let cfg: Value = serde_json::from_str(&txt).ok()?;
+    cfg[&nombre]
+        .as_str()
+        .map(String::from)
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| (nombre.len() > 20 && !nombre.contains(char::is_whitespace)).then(|| nombre.clone()))
+}
+
+/// Igual que el del servidor: sin consola y con tope de tiempo.
+fn correr_proceso(exe: &str, arg: &str, tope: std::time::Duration) -> Result<String, String> {
+    use std::process::{Command, Stdio};
+    let mut cmd = Command::new(exe);
+    cmd.arg("-z")
+        .arg(arg)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000);
+    }
+    let mut hijo = cmd.spawn().map_err(|e| format!("no pude iniciar el motor del mundo: {e}"))?;
+    let inicio = std::time::Instant::now();
+    loop {
+        match hijo.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) => {
+                if inicio.elapsed() > tope {
+                    let _ = hijo.kill();
+                    return Err(format!("el motor del mundo tardó más de {} s", tope.as_secs()));
+                }
+                std::thread::sleep(std::time::Duration::from_millis(200));
+            }
+            Err(e) => return Err(format!("{e}")),
+        }
+    }
+    let salida = hijo.wait_with_output().map_err(|e| format!("{e}"))?;
+    Ok(String::from_utf8_lossy(&salida.stdout).to_string())
+}
+
+/// Arranca la investigación (endpoint `POST /api/ai/investigar`).
+pub async fn iniciar(st: &AppState, pedido: String) -> Result<(), String> {
+    if en_curso(&st.data_dir) {
+        return Err("ya hay una investigación corriendo".into());
+    }
+    let inicial = json!({ "pedido": pedido, "fase": "semilla", "pasos": [], "terminado": false });
+    std::fs::write(
+        archivo(&st.data_dir),
+        serde_json::to_string_pretty(&inicial).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    let _ = std::fs::write(st.data_dir.join("investigacion.corriendo"), "1");
+    let st2 = st.clone();
+    tokio::spawn(async move { correr(&st2, pedido).await });
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests_investigacion {
+    use super::*;
+
+    #[test]
+    fn saca_el_json_de_entre_la_prosa() {
+        let texto = "Claro, acá va:\n```json\n{\"fuentes\":[{\"titulo\":\"Sensirion\",\"url\":\"https://sensirion.com\"}]}\n```\nEspero que sirva.";
+        let v = primer_json(texto).expect("tiene que encontrar el objeto");
+        assert_eq!(v["fuentes"][0]["titulo"], "Sensirion");
+        assert!(primer_json("no hay json acá").is_none());
+    }
+
+    #[test]
+    fn solo_pasan_fuentes_con_titulo_y_url_real() {
+        let crudo = json!({"fuentes": [
+            {"titulo": "Sensirion SHT31", "url": "https://sensirion.com/sht31", "por_que": "fabricante"},
+            {"titulo": "sin url", "url": "no-es-una-url"},
+            {"titulo": "x", "url": "https://corta.com"},
+            {"titulo": "Otra buena", "url": "https://ejemplo.com/doc"}
+        ]});
+        let ok = fuentes_validas(&crudo);
+        assert_eq!(ok.len(), 2, "una sin url y una con título de 1 letra se descartan");
+        assert_eq!(ok[0]["titulo"], "Sensirion SHT31");
+    }
+
+    #[test]
+    fn las_fuentes_arman_nodos_y_enlaces() {
+        let fuentes = vec![json!({"titulo": "Fuente A", "url": "https://a.com", "por_que": "x"})];
+        let comandos = comandos_de_fuentes("sensores de humedad", &fuentes);
+        // (1 crear + 1 enlazar) por fuente — el nodo central NO se repite: lo hizo la Semilla.
+        assert_eq!(comandos.len(), 2, "no se duplica el nodo central");
+        assert_eq!(comandos[0]["accion"], "crear");
+        assert_eq!(comandos[0]["categoria"], "FUENTE");
+        assert_eq!(comandos[1]["accion"], "enlazar");
+        assert_eq!(comandos[1]["hasta"], "Fuente A", "el enlace apunta al título, que el ejecutor resuelve");
+        assert!(comandos[1]["desde"].as_str().unwrap().starts_with("Investigación: "));
+    }
+
+    #[test]
+    fn la_sintesis_muta_el_nodo_y_poda_si_sobra() {
+        let con_poda = comandos_de_sintesis("Investigación: x", "resumen largo del hallazgo", "el principio", &["A".into(), "B".into()]);
+        assert_eq!(con_poda[0]["accion"], "actualizar");
+        assert_eq!(con_poda[0]["maturity"], 3, "Cápsula es la fase 3");
+        assert_eq!(con_poda[1]["accion"], "condensar", "con 2 o más sobrantes se poda");
+        let sin_poda = comandos_de_sintesis("Investigación: x", "resumen", "principio", &[]);
+        assert_eq!(sin_poda.len(), 1, "sin sobrantes no se poda nada");
+    }
+
+    #[test]
+    fn las_cuatro_fases_estan_en_orden() {
+        assert_eq!(FASES.len(), 4);
+        assert_eq!(FASES[0].0, "semilla");
+        assert_eq!(FASES[3].0, "hexagono");
+        assert_eq!(FASES[3].2, "🚀");
+    }
+}

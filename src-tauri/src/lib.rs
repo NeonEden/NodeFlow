@@ -8,6 +8,7 @@ mod memoria;
 mod motores;
 mod eval;
 mod dialogo;
+mod investigacion;
 mod server;
 mod vault;
 mod voz;

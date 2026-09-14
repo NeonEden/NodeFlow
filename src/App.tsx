@@ -1740,6 +1740,8 @@ export default function App() {
     [nodes.length]
   );
 
+  const aplicarPlanVozRef = useRef<((p: PlanVoz) => Promise<any>) | null>(null);
+
   const aplicarPlanVoz = useCallback(
     async (plan: PlanVoz) => {
       if (!plan.comandos?.length) return null;
@@ -1908,16 +1910,30 @@ export default function App() {
         // Se dispara y **no se espera**: el motor profundo tarda minutos y el lienzo ya cambió. La
         // respuesta llega sola y el panel la muestra cuando está (nada de spinner colgado).
         delegando = true;
-        void fetch(apiUrl('/api/ai/delegar'), {
+        // Investigación por fases (🌱⚔️🧪🚀): el nodo nace, crece con las fuentes y se sintetiza.
+        void fetch(apiUrl('/api/ai/investigar'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ pedido }),
         }).catch(() => undefined);
-        showToast('El motor profundo está investigando: la respuesta aparece en el panel.', 'info');
+        showToast('Investigación en marcha por fases: el nodo va a crecer solo en el lienzo.', 'info');
       }
       return { creados, afectados, delegando };
     },
     [nodes, edges, takeSnapshot, setNodes, setEdges, setSelectedNodes, showToast]
+  );
+
+  useEffect(() => {
+    aplicarPlanVozRef.current = aplicarPlanVoz;
+  }, [aplicarPlanVoz]);
+
+  /** Aplica los comandos de una fase de investigación (los emite el backend, ya validados por forma). */
+  const aplicarComandosDeFase = useCallback(
+    async (comandos: PlanVoz['comandos'], que: string) => {
+      if (!comandos?.length) return;
+      await aplicarPlanVozRef.current?.({ intencion: 'comando', respuesta: que, comandos } as PlanVoz);
+    },
+    []
   );
 
   /** Restaurar el sub-grafo original de un macro-nodo: vuelven sus nodos y sus aristas tal cual. */
@@ -3618,6 +3634,7 @@ export default function App() {
         isOpen={isVozOpen}
         onClose={() => setIsVozOpen(false)}
         onAplicar={aplicarPlanVoz}
+        onAplicarComandos={aplicarComandosDeFase}
         onPrevisualizar={previsualizarPlanVoz}
         tituloNodo={(id) => nodes.find((n) => n.id === id)?.data.title || id}
       />

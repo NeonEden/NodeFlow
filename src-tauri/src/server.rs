@@ -162,6 +162,7 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
             .route("/api/voz/dialogo", get(voz_dialogo))
             .route("/api/ai/delegar", post(delegar).get(delegar_estado))
             .route("/api/ai/evaluar", post(ai_evaluar).get(ai_evaluar_leer))
+            .route("/api/ai/investigar", post(ai_investigar).get(ai_investigar_estado))
             .route("/api/ai/motores", get(ai_motores))
             .route("/api/ai/motor", post(ai_motor))
             .route("/api/ai/proveedor", post(ai_proveedor))
@@ -2514,6 +2515,35 @@ async fn delegar(State(st): State<AppState>, Json(body): Json<Value>) -> impl In
         Json(json!({ "success": true, "corriendo": true, "pedido": pedido })),
     )
         .into_response()
+}
+
+/// `POST /api/ai/investigar` — arranca la **investigación por fases** (🌱⚔️🧪🚀) y vuelve enseguida.
+async fn ai_investigar(State(st): State<AppState>, Json(body): Json<Value>) -> impl IntoResponse {
+    let pedido = body["pedido"].as_str().unwrap_or("").trim().to_string();
+    if pedido.chars().count() < 4 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "success": false, "error": "Falta el tema a investigar." })),
+        )
+            .into_response();
+    }
+    match crate::investigacion::iniciar(&st, pedido).await {
+        Ok(_) => (StatusCode::OK, Json(json!({ "success": true, "corriendo": true }))).into_response(),
+        Err(e) => (StatusCode::CONFLICT, Json(json!({ "success": false, "error": e }))).into_response(),
+    }
+}
+
+/// `GET /api/ai/investigar` — las fases, paso por paso (el panel lo consulta mientras crece).
+async fn ai_investigar_estado(State(st): State<AppState>) -> impl IntoResponse {
+    Json(json!({
+        "success": true,
+        "corriendo": crate::investigacion::en_curso(&st.data_dir),
+        "investigacion": crate::investigacion::leer(&st.data_dir),
+        "fases": crate::investigacion::FASES
+            .iter()
+            .map(|(id, titulo, emoji)| json!({ "id": id, "titulo": titulo, "emoji": emoji }))
+            .collect::<Vec<_>>(),
+    }))
 }
 
 /// `GET /api/ai/delegar` — ¿sigue investigando? ¿qué respondió?
