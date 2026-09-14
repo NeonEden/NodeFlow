@@ -21,6 +21,7 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 
 import { FlaskConical,
+  Telescope,
   Sparkles,
   Inbox,
   Database,
@@ -70,6 +71,7 @@ import { SynthesisModal, MapSynthesis } from './components/SynthesisModal';
 import { LinajeModal } from './components/LinajeModal';
 import { VozPanel } from './components/VozPanel';
 import { EvaluacionPanel } from './components/EvaluacionPanel';
+import { InvestigacionPanel, type EstadoInvestigacion, type PasoInvestigacion } from './components/InvestigacionPanel';
 import type { PlanVoz } from './services/vozService';
 import { medirContraste, resumenContraste } from './utils/contraste';
 import { TemplatesModal } from './components/TemplatesModal';
@@ -249,6 +251,7 @@ export default function App() {
   const [isJardinOpen, setIsJardinOpen] = useState(false);
   const [isVozOpen, setIsVozOpen] = useState(false);
   const [isEvaluacionOpen, setIsEvaluacionOpen] = useState(false);
+  const [isInvestigacionOpen, setIsInvestigacionOpen] = useState(false);
 
   // Auditoría de contraste a mano: en la consola del WebView (o desde devtools) `nfContraste()`.
   // Recorre la UI real y devuelve los textos que no llegan al mínimo AA. Sirve para que este tipo
@@ -991,6 +994,19 @@ export default function App() {
 
       if (action === 'edit') {
         setEditingNode(targetData);
+        return;
+      }
+
+      if (action === 'investigar') {
+        const tema = (targetData.title || '').trim();
+        if (tema.length < 4) {
+          showToast('Este nodo no tiene tema suficiente para investigar.', 'info');
+          return;
+        }
+        setIsInvestigacionOpen(true);
+        void investigarTema(
+          `${tema}${targetData.description ? `. Contexto: ${targetData.description}` : ''}`.slice(0, 400)
+        );
         return;
       }
 
@@ -1935,6 +1951,68 @@ export default function App() {
     },
     []
   );
+
+  /** Arranca una investigación por fases. El que la aplica al lienzo es el poller de abajo. */
+  const investigarTema = useCallback(
+    async (pedido: string) => {
+      try {
+        const r = await fetch(apiUrl('/api/ai/investigar'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pedido }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok || d?.success === false) {
+          showToast(d?.error || 'No se pudo arrancar la investigación.', 'info');
+          return;
+        }
+        showToast('Investigación en marcha por fases: el nodo va a crecer solo en el lienzo.', 'info');
+      } catch {
+        showToast('El backend no respondió: probá de nuevo en un momento.', 'info');
+      }
+    },
+    [showToast]
+  );
+
+  // ── Investigación por fases: se aplica ACÁ, no en un panel ────────────────────────────────
+  // `App` vive siempre montado, así que el nodo crece en el lienzo aunque ninguna ventana esté
+  // abierta. Antes el aplicador estaba dentro del panel de voz: con el panel cerrado, las fases se
+  // generaban y nunca llegaban al lienzo (se veía nacer el nodo y después nada). Cada paso se
+  // aplica UNA vez; la primera lectura adopta lo ya existente para no duplicarlo al recargar.
+  const [estadoInvestigacion, setEstadoInvestigacion] = useState<EstadoInvestigacion | null>(null);
+  const primeraLecturaInv = useRef(true);
+  const aplicadasInv = useRef(0);
+  useEffect(() => {
+    let vivo = true;
+    const consultar = async () => {
+      try {
+        const d = await (await fetch(apiUrl('/api/ai/investigar'))).json();
+        if (!vivo) return;
+        setEstadoInvestigacion({ ...(d?.investigacion || {}), corriendo: Boolean(d?.corriendo) });
+        const pasos: PasoInvestigacion[] = Array.isArray(d?.investigacion?.pasos) ? d.investigacion.pasos : [];
+        if (primeraLecturaInv.current) {
+          aplicadasInv.current = pasos.length;
+          primeraLecturaInv.current = false;
+          return;
+        }
+        for (let i = aplicadasInv.current; i < pasos.length; i++) {
+          const paso = pasos[i];
+          aplicadasInv.current = i + 1;
+          if (Array.isArray(paso?.comandos) && paso.comandos.length) {
+            await aplicarComandosDeFase(paso.comandos as PlanVoz['comandos'], paso.que || '');
+          }
+        }
+      } catch {
+        /* el backend puede estar ocupado: se reintenta solo */
+      }
+    };
+    void consultar();
+    const t = setInterval(consultar, 3000);
+    return () => {
+      vivo = false;
+      clearInterval(t);
+    };
+  }, []);
 
   /** Restaurar el sub-grafo original de un macro-nodo: vuelven sus nodos y sus aristas tal cual. */
   const handleRestaurarLinaje = useCallback(
@@ -3139,6 +3217,17 @@ export default function App() {
                   <span className="truncate">Voz</span>
                   <span className="ml-auto shrink-0 whitespace-nowrap text-[9px] text-cyan-300 font-mono bg-cyan-900/50 px-1.5 py-0.5 rounded border border-cyan-700/50">hablar</span>
                 </button>
+                <button
+                  type="button"
+                  id="btn-panel-investigacion"
+                  onClick={() => setIsInvestigacionOpen(true)}
+                  title="Investigación por fases: sale a la web, el nodo crece en el lienzo y se sintetiza"
+                  className="w-full flex items-center gap-2 px-3 py-2 bg-slate-900/70 hover:bg-slate-800/70 text-violet-200 border border-slate-800 hover:border-violet-700/60 rounded-xl text-xs font-medium transition-colors cursor-pointer group"
+                >
+                  <Telescope size={14} className="text-violet-400 shrink-0" />
+                  <span className="truncate">Investigación</span>
+                  <span className="ml-auto shrink-0 whitespace-nowrap text-[9px] text-violet-300 font-mono bg-violet-900/50 px-1.5 py-0.5 rounded border border-violet-800/60">{estadoInvestigacion?.corriendo ? 'en curso' : `${estadoInvestigacion?.pasos?.length || 0} pasos`}</span>
+                </button>
                 {/* Planilla de evaluación: medir los motores con las tareas reales */}
                 <button
                   type="button"
@@ -3629,6 +3718,17 @@ export default function App() {
 
       {/* AI Synthesis Modal */}
       <EvaluacionPanel isOpen={isEvaluacionOpen} onClose={() => setIsEvaluacionOpen(false)} />
+
+      <InvestigacionPanel
+        isOpen={isInvestigacionOpen}
+        onClose={() => setIsInvestigacionOpen(false)}
+        estado={estadoInvestigacion}
+        onInvestigar={investigarTema}
+        temas={nodes
+          .map((n) => (n.data.title || '').trim())
+          .filter((x) => x.length >= 4)
+          .slice(0, 8)}
+      />
 
       <VozPanel
         isOpen={isVozOpen}

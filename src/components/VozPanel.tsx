@@ -146,14 +146,8 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
         const inv = d?.investigacion;
         const pasos: any[] = Array.isArray(inv?.pasos) ? inv.pasos : [];
         setFases(pasos.map((x) => ({ fase: x.fase, titulo: x.titulo, emoji: x.emoji, que: x.que })));
-        // Cada fase se aplica al lienzo UNA vez, apenas llega: el nodo crece mientras investiga.
-        for (let i = aplicadas.current; i < pasos.length; i++) {
-          const paso = pasos[i];
-          aplicadas.current = i + 1;
-          if (Array.isArray(paso.comandos) && paso.comandos.length) {
-            void onAplicarComandos(paso.comandos as VozComando[], paso.que || '');
-          }
-        }
+        // Las fases las aplica `App.tsx`, que vive siempre montado: si el aplicador estuviera acá,
+        // la investigación sólo llegaría al lienzo con esta ventana abierta (y se aplicaría dos veces).
         if (inv?.terminado) {
           setInvestigando(false);
           if (inv.salida) {

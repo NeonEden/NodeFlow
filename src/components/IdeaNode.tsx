@@ -1,6 +1,7 @@
 import React, { memo } from 'react';
-import { Handle, Position, NodeProps, useStore } from 'reactflow';
-import { GitBranch, Eye, Edit3, Trash2, Copy, Flame, HelpCircle } from 'lucide-react';
+import {
+  Handle, Position, NodeProps, useStore } from 'reactflow';
+import { GitBranch, Eye, Edit3, Trash2, Copy, Flame, HelpCircle, Telescope } from 'lucide-react';
 import { IdeaNodeData, IdeaMaturityLevel, MATURITY_CONFIGS } from '../types';
 import { useTarjetas, useTema } from '../state/canvasPrefs';
 
@@ -460,6 +461,13 @@ export const IdeaNode: React.FC<NodeProps<IdeaNodeData>> = memo(({ id, data, sel
             className="bg-cyan-950/70 text-cyan-300 hover:bg-cyan-900/80 border-cyan-800/60"
           >
             <HelpCircle size={11} className="text-cyan-400" /> Socrático
+          </ToolBtn>
+          <ToolBtn
+            title="Investigar este tema: sale a la web por fases y el nodo crece en el lienzo"
+            onClick={fire('investigar')}
+            className="bg-violet-950/70 text-violet-300 hover:bg-violet-900/80 border-violet-800/60"
+          >
+            <Telescope size={11} className="text-violet-400" /> Investigar
           </ToolBtn>
 
           <Separator />

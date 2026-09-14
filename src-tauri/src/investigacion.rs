@@ -35,8 +35,36 @@ pub fn leer(data_dir: &Path) -> Value {
         .unwrap_or(Value::Null)
 }
 
+/// Cuánto puede vivir la bandera de «en curso» sin que nadie la renueve.
+///
+/// Una investigación que termina borra su bandera sola, pero un proceso que muere a mitad de
+/// camino (kill, crash, equipo apagado) la deja puesta — y entonces la app cree para siempre que
+/// hay una corriendo y **rechaza toda investigación nueva**. Pasado el tope, la bandera es basura
+/// y se limpia sola: la misma idea que el `expira solo a los 30 min` del hilo de diálogo.
+const TOPE_CORRIENDO_S: u64 = 900;
+
+/// Segundos desde la época (0 si el reloj no coopera).
+fn ahora_s() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// ¿Hay una investigación corriendo **de verdad**? Una bandera vencida o ilegible se descarta y se
+/// borra: el «está corriendo» no puede sobrevivir a la corrida que lo escribió.
 pub fn en_curso(data_dir: &Path) -> bool {
-    data_dir.join("investigacion.corriendo").exists()
+    let bandera = data_dir.join("investigacion.corriendo");
+    let Ok(texto) = std::fs::read_to_string(&bandera) else {
+        return false;
+    };
+    let inicio: u64 = texto.trim().parse().unwrap_or(0);
+    let edad = ahora_s().saturating_sub(inicio);
+    if inicio == 0 || edad > TOPE_CORRIENDO_S {
+        let _ = std::fs::remove_file(&bandera);
+        return false;
+    }
+    true
 }
 
 /// Un paso de la investigación: qué fase, qué hizo y qué comandos deja para el lienzo.
@@ -469,7 +497,8 @@ pub async fn iniciar(st: &AppState, pedido: String) -> Result<(), String> {
         serde_json::to_string_pretty(&inicial).map_err(|e| e.to_string())?,
     )
     .map_err(|e| e.to_string())?;
-    let _ = std::fs::write(st.data_dir.join("investigacion.corriendo"), "1");
+    // El instante de arranque, no un "1": así la bandera puede vencer (ver `en_curso`).
+    let _ = std::fs::write(st.data_dir.join("investigacion.corriendo"), ahora_s().to_string());
     let st2 = st.clone();
     tokio::spawn(async move { correr(&st2, pedido).await });
     Ok(())
@@ -521,6 +550,25 @@ mod tests_investigacion {
         assert_eq!(con_poda[1]["accion"], "condensar", "con 2 o más sobrantes se poda");
         let sin_poda = comandos_de_sintesis("Investigación: x", "resumen", "principio", &[]);
         assert_eq!(sin_poda.len(), 1, "sin sobrantes no se poda nada");
+    }
+
+    #[test]
+    fn una_bandera_vencida_no_deja_la_app_creyendo_que_investiga() {
+        let dir = std::env::temp_dir().join(format!("nf-inv-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let bandera = dir.join("investigacion.corriendo");
+        // bandera fresca: hay investigación en curso
+        std::fs::write(&bandera, ahora_s().to_string()).unwrap();
+        assert!(en_curso(&dir));
+        // bandera vieja (proceso muerto a mitad): se descarta y se limpia sola
+        std::fs::write(&bandera, (ahora_s() - TOPE_CORRIENDO_S - 5).to_string()).unwrap();
+        assert!(!en_curso(&dir));
+        assert!(!bandera.exists(), "la bandera vencida tiene que quedar borrada");
+        // bandera ilegible (formato viejo "1"): también se descarta
+        std::fs::write(&bandera, "1").unwrap();
+        assert!(!en_curso(&dir));
+        assert!(!bandera.exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
