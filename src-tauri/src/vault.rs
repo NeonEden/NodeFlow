@@ -1212,19 +1212,8 @@ impl Vault {
         let (state, nodes, edges, map) = self.estado_base()?;
         let appearance = state.get("appearance").cloned().unwrap_or(Value::Null);
         let template_id = state.get("templateId").cloned().unwrap_or(Value::Null);
-        let ids: HashSet<String> = nodes
-            .iter()
-            .filter_map(|n| n["id"].as_str().map(String::from))
-            .collect();
         let antes = edges.len();
-        let aristas: Vec<Value> = edges
-            .iter()
-            .filter(|e| {
-                ids.contains(e["source"].as_str().unwrap_or(""))
-                    && ids.contains(e["target"].as_str().unwrap_or(""))
-            })
-            .cloned()
-            .collect();
+        let (aristas, _colgadas, _duplicadas) = crate::grafo::aristas_limpias(&nodes, &edges);
         let quitadas = antes - aristas.len();
         if quitadas == 0 {
             return Ok(json!({
@@ -1964,25 +1953,26 @@ impl Vault {
 
     fn preview_sanear(&self) -> Result<Value, String> {
         let (_state, nodes, edges, _map) = self.estado_base()?;
-        let ids: HashSet<String> = nodes
-            .iter()
-            .filter_map(|n| n["id"].as_str().map(String::from))
-            .collect();
-        let colgadas = edges
-            .iter()
-            .filter(|e| {
-                !ids.contains(e["source"].as_str().unwrap_or(""))
-                    || !ids.contains(e["target"].as_str().unwrap_or(""))
-            })
-            .count();
-        if colgadas == 0 {
-            return Err("el grafo ya está sano: ninguna arista colgada".into());
+        // Mismo criterio que el diagnóstico del jardín (colgadas + repetidas): si divergen, el jardín
+        // pide podar y el saneo responde "ya está sano", que era el 400 que rompía el botón.
+        let (_, colgadas, duplicadas) = crate::grafo::aristas_limpias(&nodes, &edges);
+        if colgadas == 0 && duplicadas == 0 {
+            return Err("el grafo ya está sano: ninguna arista colgada ni repetida".into());
+        }
+        let mut motivos: Vec<String> = Vec::new();
+        if colgadas > 0 {
+            motivos.push(format!("{colgadas} que apunta(n) a nodos inexistentes"));
+        }
+        if duplicadas > 0 {
+            motivos.push(format!("{duplicadas} repetida(s) entre los mismos nodos"));
         }
         Ok(json!({
             "accion_legible": "Sanear grafo",
             "titulo": "Integridad referencial",
-            "resumen": format!("Quitar {colgadas} arista(s) que apuntan a nodos inexistentes"),
-            "aristas_quitadas": colgadas,
+            "resumen": format!("Quitar {} arista(s): {}", colgadas + duplicadas, motivos.join(" + ")),
+            "aristas_quitadas": colgadas + duplicadas,
+            "aristas_colgadas": colgadas,
+            "aristas_duplicadas": duplicadas,
             "peligro": "medio",
         }))
     }

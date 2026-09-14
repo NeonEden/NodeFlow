@@ -640,6 +640,37 @@ pub fn padrinos(nodes: &[Value], edges: &[Value]) -> Vec<Value> {
 }
 
 /// Diagnóstico completo para el panel del jardín.
+/// Criterio ÚNICO de integridad de aristas: fuera las que apuntan a nodos inexistentes (colgadas) y
+/// las que repiten un par origen→destino (queda la primera).
+///
+/// Existe porque el jardín pedía "podar" por aristas duplicadas mientras el saneo sólo miraba las
+/// colgadas: con duplicadas y cero colgadas, el saneo respondía "el grafo ya está sano" y la propuesta
+/// fallaba con HTTP 400. Un solo criterio, usado por el diagnóstico y por el saneo, no puede discrepar.
+pub fn aristas_limpias(nodes: &[Value], edges: &[Value]) -> (Vec<Value>, usize, usize) {
+    let ids: HashSet<String> = nodes
+        .iter()
+        .filter_map(|n| n["id"].as_str().map(String::from))
+        .collect();
+    let mut vistas: HashSet<String> = HashSet::new();
+    let mut colgadas = 0usize;
+    let mut duplicadas = 0usize;
+    let mut limpias: Vec<Value> = Vec::new();
+    for e in edges {
+        let s = e["source"].as_str().unwrap_or("");
+        let t = e["target"].as_str().unwrap_or("");
+        if !ids.contains(s) || !ids.contains(t) {
+            colgadas += 1;
+            continue;
+        }
+        if !vistas.insert(format!("{s}->{t}")) {
+            duplicadas += 1;
+            continue;
+        }
+        limpias.push(e.clone());
+    }
+    (limpias, colgadas, duplicadas)
+}
+
 pub fn diagnostico(nodes: &[Value], edges: &[Value]) -> Value {
     let problemas = validar(nodes, edges);
     let grados = grados(nodes, edges);
@@ -957,5 +988,35 @@ mod tests {
         assert_eq!(d["sano"], json!(false));
         assert!(d["stats"]["huerfanos"].as_u64().unwrap() >= 1);
         assert!(d["problemas"].as_array().unwrap().len() >= 2);
+    }
+
+    #[test]
+    fn aristas_limpias_saca_colgadas_y_repetidas() {
+        let nodes = json!([
+            {"id": "a", "title": "A"},
+            {"id": "b", "title": "B"},
+        ]);
+        let edges = json!([
+            {"id": "e1", "source": "a", "target": "b"},
+            {"id": "e2", "source": "a", "target": "b"},   // repetida
+            {"id": "e3", "source": "a", "target": "b"},   // repetida
+            {"id": "e4", "source": "a", "target": "zzz"}, // colgada
+            {"id": "e5", "source": "yyy", "target": "b"}, // colgada
+        ]);
+        let (limpias, colgadas, duplicadas) =
+            aristas_limpias(nodes.as_array().unwrap(), edges.as_array().unwrap());
+        assert_eq!(limpias.len(), 1, "queda una sola arista buena");
+        assert_eq!(limpias[0]["id"], "e1", "y es la primera del par");
+        assert_eq!(colgadas, 2);
+        assert_eq!(duplicadas, 2);
+    }
+
+    #[test]
+    fn un_grafo_sano_no_tiene_nada_que_limpiar() {
+        let nodes = json!([{"id": "a"}, {"id": "b"}]);
+        let edges = json!([{"id": "e1", "source": "a", "target": "b"}]);
+        let (limpias, c, d) =
+            aristas_limpias(nodes.as_array().unwrap(), edges.as_array().unwrap());
+        assert_eq!((limpias.len(), c, d), (1, 0, 0));
     }
 }
