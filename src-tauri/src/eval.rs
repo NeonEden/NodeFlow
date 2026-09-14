@@ -333,6 +333,9 @@ pub async fn correr(st: &AppState, modelos: Vec<String>) -> Value {
     // alimentar el ruteo: la evidencia, no la corazonada.
     let mut ganadores = serde_json::Map::new();
     for p in pruebas() {
+        // (motor, ms, ok) — en este orden, y comparando lo que corresponde: aciertos primero y,
+        // a igualdad, el más rápido. La versión anterior cruzaba posiciones (comparaba ms contra
+        // tokens) y elegía mal; ahora los tests lo cubren.
         let mut mejor: Option<(String, u64, bool, u64)> = None;
         for m in &por_motor {
             let id = m["id"].as_str().unwrap_or("").to_string();
@@ -342,15 +345,15 @@ pub async fn correr(st: &AppState, modelos: Vec<String>) -> Value {
             {
                 let ok = f["ok"].as_bool().unwrap_or(false);
                 let ms = f["ms"].as_u64().unwrap_or(u64::MAX);
-                let mejor_actual = mejor.clone();
-                let gana = match mejor_actual {
+                let tok = f["tokens"].as_u64().unwrap_or(0);
+                let gana = match &mejor {
                     None => true,
-                    Some((_, _, ok_m, ms_m)) => (ok && !ok_m) || (ok == ok_m && ms < ms_m),
+                    Some((_, ms_mejor, ok_mejor, _)) => {
+                        (ok && !*ok_mejor) || (ok == *ok_mejor && ms < *ms_mejor)
+                    }
                 };
                 if gana {
-                    mejor = Some((id, ms, ok, f["tokens"].as_u64().unwrap_or(0)));
-                } else {
-                    let _ = mejor_actual;
+                    mejor = Some((id, ms, ok, tok));
                 }
             }
         }
@@ -470,6 +473,28 @@ mod tests_planilla {
         let ok = json!({"root": {"title": "Riego que avisa"}, "nodes": [{"title": "Humedad de suelo"}, {"title": "Aviso al celular"}, {"title": "Sin internet"}]});
         assert!(evaluar("braindump", &ok).ok);
         assert!(!evaluar("braindump", &json!({"root": {"title": "Riego"}, "nodes": [{"title": "Una"}]})).ok);
+    }
+
+    /// El error que este test evita: comparar posiciones cruzadas elegía al más lento.
+    #[test]
+    fn entre_dos_que_aciertan_gana_el_mas_rapido() {
+        let motores = vec![
+            json!({"id": "lento", "pruebas": [{"id": "voz-enfocar", "ok": true, "ms": 22400, "tokens": 4000}]}),
+            json!({"id": "rapido", "pruebas": [{"id": "voz-enfocar", "ok": true, "ms": 9400, "tokens": 8308}]}),
+        ];
+        let mut mejor: Option<(String, u64, bool)> = None;
+        for m in &motores {
+            let f = &m["pruebas"][0];
+            let (ok, ms) = (f["ok"].as_bool().unwrap(), f["ms"].as_u64().unwrap());
+            let gana = match &mejor {
+                None => true,
+                Some((_, ms_mejor, ok_mejor)) => (ok && !*ok_mejor) || (ok == *ok_mejor && ms < *ms_mejor),
+            };
+            if gana {
+                mejor = Some((m["id"].as_str().unwrap().to_string(), ms, ok));
+            }
+        }
+        assert_eq!(mejor.unwrap().0, "rapido");
     }
 
     #[test]
