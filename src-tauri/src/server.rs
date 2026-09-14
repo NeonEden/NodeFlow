@@ -674,6 +674,7 @@ async fn recalibrar_perfil_con_ia(st: &AppState, key: &str) -> Option<Value> {
         None,
         "borrador", // rápido y gratis: es el bucle del lienzo
         false,      // los borradores sí usan caché
+                None, // el perfil HITL no es un pedido del usuario
     )
     .await?;
     let aprendido = llamada.valor["profile"].as_str()?.trim().to_string();
@@ -819,6 +820,7 @@ async fn ai_action(
                 &action_type,
                 // La planilla de evaluación pide medir al modelo, no a la caché.
                 body["sin_cache"].as_bool().unwrap_or(false),
+                body["texto"].as_str().or_else(|| body["prompt"].as_str()), // el pedido, no el prompt entero
             )
             .await
         }
@@ -874,6 +876,7 @@ async fn ai_action(
                         Some("nube"),
                         "voz",
                         false,
+                None, // reintento/escalada: no hay un pedido nuevo del usuario
                     )
                     .await;
                     if escalada.is_none() {
@@ -1604,6 +1607,7 @@ async fn call_provider_cached(
     system: Option<&str>,
     nodo: &str,
     sin_cache: bool,
+    semilla: Option<&str>,
 ) -> Option<crate::costo::Llamada> {
     // La caché se identifica por **motor** (proveedor@modelo): cambiar de motor no reusa nada.
     // `sin_cache` la saltea por completo (lectura y escritura): lo usa la planilla de evaluación,
@@ -1629,6 +1633,40 @@ async fn call_provider_cached(
                 tokens_evitados: e.tokens,
                 ms: 0,
             });
+        }
+    }
+
+    // ── Capa 2: caché SEMÁNTICA ─────────────────────────────────────────────
+    // La clave exacta falló. Antes de pagar una generación, buscamos una respuesta ya generada para un
+    // pedido **parecido** (mismo proveedor, misma acción). Se compara por el pedido del usuario y no por
+    // el prompt entero: el prompt lleva el lienzo, que cambia en cada pedido.
+    let mut vector_pedido: Option<Vec<f32>> = None;
+    if !sin_cache {
+        if let Some(seed) = semilla.map(str::trim).filter(|s| !s.is_empty()) {
+            vector_pedido = crate::semantica::vector(st, seed).await;
+            if let Some((clave_vieja, e, sim, como)) =
+                st.cache.buscar_parecido(nodo, provider, seed, vector_pedido.as_deref())
+            {
+                st.cache.registrar_semantico(e.tokens);
+                log::info!(
+                    "ia: caché SEMÁNTICA ({como} {:.3}) para «{nodo}» con {provider} · {} tokens evitados \
+                     (respuesta de «{}») · pedido «{}»",
+                    sim,
+                    e.tokens,
+                    &clave_vieja[..12.min(clave_vieja.len())],
+                    &seed.chars().take(60).collect::<String>()
+                );
+                return Some(crate::costo::Llamada {
+                    valor: e.valor,
+                    proveedor: provider.to_string(),
+                    modelo: e.modelo,
+                    consumo: crate::costo::Consumo::default(),
+                    estimado: false,
+                    cache: true,
+                    tokens_evitados: e.tokens,
+                    ms: 0,
+                });
+            }
         }
     }
 
@@ -1660,6 +1698,8 @@ async fn call_provider_cached(
                 provider,
                 &llamada.modelo,
                 llamada.consumo.total(),
+                &crate::semantica::normalizar(semilla.unwrap_or("")),
+                vector_pedido.clone(),
             ),
         );
     }
@@ -1869,6 +1909,7 @@ async fn call_model(
     modo: Option<&str>,
     accion: &str,
     sin_cache: bool,
+    semilla: Option<&str>,
 ) -> Option<crate::costo::Llamada> {
     // El perfil lo decide la acción… salvo que haya una **conversación en curso**: a partir del segundo
     // turno el pedido ya no es una orden suelta ("ahora enfocá eso"), y el hilo sólo sirve si el modelo
@@ -1892,7 +1933,7 @@ async fn call_model(
             log::info!("ruteo: {} no alcanzó, sigo con {}", tarea.etiqueta(), m.id);
         }
         if let Some(llamada) =
-            call_provider_cached(st, key, &m, prompt, schema, system, nodo, sin_cache).await
+            call_provider_cached(st, key, &m, prompt, schema, system, nodo, sin_cache, semilla).await
         {
             return Some(llamada);
         }
@@ -3406,7 +3447,8 @@ Todo artefacto tiene que distinguir lo establecido de lo propuesto, y lo medido 
     for m in plan {
         let t = std::time::Instant::now();
         let Some(llamada) =
-            call_provider_cached(&st, &key, &m, &prompt, &schema, Some(&system), &id, false).await
+            call_provider_cached(&st, &key, &m, &prompt, &schema, Some(&system), &id, false,
+                body["texto"].as_str().or_else(|| body["prompt"].as_str())).await
         else {
             traza.push(json!({"motor": m.id, "proveedor": m.proveedor, "resultado": "sin respuesta", "ms": t.elapsed().as_millis()}));
             continue;
@@ -3428,7 +3470,7 @@ Todo artefacto tiene que distinguir lo establecido de lo propuesto, y lo medido 
                 p.join("\n")
             );
             if let Some(segunda) =
-                call_provider_cached(&st, &key, &m, &reintento, &schema, Some(&system), &id, false).await
+                call_provider_cached(&st, &key, &m, &reintento, &schema, Some(&system), &id, false, None).await
             {
                 let p2 = crate::artefactos::validar(&tipo, &segunda.valor);
                 intentos += 1;

@@ -323,6 +323,14 @@ pub struct Entrada {
     /// Tokens que costó generarla: es lo que se declaró como evitado en cada `hit`.
     pub tokens: u64,
     pub ts: u64,
+    /// El pedido normalizado que la generó. Es lo que compara la caché semántica: el prompt entero no
+    /// sirve porque lleva el lienzo, que cambia en cada pedido. `serde(default)` para que las entradas
+    /// ya guardadas (sin este campo) sigan siendo válidas y no haya que subir CACHE_VER.
+    #[serde(default)]
+    pub semilla: String,
+    /// Embedding del pedido, si se pudo calcular. Sin él, la comparación cae al texto normalizado.
+    #[serde(default)]
+    pub vector: Option<Vec<f32>>,
 }
 
 #[derive(Default, serde::Serialize, serde::Deserialize)]
@@ -337,6 +345,11 @@ struct Contenido {
     misses: u64,
     #[serde(default)]
     tokens_evitados: u64,
+    /// Aciertos por parecido (no idénticos) y los tokens que evitaron.
+    #[serde(default)]
+    hits_semanticos: u64,
+    #[serde(default)]
+    tokens_evitados_semanticos: u64,
 }
 
 /// Caché de respuestas de IA, **en disco** (`.nodeflow/ai-cache.json`): repetir una generación no
@@ -377,6 +390,65 @@ impl Cache {
                 c.misses += 1;
                 None
             }
+        }
+    }
+
+    /// Busca una respuesta generada para un pedido **parecido** (no idéntico al de la clave exacta).
+    ///
+    /// Sólo compara contra entradas del **mismo proveedor y del mismo nodo**: reusar la respuesta de otra
+    /// acción sería un error silencioso. Con vectores compara por coseno; sin ellos (o si la entrada vieja
+    /// no tiene vector) cae al texto normalizado. Devuelve la mejor candidata que supere el umbral.
+    pub fn buscar_parecido(
+        &self,
+        nodo: &str,
+        proveedor: &str,
+        pedido: &str,
+        vector: Option<&[f32]>,
+    ) -> Option<(String, Entrada, f32, &'static str)> {
+        let busq = crate::semantica::normalizar(pedido);
+        if busq.is_empty() {
+            return None;
+        }
+        let c = self.c.lock().ok()?;
+        let mut mejor: Option<(String, Entrada, f32, &'static str)> = None;
+        for (clave, e) in c.entradas.iter() {
+            if e.proveedor != proveedor || e.semilla.is_empty() {
+                continue;
+            }
+            // La clave es `v3\x01nodo\x01proveedor\x01schema\x01prompt`: el nodo va en el segundo campo.
+            let partes: Vec<&str> = clave.split('\u{1}').collect();
+            if partes.len() >= 2 && partes[1] != nodo {
+                continue;
+            }
+            let (sim, como) = match (vector, e.vector.as_deref()) {
+                (Some(a), Some(b)) => (crate::semantica::coseno(a, b), "vectorial"),
+                _ => {
+                    // Sin embeddings: contención de tokens + guardián de largo (no reusar cuando el
+                    // pedido nuevo agrega otra consigna).
+                    let (con, largo) = crate::semantica::contencion(&e.semilla, &busq);
+                    let sim = if largo <= crate::semantica::LARGO_MAX { con } else { 0.0 };
+                    (sim, "por texto")
+                }
+            };
+            let umbral = if como == "vectorial" {
+                crate::semantica::UMBRAL_VECTOR
+            } else {
+                crate::semantica::UMBRAL_LOCAL
+            };
+            if sim >= umbral && mejor.as_ref().map(|m| sim > m.2).unwrap_or(true) {
+                mejor = Some((clave.clone(), e.clone(), sim, como));
+            }
+        }
+        mejor
+    }
+
+    /// Anota un acierto semántico. Se persiste en disco para que el panel pueda mostrarlo.
+    pub fn registrar_semantico(&self, tokens: u64) {
+        if let Ok(mut c) = self.c.lock() {
+            c.hits_semanticos += 1;
+            c.tokens_evitados_semanticos += tokens;
+            c.ver = CACHE_VER;
+            let _ = self.guardar(&c);
         }
     }
 
@@ -422,14 +494,31 @@ impl Cache {
             "entradas": c.entradas.len(),
             "tope": self.tope,
             "hits": c.hits,
+            "hits_semanticos": c.hits_semanticos,
+            "tokens_evitados_semanticos": c.tokens_evitados_semanticos,
             "misses": c.misses,
             "tokens_evitados": c.tokens_evitados,
         })
     }
 }
 
-pub fn entrada_nueva(valor: Value, proveedor: &str, modelo: &str, tokens: u64) -> Entrada {
-    Entrada { valor, proveedor: proveedor.to_string(), modelo: modelo.to_string(), tokens, ts: ahora_ms() }
+pub fn entrada_nueva(
+    valor: Value,
+    proveedor: &str,
+    modelo: &str,
+    tokens: u64,
+    semilla: &str,
+    vector: Option<Vec<f32>>,
+) -> Entrada {
+    Entrada {
+        valor,
+        proveedor: proveedor.to_string(),
+        modelo: modelo.to_string(),
+        tokens,
+        ts: ahora_ms(),
+        semilla: semilla.to_string(),
+        vector,
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -548,7 +637,7 @@ mod tests {
         let c = Cache::cargar(ruta.clone());
         let k = "k1";
         assert!(c.get(k).is_none(), "miss en caché vacía");
-        c.put(k, entrada_nueva(json!({ "artefacto": 1 }), "gemini", "gemini-3.6-flash", 1234));
+        c.put(k, entrada_nueva(json!({ "artefacto": 1 }), "gemini", "gemini-3.6-flash", 1234, "", None));
         let e = c.get(k).expect("hit tras guardar");
         assert_eq!(e.valor["artefacto"], 1);
         assert_eq!(e.tokens, 1234);
@@ -568,7 +657,7 @@ mod tests {
     fn una_version_distinta_del_contrato_descarta_todo() {
         let ruta = tmp("ver");
         let c = Cache::cargar(ruta.clone());
-        c.put("k", entrada_nueva(json!({ "a": 1 }), "ollama", "m", 5));
+        c.put("k", entrada_nueva(json!({ "a": 1 }), "ollama", "m", 5, "", None));
         let mut disco: Value = serde_json::from_str(&std::fs::read_to_string(&ruta).unwrap()).unwrap();
         disco["ver"] = json!(CACHE_VER + 1);
         std::fs::write(&ruta, disco.to_string()).unwrap();
@@ -583,7 +672,7 @@ mod tests {
         let ruta = tmp("tope");
         let c = Cache::cargar_con_tope(ruta.clone(), 3);
         for i in 0..4 {
-            let mut e = entrada_nueva(json!({ "i": i }), "ollama", "m", 1);
+            let mut e = entrada_nueva(json!({ "i": i }), "ollama", "m", 1, "", None);
             e.ts = 1000 + i as u64; // ts explícito: el desalojo es por antigüedad, no por hash
             c.put(&format!("k{i}"), e);
         }
@@ -621,7 +710,7 @@ mod tests {
         std::fs::write(&ruta, "{no es json").unwrap();
         let c = Cache::cargar(ruta.clone());
         assert_eq!(c.stats()["entradas"], 0);
-        c.put("k", entrada_nueva(json!({ "ok": true }), "ollama", "m", 1));
+        c.put("k", entrada_nueva(json!({ "ok": true }), "ollama", "m", 1, "", None));
         assert!(c.get("k").is_some());
         let _ = std::fs::remove_file(&ruta);
     }

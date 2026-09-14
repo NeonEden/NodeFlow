@@ -7,6 +7,7 @@ mod grafo;
 mod memoria;
 mod motores;
 mod eval;
+mod semantica;
 mod dialogo;
 mod investigacion;
 mod server;
