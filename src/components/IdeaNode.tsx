@@ -80,7 +80,10 @@ export const IdeaNode: React.FC<NodeProps<IdeaNodeData>> = memo(({ id, data, sel
   const estiloForma: React.CSSProperties = {
     ...(forma?.clip ? { clipPath: forma.clip } : {}),
     ...(forma?.radius ? { borderRadius: forma.radius } : {}),
-    transition: 'clip-path 500ms ease, border-radius 500ms ease, box-shadow 300ms ease',
+    // En las formas recortadas el `border` se recorta con la silueta y el trazo diagonal desaparece:
+    // el `drop-shadow` (que sí sigue la forma) hace de "luz de borde" — el Dual Rim Light del diseño.
+    ...(forma?.clip ? { filter: 'drop-shadow(0 0 1px currentColor) drop-shadow(0 0 6px rgba(34,211,238,0.25))' } : {}),
+    transition: 'clip-path 500ms ease, border-radius 500ms ease, box-shadow 300ms ease, filter 300ms ease',
   };
 
   const handleSetMaturity = (level: IdeaMaturityLevel) => {
