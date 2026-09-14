@@ -1996,6 +1996,24 @@ async fn ai_proveedor(State(st): State<AppState>, Json(body): Json<Value>) -> im
 /// `POST /api/ai/motor` — elige el motor de **toda la app** (o `auto` para volver a la cadena).
 async fn ai_motor(State(st): State<AppState>, Json(body): Json<Value>) -> impl IntoResponse {
     let id = body["id"].as_str();
+    // Validación contra el catálogo real (hallazgo del QA de escritura): antes, un id inventado se
+    // guardaba con `ok: true` y la app quedaba apuntando a un motor inexistente.
+    if let Some(id) = id.map(str::trim).filter(|s| !s.is_empty() && *s != "auto") {
+        let cat = catalogo(&st).await;
+        let ids: Vec<String> = cat.iter().map(|m| m.id.clone()).collect();
+        if !crate::motores::motor_valido(id, &ids) {
+            let mut disponibles = ids.clone();
+            disponibles.push("auto".into());
+            for a in ["auto:local", "auto:nube", "auto:tarea"] {
+                disponibles.push(a.into());
+            }
+            log::warn!("motor rechazado: {id} no está en el catálogo ({} disponibles)", ids.len());
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"ok": false, "error": format!("motor desconocido: {id}"), "disponibles": disponibles})),
+            );
+        }
+    }
     match crate::motores::guardar_seleccion(&st.data_dir, id) {
         Ok(_) => {
             let elegido = crate::motores::seleccionado(&st.data_dir);

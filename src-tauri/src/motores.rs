@@ -373,6 +373,16 @@ pub fn seleccionado(data_dir: &Path) -> Option<String> {
 
 /// Guarda la selección **conservando el resto del config** (la clave de API incluida).
 /// `None` o "auto" borra la selección y vuelve a la cadena configurada.
+/// ¿El id elegido existe de verdad? Los `auto*` (la cadena configurada y los ruteos por tarea) siempre
+/// valen; cualquier otra cosa tiene que estar en el catálogo **real** de motores.
+///
+/// Lo encontró el QA de escritura: `POST /api/ai/motor` con un id inventado devolvía `ok: true` y lo
+/// guardaba, así que la app quedaba apuntando a un motor que no existe y fallaba recién al usarlo.
+pub fn motor_valido(id: &str, disponibles: &[String]) -> bool {
+    let id = id.trim();
+    id.is_empty() || id == "auto" || id.starts_with("auto:") || disponibles.iter().any(|d| d == id)
+}
+
 pub fn guardar_seleccion(data_dir: &Path, id: Option<&str>) -> Result<(), String> {
     let ruta = data_dir.join("nodeflow.config.json");
     let mut cfg: Value = std::fs::read_to_string(&ruta)
@@ -667,5 +677,17 @@ mod tests_ruteo_por_tarea {
         // Si el usuario eligió uno a mano, su elección gana: el ruteo no lo pisa.
         let manual = plan_tarea(&cat(), Some("deepseek:deepseek-flash"), None, Tarea::Lienzo, "voz", None);
         assert_eq!(ids(&manual), vec!["deepseek:deepseek-flash"]);
+    }
+
+    #[test]
+    fn un_motor_inventado_no_es_valido() {
+        let cat = vec!["granite3.3:2b".to_string(), "openai:deepseek".to_string()];
+        assert!(motor_valido("granite3.3:2b", &cat), "uno del catálogo vale");
+        assert!(motor_valido("openai:deepseek", &cat));
+        assert!(motor_valido("auto", &cat), "la cadena configurada vale");
+        assert!(motor_valido("auto:tarea", &cat), "y los ruteos por tarea");
+        assert!(motor_valido("", &cat), "vacío = volver atrás");
+        assert!(!motor_valido("motor-que-no-existe", &cat), "un inventado NO vale");
+        assert!(!motor_valido("granite3.3:3b", &cat), "ni uno parecido");
     }
 }
