@@ -180,6 +180,7 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
             .route("/api/vault/note", get(vault_note))
             // Fase 4 — superficie para el agente (leer y escribir el lienzo)
             .route("/api/graph/summary", get(graph_summary))
+        .route("/api/graph/siguiente", get(graph_siguiente))
             .route("/api/graph/node", post(graph_node))
             .route("/api/graph/edge", post(graph_edge))
             .route("/api/graph/node/delete", post(graph_delete))
@@ -3001,6 +3002,12 @@ async fn vault_note(
 /// Diagnóstico del grafo: invariantes + hallazgos (solo lectura, no toca nada).
 async fn graph_garden(State(st): State<AppState>) -> impl IntoResponse {
     Json(st.vault.jardin_scan())
+}
+
+/// `GET /api/graph/siguiente` — el camino crítico del mapa: qué frena, qué falta y qué conviene hacer.
+/// Existe para que "¿qué sigue?" se pueda **consultar** en vez de intuir: es el propósito del mapa.
+async fn graph_siguiente(State(st): State<AppState>) -> impl IntoResponse {
+    Json(st.vault.siguiente())
 }
 
 /// Convierte los hallazgos accionables en PROPUESTAS para aprobar en el panel.

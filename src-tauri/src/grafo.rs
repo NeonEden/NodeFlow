@@ -362,7 +362,191 @@ pub fn validar(nodes: &[Value], edges: &[Value]) -> Vec<Problema> {
         });
     }
 
+    // 9) Curaduría — nodos que no aportan al mapa. Tres olores medidos en el lienzo real (14/09):
+    //    un lote de 11 preguntas con la MISMA descripción, 8 capas de plantilla que repetían fuentes
+    //    ya presentes, y un nodo vacío. Se PROPONE borrar, nunca se borra solo: borrar es el único
+    //    acto irreversible del mapa y pasa por el humano.
+    let titulo_de_id = |id: &str| {
+        nodes.iter().find(|n| id_de(n) == id).map(titulo_de).unwrap_or_default()
+    };
+    let madurez_de = |id: &str| {
+        nodes.iter().find(|n| id_de(n) == id).and_then(|n| n["maturity"].as_u64()).unwrap_or(0)
+    };
+    let grado_de = |id: &str| grados.get(id).map(|(i, o)| i + o).unwrap_or(0);
+
+    // 9a) relleno: varios nodos con la misma descripción larga (firma de un lote que generó relleno)
+    let mut por_desc: HashMap<String, Vec<String>> = HashMap::new();
+    for n in nodes {
+        let d = descripcion_de(n);
+        let d = d.trim();
+        if d.chars().count() >= 120 {
+            por_desc.entry(d.to_string()).or_default().push(id_de(n));
+        }
+    }
+    let mut relleno: Vec<String> = Vec::new();
+    for ids in por_desc.values() {
+        if ids.len() >= 3 {
+            relleno.extend(ids.clone());
+        }
+    }
+    if !relleno.is_empty() {
+        out.push(Problema {
+            tipo: "curaduria_relleno",
+            gravedad: Gravedad::Media,
+            detalle: format!(
+                "{} nodo(s) comparten exactamente la misma descripción (firma de un lote que generó relleno): {}",
+                relleno.len(),
+                relleno.iter().map(|i| titulo_de_id(i)).collect::<Vec<_>>().join(", ")
+            ),
+            ids: relleno.clone(),
+            accion: "borrar",
+        });
+    }
+
+    // 9b) duplicado temático: dos nodos que dicen lo mismo → se propone borrar el más débil (sin
+    //     madurez, o con menos conexiones). Reusa `similitud`, la misma que empareja padrinos.
+    let mut ya_vistos: HashSet<String> = relleno.iter().cloned().collect();
+    for i in 0..nodes.len() {
+        for j in (i + 1)..nodes.len() {
+            let (a, b) = (id_de(&nodes[i]), id_de(&nodes[j]));
+            if ya_vistos.contains(&a) || ya_vistos.contains(&b) {
+                continue;
+            }
+            let s = similitud(
+                &titulo_de_id(&a),
+                &descripcion_de(&nodes[i]),
+                &titulo_de_id(&b),
+                &descripcion_de(&nodes[j]),
+            );
+            if s >= 0.88 {
+                let debil = if madurez_de(&a) < madurez_de(&b)
+                    || (madurez_de(&a) == madurez_de(&b) && grado_de(&a) <= grado_de(&b))
+                {
+                    a.clone()
+                } else {
+                    b.clone()
+                };
+                let fuerte = if debil == a { b.clone() } else { a.clone() };
+                ya_vistos.insert(debil.clone());
+                out.push(Problema {
+                    tipo: "curaduria_duplicado",
+                    gravedad: Gravedad::Media,
+                    detalle: format!(
+                        "«{}» dice lo mismo que «{}» (similitud {:.2}); se propone borrar el más débil",
+                        titulo_de_id(&debil),
+                        titulo_de_id(&fuerte),
+                        s
+                    ),
+                    ids: vec![debil],
+                    accion: "borrar",
+                });
+            }
+        }
+    }
+
+    // 9c) vacío: sin descripción y con una sola conexión
+    let vacios: Vec<String> = nodes
+        .iter()
+        .filter(|n| descripcion_de(n).trim().is_empty() && grado_de(&id_de(n)) <= 1 && !es_nucleo(n))
+        .map(id_de)
+        .collect();
+    if !vacios.is_empty() {
+        out.push(Problema {
+            tipo: "curaduria_vacio",
+            gravedad: Gravedad::Baja,
+            detalle: format!("{} nodo(s) sin descripción y casi sin conexiones", vacios.len()),
+            ids: vacios,
+            accion: "borrar",
+        });
+    }
+
     out
+}
+
+/// El **camino crítico** del mapa: qué está frenado y cuál es la próxima mejor jugada.
+///
+/// El mapa se inventó para esto. Con las aristas semánticas deja de ser intuición:
+///  · `bloquea` A→B: A frena a B (un riesgo o un pendiente sobre una capacidad).
+///  · `requiere` A→B: A necesita B, y B **no está cumplido** mientras su madurez no llegue a probado (3).
+/// Una jugada vale por lo que **desbloquea** (aristas `bloquea` que salen de ella) bastante más que por
+/// lo que ella misma está frenada: por eso el desbloqueo pesa el triple.
+pub fn siguiente(nodes: &[Value], edges: &[Value]) -> Value {
+    let buscar = |id: &str| nodes.iter().find(|n| id_de(n) == id);
+    let titulo_de_id = |id: &str| buscar(id).map(titulo_de).unwrap_or_default();
+    let madurez = |id: &str| buscar(id).and_then(|n| n["maturity"].as_u64()).unwrap_or(0);
+
+    let mut frena_a: HashMap<String, Vec<String>> = HashMap::new();   // capacidad → quiénes la frenan
+    let mut desbloqueos: HashMap<String, usize> = HashMap::new();     // bloqueante → a cuántas desbloquea
+    let mut sin_cumplir: HashMap<String, Vec<String>> = HashMap::new(); // capacidad → requisitos faltantes
+    for e in edges {
+        let (s, t) = (
+            e["source"].as_str().unwrap_or("").to_string(),
+            e["target"].as_str().unwrap_or("").to_string(),
+        );
+        match e["label"].as_str().unwrap_or("") {
+            "bloquea" => {
+                frena_a.entry(t.clone()).or_default().push(s.clone());
+                *desbloqueos.entry(s).or_default() += 1;
+            }
+            "requiere" => {
+                if madurez(&t) < 3 {
+                    sin_cumplir.entry(s).or_default().push(t);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut frenado: Vec<Value> = frena_a
+        .iter()
+        .map(|(id, quienes)| {
+            json!({"id": id, "titulo": titulo_de_id(id), "frenan": quienes.iter().map(|q| titulo_de_id(q)).collect::<Vec<_>>()})
+        })
+        .collect();
+    frenado.sort_by(|a, b| b["frenan"].as_array().map(|v| v.len()).unwrap_or(0)
+        .cmp(&a["frenan"].as_array().map(|v| v.len()).unwrap_or(0)));
+
+    let mut jugadas: Vec<Value> = nodes
+        .iter()
+        .filter(|n| matches!(n["category"].as_str().unwrap_or(""), "PENDIENTE" | "RIESGO"))
+        .map(|n| {
+            let id = id_de(n);
+            let desbloquea = *desbloqueos.get(&id).unwrap_or(&0);
+            let frena = frena_a.get(&id).map(|v| v.len()).unwrap_or(0);
+            json!({
+                "id": id, "titulo": titulo_de(n), "categoria": n["category"].as_str().unwrap_or(""),
+                "desbloquea": desbloquea, "frenado_por": frena,
+                "peso": desbloquea as i64 * 3 - frena as i64,
+                "requisitos_sin_cumplir": sin_cumplir.get(&id).map(|v| v.iter().map(|q| titulo_de_id(q)).collect::<Vec<_>>()).unwrap_or_default(),
+            })
+        })
+        .collect();
+    jugadas.sort_by(|a, b| {
+        b["peso"].as_i64().unwrap_or(0).cmp(&a["peso"].as_i64().unwrap_or(0))
+            .then(a["titulo"].as_str().unwrap_or("").cmp(b["titulo"].as_str().unwrap_or("")))
+    });
+
+    // Lo que le falta a cada capacidad: un `requiere` apuntando a algo que todavía no está probado.
+    // Va aparte de las jugadas a propósito: una capacidad no es una jugada, es lo que las jugadas
+    // destraban. Sin esta lista, el mapa diría qué hacer pero no qué está incompleto.
+    let mut requisitos: Vec<Value> = sin_cumplir
+        .iter()
+        .map(|(id, faltan)| {
+            json!({"id": id, "titulo": titulo_de_id(id),
+                   "faltan": faltan.iter().map(|q| titulo_de_id(q)).collect::<Vec<_>>()})
+        })
+        .collect();
+    requisitos.sort_by(|a, b| b["faltan"].as_array().map(|v| v.len()).unwrap_or(0)
+        .cmp(&a["faltan"].as_array().map(|v| v.len()).unwrap_or(0)));
+
+    json!({
+        "ok": true,
+        "frenado": frenado,
+        "requisitos": requisitos,
+        "jugadas": jugadas,
+        "cuantas_frenadas": frena_a.len(),
+        "cuantas_con_requisitos": sin_cumplir.len(),
+    })
 }
 
 /// ¿Se puede escribir este grafo? Devuelve los problemas que lo IMPIDEN.
@@ -1009,6 +1193,77 @@ mod tests {
         assert_eq!(limpias[0]["id"], "e1", "y es la primera del par");
         assert_eq!(colgadas, 2);
         assert_eq!(duplicadas, 2);
+    }
+
+    #[test]
+    fn la_curaduria_encuentra_relleno_duplicados_y_vacios() {
+        // El caso real del 14/09: un lote de 11 preguntas con la MISMA descripción, un par de nodos
+        // que decían lo mismo, y un "Nueva Idea" vacío. El mapa tiene que olerlos sin falsos positivos.
+        let desc = "Una descripcion larga identica que un lote genero para todos sus nodos sin cambiar una \
+                   coma, que es exactamente la firma del relleno automatico que hay que detectar.";
+        let n = |id: &str, t: &str, d: &str, m: u64| {
+            json!({"id": id, "title": t, "description": d, "maturity": m})
+        };
+        let nodes = vec![
+            n("a", "Uno", desc, 1),
+            n("b", "Dos", desc, 1),
+            n("c", "Tres", desc, 1),                                     // relleno (3+ iguales)
+            n("d", "Cache semantica de respuestas", "reusa respuestas parecidas", 2),
+            n("e", "Cache semantica de respuestas", "reusa respuestas parecidas", 0), // duplicado debil
+            n("f", "Nueva Idea", "", 1),                                 // vacio, 0 conexiones
+        ];
+        let edges = vec![json!({"source": "a", "target": "b"}), json!({"source": "d", "target": "e"})];
+        let v = validar(&nodes, &edges);
+        let tipos: Vec<&str> = v.iter().map(|p| p.tipo).collect();
+        assert!(tipos.contains(&"curaduria_relleno"), "{tipos:?}");
+        assert!(tipos.contains(&"curaduria_duplicado"), "{tipos:?}");
+        assert!(tipos.contains(&"curaduria_vacio"), "{tipos:?}");
+
+        // el duplicado propone borrar el DEBIL (sin madurez), no el maduro, y siempre como propuesta
+        let dup = v.iter().find(|p| p.tipo == "curaduria_duplicado").unwrap();
+        assert_eq!(dup.ids, vec!["e".to_string()]);
+        assert_eq!(dup.accion, "borrar");
+
+        // un lienzo sin esos olores no reporta curaduria (nada de falsos positivos)
+        let sanos = vec![
+            n("x", "Alfa", "una descripcion propia de este nodo", 3),
+            n("y", "Beta", "otra descripcion, distinta de la anterior", 3),
+        ];
+        let vs = validar(&sanos, &[json!({"source": "x", "target": "y"})]);
+        assert!(!vs.iter().any(|p| p.tipo.starts_with("curaduria_")), "falso positivo en un grafo sano");
+    }
+
+    #[test]
+    fn el_camino_critico_ordena_por_lo_que_desbloquea() {
+        let n = |id: &str, t: &str, c: &str, m: u64| {
+            json!({"id": id, "title": t, "category": c, "maturity": m, "description": "x"})
+        };
+        let nodes = vec![
+            n("capacidad", "Motor dual", "ARQUITECTURA", 2),
+            n("motor", "Modelo local", "SISTEMAS", 1),
+            n("p1", "Arreglar el cache", "PENDIENTE", 1),
+            n("p2", "Ordenar el skill", "PENDIENTE", 1),
+            n("p3", "Verificar Tavily", "PENDIENTE", 1),
+        ];
+        let edges = vec![
+            json!({"source": "p1", "target": "capacidad", "label": "bloquea"}),
+            json!({"source": "p1", "target": "motor", "label": "bloquea"}),      // p1 desbloquea 2
+            json!({"source": "p2", "target": "capacidad", "label": "bloquea"}),  // p2 desbloquea 1
+            json!({"source": "capacidad", "target": "motor", "label": "requiere"}),
+        ];
+        let s = siguiente(&nodes, &edges);
+        assert_eq!(s["cuantas_frenadas"], 2, "{s}");
+        // p1 encabeza: desbloquea dos capacidades
+        assert_eq!(s["jugadas"][0]["id"], "p1");
+        assert_eq!(s["jugadas"][0]["desbloquea"], 2);
+        // p3 es el último: no desbloquea nada ni tiene requisitos
+        assert_eq!(s["jugadas"].as_array().unwrap().last().unwrap()["id"], "p3");
+        // y lo que le falta a la CAPACIDAD va en su propia lista: el modelo local está en madurez 1
+        let req = s["requisitos"].as_array().unwrap();
+        assert_eq!(req.len(), 1, "{s}");
+        assert_eq!(req[0]["id"], "capacidad");
+        assert_eq!(req[0]["faltan"][0], "Modelo local");
+        assert_eq!(s["cuantas_con_requisitos"], 1);
     }
 
     #[test]

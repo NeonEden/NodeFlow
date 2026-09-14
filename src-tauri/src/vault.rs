@@ -2031,6 +2031,20 @@ impl Vault {
         }
     }
 
+    /// El camino crítico del mapa: qué está frenado, qué le falta a cada capacidad y qué conviene
+    /// hacer primero. Sólo lee: no propone ni escribe (para eso está el jardín).
+    pub fn siguiente(&self) -> Value {
+        match self.estado_base() {
+            Ok((state, nodes, edges, _map)) => {
+                let mut s = crate::grafo::siguiente(&nodes, &edges);
+                s["mapa"] = state["name"].clone();
+                s["revision"] = json!(self.inner.lock().unwrap().revision);
+                s
+            }
+            Err(e) => json!({"ok": false, "error": e, "frenado": [], "requisitos": [], "jugadas": []}),
+        }
+    }
+
     /// Convierte los hallazgos accionables en PROPUESTAS. No toca el lienzo: encola.
     pub fn jardin_proponer(&self, _req: &Value) -> Result<Value, String> {
         let (_state, nodes, edges, _map) = self.estado_base()?;
@@ -2047,6 +2061,26 @@ impl Vault {
             )?;
             creadas.push(json!({"tipo": "sanear", "resultado": r["accion"], "id_pendiente": r["id_pendiente"], "resumen": r["vista"]["resumen"]}));
             motivos.push("integridad del grafo".into());
+        }
+
+        // 1b) curaduría (relleno de un lote, duplicados temáticos, nodos vacíos) → borrado, uno por nodo,
+        //     con el motivo REAL que dio el diagnóstico (no un texto genérico).
+        for p in problemas.iter().filter(|p| {
+            p["tipo"].as_str().map(|t| t.starts_with("curaduria_")).unwrap_or(false)
+        }) {
+            let motivo = p["detalle"].as_str().unwrap_or("No aporta valor al mapa").to_string();
+            let tipo = p["tipo"].as_str().unwrap_or("curaduria").to_string();
+            for id in p["ids"].as_array().cloned().unwrap_or_default() {
+                if let Some(id) = id.as_str() {
+                    let r = self.propose(
+                        "borrar",
+                        &json!({"id": id, "origen": "jardin", "motivo": motivo.clone()}),
+                    )?;
+                    creadas.push(json!({"tipo": tipo.clone(), "id": id, "resultado": r["accion"],
+                                        "id_pendiente": r["id_pendiente"], "resumen": r["vista"]["resumen"]}));
+                }
+            }
+            motivos.push(format!("curaduría: {tipo}"));
         }
 
         // 2) basura (archivos generados importados como nodos) → borrado, uno por nodo

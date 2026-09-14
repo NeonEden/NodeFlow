@@ -72,6 +72,7 @@ import { LinajeModal } from './components/LinajeModal';
 import { VozPanel } from './components/VozPanel';
 import { EvaluacionPanel } from './components/EvaluacionPanel';
 import { InvestigacionPanel, type EstadoInvestigacion, type PasoInvestigacion } from './components/InvestigacionPanel';
+import { SiguientePanel } from './components/SiguientePanel';
 import type { PlanVoz } from './services/vozService';
 import { medirContraste, resumenContraste } from './utils/contraste';
 import { TemplatesModal } from './components/TemplatesModal';
@@ -281,6 +282,7 @@ export default function App() {
   const [isVozOpen, setIsVozOpen] = useState(false);
   const [isEvaluacionOpen, setIsEvaluacionOpen] = useState(false);
   const [isInvestigacionOpen, setIsInvestigacionOpen] = useState(false);
+  const [isSiguienteOpen, setIsSiguienteOpen] = useState(false);
 
   // Auditoría de contraste a mano: en la consola del WebView (o desde devtools) `nfContraste()`.
   // Recorre la UI real y devuelve los textos que no llegan al mínimo AA. Sirve para que este tipo
@@ -2302,6 +2304,19 @@ export default function App() {
     return [...zonaNodes, ...ideas];
   }, [nodes, searchQuery, searchMatchingNodeIds, handleAIAction, degreeById, zonaNodes, idsLente]);
 
+/**
+ * Etiquetas de arista que SÍ se dibujan sobre el lienzo.
+ *
+ * La app esconde todas las etiquetas a propósito: React Flow las dibuja siempre y con 52 de 53
+ * aristas rotuladas era el mayor foco de ruido (por eso viven en `data.label`, en hover). Pero las
+ * del **mapa del proyecto** son otra cosa: son la relación entre los nodos (qué contiene a qué, qué
+ * requiere qué, qué está bloqueado), son ~20 de 107 aristas y sin ellas el mapa no se puede leer.
+ */
+const ARISTAS_SEMANTICAS = new Set([
+  'contiene', 'requiere', 'bloquea', 'entrega', 'alimenta', 'decide',  // el mapa del proyecto
+  'evoluciona a', 'fuente',                                            // cómo muta un nodo y qué lo respalda
+]);
+
   /**
    * Aristas de render. NO se toca el estado guardado (el vault sigue con las
    * mismas aristas): acá se cambia sólo lo que necesita la vista —
@@ -2317,7 +2332,11 @@ export default function App() {
         ...edge,
         type: 'flowEdge',
         animated: false,
-        label: undefined,
+        label: ARISTAS_SEMANTICAS.has(String(edge.label ?? '')) ? String(edge.label) : undefined,
+        labelStyle: { fill: '#e9d5ff', fontWeight: 600, fontSize: 10 },
+        labelBgStyle: { fill: '#0f172a', fillOpacity: 0.92, stroke: '#7c3aed', strokeWidth: 1 },
+        labelBgPadding: [4, 2] as [number, number],
+        labelBgBorderRadius: 6,
         data: {
           ...(edge.data || {}),
           label: (edge.label as string) || undefined,
@@ -3315,6 +3334,17 @@ export default function App() {
                   <span className="truncate">Investigación</span>
                   <span className="ml-auto shrink-0 whitespace-nowrap text-[9px] text-violet-300 font-mono bg-violet-900/50 px-1.5 py-0.5 rounded border border-violet-800/60">{estadoInvestigacion?.corriendo ? 'en curso' : `${estadoInvestigacion?.pasos?.length || 0} pasos`}</span>
                 </button>
+                <button
+                  type="button"
+                  id="btn-panel-siguiente"
+                  onClick={() => setIsSiguienteOpen(true)}
+                  title="Lo que sigue: el camino crítico del mapa (qué frena, qué falta y qué conviene hacer primero)"
+                  className="w-full flex items-center gap-2 px-3 py-2 bg-slate-900/70 hover:bg-slate-800/70 text-amber-200 border border-slate-800 hover:border-amber-700/60 rounded-xl text-xs font-medium transition-colors cursor-pointer group"
+                >
+                  <Compass size={14} className="text-amber-400 shrink-0" />
+                  <span className="truncate">Lo que sigue</span>
+                  <span className="ml-auto shrink-0 whitespace-nowrap text-[9px] text-amber-300 font-mono bg-amber-900/50 px-1.5 py-0.5 rounded border border-amber-800/60">camino crítico</span>
+                </button>
                 {/* Planilla de evaluación: medir los motores con las tareas reales */}
                 <button
                   type="button"
@@ -3805,6 +3835,8 @@ export default function App() {
 
       {/* AI Synthesis Modal */}
       <EvaluacionPanel isOpen={isEvaluacionOpen} onClose={() => setIsEvaluacionOpen(false)} />
+
+      <SiguientePanel isOpen={isSiguienteOpen} onClose={() => setIsSiguienteOpen(false)} />
 
       <InvestigacionPanel
         isOpen={isInvestigacionOpen}
