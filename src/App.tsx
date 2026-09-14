@@ -158,6 +158,35 @@ function loadInitialCanvas(): {
   };
 }
 
+/**
+ * Coloca un nodo nuevo en un lugar **libre**.
+ *
+ * Los planes (voz, investigación, sugerencias), las variaciones de Explorar y los hijos de Ramificar
+ * calculaban la posición relativa al padre o desde un máximo global: al repetir la acción, o al caer
+ * al lado de un nodo que ya existía, el nuevo quedaba **encima** de otro. Esto recorre una espiral
+ * alrededor de la posición deseada hasta encontrar un hueco — sin mover nada de lo que ya está, que
+ * es la diferencia con el reacomodo del jardín (ese reordena todo; este sólo ubica al recién llegado).
+ */
+const TAM_NODO = { w: 240, h: 120 };
+function posicionLibre(
+  nodos: { position: { x: number; y: number } }[],
+  deseada: { x: number; y: number }
+): { x: number; y: number } {
+  const ocupado = (q: { x: number; y: number }) =>
+    nodos.some((n) => Math.abs(n.position.x - q.x) < TAM_NODO.w && Math.abs(n.position.y - q.y) < TAM_NODO.h);
+  if (!ocupado(deseada)) return deseada;
+  for (let anillo = 1; anillo <= 14; anillo++) {
+    for (let dx = -anillo; dx <= anillo; dx++) {
+      for (let dy = -anillo; dy <= anillo; dy++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== anillo) continue; // sólo el borde del anillo
+        const q = { x: deseada.x + dx * 80, y: deseada.y + dy * 80 };
+        if (!ocupado(q)) return q;
+      }
+    }
+  }
+  return { x: deseada.x, y: deseada.y + 480 }; // sin hueco cerca: abajo, nunca encima
+}
+
 export default function App() {
   // 1. Initial State from persistent localStorage or default template
   const initialCanvas = useMemo(() => loadInitialCanvas(), []);
@@ -799,7 +828,7 @@ export default function App() {
       const childNode: CustomNode = {
         id: childId,
         type: 'ideaNode',
-        position: { x: childX, y: childY },
+        position: posicionLibre(nodes, { x: childX, y: childY }),
         selected: true,
         data: {
           id: childId,
@@ -866,7 +895,7 @@ export default function App() {
       const siblingNode: CustomNode = {
         id: siblingId,
         type: 'ideaNode',
-        position: { x: siblingX, y: siblingY },
+        position: posicionLibre(nodes, { x: siblingX, y: siblingY }),
         selected: true,
         data: {
           id: siblingId,
@@ -1186,7 +1215,7 @@ export default function App() {
               newCreatedNodes.push({
                 id: newId,
                 type: 'ideaNode',
-                position: { x: newX, y: newY },
+                position: posicionLibre([...nodes, ...newCreatedNodes], { x: newX, y: newY }),
                 data: {
                   id: newId,
                   category: v.category || 'VARIACIÓN',
@@ -1272,7 +1301,7 @@ export default function App() {
               newCreatedNodes.push({
                 id: newId,
                 type: 'ideaNode',
-                position: { x: newX, y: newY },
+                position: posicionLibre([...nodes, ...newCreatedNodes], { x: newX, y: newY }),
                 data: {
                   id: newId,
                   category: v.category || 'ÁMBITO',
@@ -1363,7 +1392,7 @@ export default function App() {
               newCreatedNodes.push({
                 id: newId,
                 type: 'ideaNode',
-                position: { x: newX, y: newY },
+                position: posicionLibre([...nodes, ...newCreatedNodes], { x: newX, y: newY }),
                 data: {
                   id: newId,
                   category: v.category || 'CRÍTICA Y RIESGO',
@@ -1457,7 +1486,7 @@ export default function App() {
               newCreatedNodes.push({
                 id: newId,
                 type: 'ideaNode',
-                position: { x: newX, y: newY },
+                position: posicionLibre([...nodes, ...newCreatedNodes], { x: newX, y: newY }),
                 data: {
                   id: newId,
                   category: v.category || 'PREGUNTA SOCRÁTICA',
@@ -1791,7 +1820,7 @@ export default function App() {
           nuevos.push({
             id,
             type: 'ideaNode',
-            position: { x: maxX + 380, y: minY + creados * 150 },
+            position: posicionLibre([...nodes, ...nuevos], { x: maxX + 380, y: minY + creados * 150 }),
             data: {
               id,
               title: c.titulo || 'Idea dictada',
