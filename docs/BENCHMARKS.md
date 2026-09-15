@@ -14,7 +14,7 @@ models at **Q4_K_M** quantisation.
 | Model | Params | On disk | Prefill | Decode | Notes |
 |---|---|---|---|---|---|
 | `granite3.3:2b` | 2.5B | 1.55 GB | **1,375 tok/s** | **113-124 tok/s** | Fastest by far. On some summaries it switches to English — acceptable for drafts, not for output |
-| `qwen3:4b-q4_K_M` | 4B | 2.6 GB | 450 tok/s | 90-125 tok/s | Hybrid reasoning model: with a small token budget it returns an **empty string** (all budget spent thinking). Must be called with `"think": false` or a large budget |
+| `qwen3:4b-q4_K_M` *(retirado del set local el 15/09/2026)* | 4B | 2.6 GB | 450 tok/s | 90-125 tok/s | Hybrid reasoning model: with a small token budget it returns an **empty string** (all budget spent thinking). Must be called with `"think": false` or a large budget. Se retiró por no tener capacidad única (tools+thinking ya están en el 7B, tools en el 2B), por medir peor que el 2B en el contrato estricto (2/3) y por ser el que cruzó el precipicio de VRAM (7,6 GB → 331 s de TTFT a 16k). Las mediciones se conservan por trazabilidad |
 | `deepseek-r1:7b` | 7.6B | 4.7 GB | 461 tok/s | 63-67 tok/s | Best local quality in the engine planilla (§2) |
 | `qwen2.5vl:7b` | 8.3B | 6.0 GB | 250 tok/s | 70 tok/s | Vision model (reads images attached to nodes) |
 
