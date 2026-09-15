@@ -61,6 +61,28 @@ pub fn run() {
                     .build(),
             )?;
 
+            // Guardián del build (15/09). Un build de DESARROLLO no embebe la interfaz: la sirve Vite
+            // en `devUrl`. Si ese binario queda como app instalada (o se levanta a mano) y Vite no
+            // está corriendo, la ventana muestra ERR_CONNECTION_REFUSED y **el log no decía nada**:
+            // parecía que la app "no andaba" cuando el código estaba bien. En una app GUI de Windows
+            // el archivo de log es la única superficie de diagnóstico, así que el build se declara solo.
+            if tauri::is_dev() {
+                let url = app
+                    .config()
+                    .build
+                    .dev_url
+                    .as_ref()
+                    .map(|u| u.to_string())
+                    .unwrap_or_else(|| "http://localhost:5173".into());
+                log::warn!(
+                    "build de DESARROLLO: la interfaz NO está embebida — la sirve {url}. Sin ese servidor \
+                     corriendo la ventana queda con ERR_CONNECTION_REFUSED (arrancá `npm run dev:web`, o \
+                     instalá un build de producción: `scripts/release.sh`). Diagnóstico: scripts/verificar-app.sh"
+                );
+            } else {
+                log::info!("build de producción: la interfaz va embebida en el binario (no necesita Vite)");
+            }
+
             // Datos de la app: %APPDATA%\<identifier> (estable entre versiones)
             let data_dir = app
                 .path()
