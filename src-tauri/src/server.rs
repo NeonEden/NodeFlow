@@ -2426,7 +2426,7 @@ async fn voz_estado(State(st): State<AppState>) -> impl IntoResponse {
         "idiomas_soportados": prov.idiomas,
         "nota": prov.nota,
         "aviso": aviso,
-        "proveedores": crate::stt::catalogo_json(),
+        "proveedores": crate::stt::catalogo_json(&st.data_dir),
         // El ajuste por entorno sigue mandando cuando existe (región o idioma, sin recompilar).
         "ajuste_entorno": { "url": url, "modelo": modelo },
         "tts": { "disponible": tts_disponible, "url": tts_url, "motor": "Kokoro (local)" },
@@ -2445,7 +2445,7 @@ async fn voz_proveedores(State(st): State<AppState>) -> impl IntoResponse {
     Json(json!({
         "success": true,
         "elegido": elegido,
-        "proveedores": crate::stt::catalogo_json(),
+        "proveedores": crate::stt::catalogo_json(&st.data_dir),
     }))
 }
 

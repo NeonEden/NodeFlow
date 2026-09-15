@@ -106,7 +106,10 @@ pub fn ids() -> Vec<&'static str> {
 }
 
 /// El catálogo como JSON, para que el frontend no tenga que conocerlo de antemano.
-pub fn catalogo_json() -> Value {
+///
+/// Recibe `data_dir` a propósito: el flag `clave_configurada` tiene que mirar el MISMO config que usa
+/// la emisión del token. Sin el directorio, la lista diría "sin clave" mientras el estado dice que sí.
+pub fn catalogo_json(data_dir: &Path) -> Value {
     Value::Array(
         CATALOGO
             .iter()
@@ -118,7 +121,7 @@ pub fn catalogo_json() -> Value {
                     "protocolo": p.protocolo,
                     "idiomas": p.idiomas,
                     "nota": p.nota,
-                    "clave_configurada": clave_de_entorno_o_disco(None, p).is_some(),
+                    "clave_configurada": clave_de(data_dir, p).is_some(),
                 })
             })
             .collect(),
@@ -439,8 +442,13 @@ mod tests {
 
     #[test]
     fn el_catalogo_json_marca_la_clave_y_no_la_expone() {
-        // Sin claves en el entorno de test, todas deben figurar como no configuradas…
-        let j = catalogo_json();
+        let d = dir_de_prueba("catalogo");
+        std::fs::write(
+            d.join("nodeflow.config.json"),
+            r#"{"speechmatics_api_key":"EXISTE"}"#,
+        )
+        .unwrap();
+        let j = catalogo_json(&d);
         let arr = j.as_array().unwrap();
         assert_eq!(arr.len(), CATALOGO.len());
         for e in arr {
@@ -448,5 +456,12 @@ mod tests {
             assert!(e["clave_configurada"].is_boolean());
             assert!(e.get("token").is_none(), "el catálogo nunca lleva secretos");
         }
+        let spee = arr.iter().find(|e| e["id"] == "speechmatics").unwrap();
+        let ass = arr.iter().find(|e| e["id"] == "assemblyai").unwrap();
+        assert_eq!(
+            spee["clave_configurada"], true,
+            "con la clave en el config, la lista tiene que decir que sí"
+        );
+        assert_eq!(ass["clave_configurada"], false, "y para el otro motor, que no");
     }
 }
