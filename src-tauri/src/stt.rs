@@ -131,6 +131,15 @@ pub fn catalogo_json(data_dir: &Path) -> Value {
 /// Clave del motor: entorno → `.env` del proyecto (dev) → `nodeflow.config.json`.
 /// Nunca se loguea el valor, sólo de dónde salió.
 pub fn clave_de(data_dir: &Path, prov: &Proveedor) -> Option<String> {
+    // Resolución **central** (`claves.rs`): entorno → `.env` → llavero del sistema → config.
+    // Tiene que pasar por acá: si no, mover las claves al Credential Manager deja a la voz sin clave
+    // (pasó el 15/09 — el test de persistencia la habría detectado, esta ruta no la estaba usando).
+    for campo in prov.clave_config {
+        if let Some(v) = crate::claves::obtener(campo, data_dir) {
+            return Some(v);
+        }
+    }
+    // El catálogo puede declarar variables de entorno que `claves` no conoce (proveedores nuevos).
     clave_de_entorno_o_disco(Some(data_dir), prov)
 }
 

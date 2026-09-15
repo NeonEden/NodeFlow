@@ -7,6 +7,8 @@ mod grafo;
 mod memoria;
 mod motores;
 mod eval;
+mod claves;
+mod idioma;
 mod semantica;
 mod stt;
 mod dialogo;
@@ -20,44 +22,11 @@ use tauri::Manager;
 
 /// La API key puede venir (en este orden): del entorno, del `.env` del proyecto (modo desarrollo), o
 /// del `nodeflow.config.json` de la app instalada. Nunca del WebView.
+/// La API key de Gemini puede venir del entorno, del `.env` del proyecto (modo desarrollo), del
+/// **llavero del sistema** o del config (legado). La resolución vive en `claves.rs`: es una sola para
+/// toda la app, y el llavero gana sobre el archivo en texto plano.
 fn read_env_key(data_dir: &std::path::Path) -> Option<String> {
-    if let Ok(k) = std::env::var("GEMINI_API_KEY") {
-        let k = k.trim().to_string();
-        if !k.is_empty() {
-            return Some(k);
-        }
-    }
-    for candidate in ["../.env", ".env"] {
-        if let Ok(txt) = std::fs::read_to_string(candidate) {
-            for line in txt.lines() {
-                let line = line.trim();
-                if let Some(rest) = line.strip_prefix("GEMINI_API_KEY=") {
-                    let v = rest.trim().trim_matches('"').trim_matches('\'').to_string();
-                    if !v.is_empty() {
-                        log::info!("GEMINI_API_KEY leída desde {candidate}");
-                        return Some(v);
-                    }
-                }
-            }
-        }
-    }
-    // App instalada: su propio config en %APPDATA%. Es el camino que hace que el .exe suelto tenga IA
-    // sin depender de variables de entorno ni de la carpeta del proyecto.
-    let cfg = data_dir.join("nodeflow.config.json");
-    if let Ok(txt) = std::fs::read_to_string(&cfg) {
-        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&txt) {
-            for campo in ["gemini_api_key", "GEMINI_API_KEY"] {
-                if let Some(k) = v[campo].as_str() {
-                    let k = k.trim().to_string();
-                    if !k.is_empty() {
-                        log::info!("GEMINI_API_KEY leída desde nodeflow.config.json");
-                        return Some(k);
-                    }
-                }
-            }
-        }
-    }
-    None
+    crate::claves::obtener("gemini_api_key", data_dir)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

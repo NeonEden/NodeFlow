@@ -31,3 +31,8 @@ reqwest = { version = "0.12", features = ["json"] }
 notify = "6"
 tauri-plugin-updater = "2.11.0"
 tauri-plugin-process = "2.3.1"
+# El almacén de Windows tiene que estar EXPLÍCITO: con las features por defecto el crate compila sin
+# ningún almacén de plataforma, escribe "con éxito" sin persistir nada y devuelve vacío al leer.
+# Así se perdieron 4 claves en la migración del 15/09 — el test `el_llavero_real_persiste_de_verdad`
+# es el candado que impide que vuelva a pasar.
+keyring = { version = "3.6.3", default-features = false, features = ["windows-native"] }

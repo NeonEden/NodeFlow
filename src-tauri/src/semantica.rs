@@ -100,25 +100,10 @@ pub fn coseno(a: &[f32], b: &[f32]) -> f32 {
     }
 }
 
-/// La clave del proveedor de embeddings, si la hay: config de la app o entorno.
+/// La clave del proveedor de embeddings: una sola resolución para toda la app (`claves.rs`), que
+/// incluye el **llavero del sistema** además del entorno y el config en texto plano.
 fn clave_embeddings(st: &crate::server::AppState) -> Option<String> {
-    for nombre in ["GEMINI_API_KEY", "GOOGLE_API_KEY"] {
-        if let Ok(v) = std::env::var(nombre) {
-            if !v.trim().is_empty() {
-                return Some(v.trim().to_string());
-            }
-        }
-    }
-    let txt = std::fs::read_to_string(st.data_dir.join("nodeflow.config.json")).ok()?;
-    let cfg: Value = serde_json::from_str(&txt).ok()?;
-    for k in ["gemini_api_key", "google_api_key"] {
-        if let Some(v) = cfg[k].as_str() {
-            if !v.trim().is_empty() {
-                return Some(v.trim().to_string());
-            }
-        }
-    }
-    None
+    crate::claves::obtener("gemini_api_key", &st.data_dir)
 }
 
 /// Embeddings de Gemini. Los nombres de modelo cambian sin aviso: `text-embedding-004` respondía 404 y

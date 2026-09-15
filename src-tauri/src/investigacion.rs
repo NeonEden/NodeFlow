@@ -307,30 +307,21 @@ pub async fn correr(st: &AppState, pedido: String) {
     terminar(&dir, &resumen, true);
 }
 
-/// La clave de Tavily: variable de entorno o campo del config (o pegada en el campo, por las dudas).
+/// La clave de Tavily: resolución central (`claves.rs`: entorno → `.env` → **llavero** → config).
+/// Si además la pegaron a mano dentro del campo `clave_config` de un proveedor, también se acepta.
 pub fn clave_tavily(st: &AppState) -> Option<String> {
-    if let Ok(v) = std::env::var("TAVILY_API_KEY") {
-        if !v.trim().is_empty() {
-            return Some(v.trim().to_string());
-        }
+    if let Some(v) = crate::claves::obtener("tavily_api_key", &st.data_dir) {
+        return Some(v);
     }
     let txt = std::fs::read_to_string(st.data_dir.join("nodeflow.config.json")).ok()?;
     let cfg: Value = serde_json::from_str(&txt).ok()?;
-    let del_config = cfg["tavily_api_key"]
-        .as_str()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(String::from);
-    del_config.or_else(|| {
-        // Si pegaron la clave en el campo de otra forma, igual sirve.
-        cfg["proveedores"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|p| p["clave_config"].as_str())
-            .find(|k| k.starts_with("tvly-"))
-            .map(String::from)
-    })
+    cfg["proveedores"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|p| p["clave_config"].as_str())
+        .find(|k| k.starts_with("tvly-"))
+        .map(String::from)
 }
 
 /// **Tavily** — búsqueda estructurada para LLMs: trae fuentes limpias **y su contenido**, que es lo que

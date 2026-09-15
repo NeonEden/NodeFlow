@@ -160,6 +160,9 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
             .route("/api/voz/jwt", get(voz_jwt))
             .route("/api/voz/proveedores", get(voz_proveedores))
             .route("/api/voz/proveedor", post(voz_proveedor))
+            .route("/api/claves/estado", get(claves_estado))
+            .route("/api/claves/migrar", post(claves_migrar))
+            .route("/api/idioma", get(idioma_leer).post(idioma_guardar))
             .route("/api/voz/decir", post(voz_decir))
             .route("/api/voz/dialogo", get(voz_dialogo))
             .route("/api/ai/delegar", post(delegar).get(delegar_estado))
@@ -1568,25 +1571,15 @@ fn cadena_por_modo(modo: Option<&str>, base: Vec<String>) -> Vec<String> {
     }
 }
 
-/// Clave del motor: la propia del proveedor (variable de entorno o config). Nunca sale de acá.
+/// Clave del motor: resolución central (`claves.rs`) — entorno, `.env`, **llavero del sistema** y
+/// config en texto plano, en ese orden. Nunca sale de acá.
 fn clave_del_motor(st: &AppState, m: &crate::motores::Motor) -> Option<String> {
     match m.proveedor.as_str() {
         "gemini" => st.env_key.clone(),
         "openai" | "ollama" => {
             let nombre = m.clave_ref.clone()?;
-            if let Ok(v) = std::env::var(&nombre) {
-                if !v.trim().is_empty() {
-                    return Some(v);
-                }
-            }
-            let txt = std::fs::read_to_string(st.data_dir.join("nodeflow.config.json")).ok()?;
-            let cfg: Value = serde_json::from_str(&txt).ok()?;
-            let del_config = cfg[&nombre]
-                .as_str()
-                .map(|s| s.to_string())
-                .filter(|s| !s.trim().is_empty());
-            if del_config.is_some() {
-                return del_config;
+            if let Some(v) = crate::claves::obtener(&nombre, &st.data_dir) {
+                return Some(v);
             }
             // `clave_config` debería tener el NOMBRE del campo del config, pero es fácil pegar la clave
             // ahí. Si el nombre no existe y lo que hay parece una clave, se usa tal cual: es la
@@ -1811,12 +1804,18 @@ async fn catalogo(st: &AppState) -> Vec<crate::motores::Motor> {
             for p in cfg["proveedores"].as_array().into_iter().flatten() {
                 let (Some(modelo), Some(base)) = (p["modelo"].as_str(), p["base_url"].as_str()) else { continue };
                 let clave_ref = p["clave_env"].as_str().map(String::from);
+                // La clave puede estar en el entorno, en el llavero o (legado) en el config: se pregunta
+                // a la resolución central en vez de mirar el archivo a mano.
+                let en_llave_o_config = p["clave_config"]
+                    .as_str()
+                    .map(|k| crate::claves::disponible(k, &st.data_dir))
+                    .unwrap_or(false);
                 let pegada = p["clave_config"]
                     .as_str()
-                    .filter(|k| cfg[*k].as_str().is_none() && k.len() > 20 && !k.contains(char::is_whitespace))
+                    .filter(|k| !en_llave_o_config && k.len() > 20 && !k.contains(char::is_whitespace))
                     .is_some();
                 let propia = clave_ref.clone().map(|n| std::env::var(&n).is_ok()).unwrap_or(false)
-                    || p["clave_config"].as_str().and_then(|k| cfg[k].as_str()).is_some()
+                    || en_llave_o_config
                     || pegada;
                 v.push(Motor {
                     id: format!("openai:{}", p["id"].as_str().unwrap_or(modelo)),
@@ -2015,8 +2014,17 @@ async fn ai_proveedor(State(st): State<AppState>, Json(body): Json<Value>) -> im
     });
     let clave_config = format!("{id}_api_key");
     if !clave.is_empty() {
-        // La clave vive en el config local, junto al resto. Nunca viaja al frontend.
-        obj.insert(clave_config.clone(), json!(clave));
+        // La clave va al **llavero del sistema**, no al config: el archivo deja de tener secretos.
+        // Nunca viaja al frontend.
+        if let Err(e) = crate::claves::Store::escribir(&crate::claves::Llavero, &clave_config, &clave) {
+            log::warn!("claves: no pude guardar {clave_config} en el llavero: {e}");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "ok": false, "error": format!("no pude guardar la clave en el llavero: {e}") })),
+            );
+        }
+        // Cualquier copia previa en texto plano del mismo campo se limpia.
+        obj.remove(&clave_config);
         entrada["clave_config"] = json!(clave_config);
     }
     provs.push(entrada);
@@ -2392,14 +2400,62 @@ fn clave_voz(st: &AppState, prov: &'static crate::stt::Proveedor) -> Option<Stri
     crate::stt::clave_de(&st.data_dir, prov)
 }
 
+/// `GET /api/idioma` — el idioma guardado. Es la fuente de verdad: la interfaz, la transcripción y la
+/// voz de salida leen lo mismo.
+async fn idioma_leer(State(st): State<AppState>) -> impl IntoResponse {
+    Json(json!({
+        "ok": true,
+        "idioma": crate::idioma::actual(&st.data_dir),
+        "voz_tts": crate::idioma::voz_tts(&crate::idioma::actual(&st.data_dir)),
+        "idiomas": crate::idioma::IDIOMAS,
+    }))
+}
+
+/// `POST /api/idioma` `{ "idioma": "en" }` — guarda el idioma. Un idioma desconocido se rechaza.
+async fn idioma_guardar(State(st): State<AppState>, Json(body): Json<Value>) -> impl IntoResponse {
+    let pedido = body["idioma"].as_str().unwrap_or("");
+    match crate::idioma::guardar(&st.data_dir, pedido) {
+        Ok(v) => (StatusCode::OK, Json(v)),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "ok": false, "error": e }))),
+    }
+}
+
+/// `GET /api/claves/estado` — dónde vive cada clave (entorno, llavero o texto plano). Nunca el valor:
+/// sólo el origen y una huella no invertible.
+async fn claves_estado(State(st): State<AppState>) -> impl IntoResponse {
+    let e = crate::claves::estado(&st.data_dir, &crate::claves::Llavero);
+    let en_texto = e["en_texto_plano"].as_u64().unwrap_or(0);
+    if en_texto > 0 {
+        log::warn!(
+            "claves: {en_texto} siguen en texto plano en nodeflow.config.json — se migran con POST /api/claves/migrar"
+        );
+    }
+    Json(e)
+}
+
+/// `POST /api/claves/migrar` — mueve las claves en texto plano al llavero del sistema y las borra del
+/// config. Idempotente: lo que ya está en el llavero no se toca, y si el llavero falla la clave se
+/// conserva donde estaba (nunca se pierde un secreto por una migración fallida).
+async fn claves_migrar(State(st): State<AppState>) -> impl IntoResponse {
+    match crate::claves::migrar(&st.data_dir, &crate::claves::Llavero) {
+        Ok(v) => (StatusCode::OK, Json(v)),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "ok": false, "error": e }))),
+    }
+}
+
 /// `GET /api/voz/estado` — si la voz está lista, sin exponer nunca la clave.
 /// Reporta el **motor elegido** y el catálogo completo: el frontend no necesita conocerlos de antemano.
 async fn voz_estado(State(st): State<AppState>) -> impl IntoResponse {
     let id = crate::stt::seleccionado(&st.data_dir);
     let prov = crate::stt::por_id(&id).unwrap_or(&crate::stt::CATALOGO[0]);
     let configurada = clave_voz(&st, prov).is_some();
-    // El idioma se pide como lo pide la app (entorno manda); el catálogo decide si se puede cumplir.
-    let (url, modelo, idioma_pedido) = crate::voz::ajustes();
+    // El idioma se pide como lo pide la app (el entorno manda); si no, sigue al idioma de la interfaz.
+    let (url, modelo, idioma_ajustes) = crate::voz::ajustes();
+    let idioma_pedido = if std::env::var("NODEFLOW_VOZ_IDIOMA").is_ok() {
+        idioma_ajustes
+    } else {
+        crate::idioma::actual(&st.data_dir)
+    };
     let (idioma, aviso) = crate::stt::idioma_efectivo(prov, &idioma_pedido);
     // La voz de salida (Kokoro local) es opcional: si no responde, se dice sin romper nada.
     let tts_url = crate::voz::tts_url();
@@ -2731,10 +2787,18 @@ async fn voz_decir(State(st): State<AppState>, Json(body): Json<Value>) -> axum:
         return responder_json(StatusCode::BAD_REQUEST, "Falta el texto a decir.".into());
     }
     let url = format!("{}/decir", crate::voz::tts_url());
+    // La voz sigue al idioma: si el llamador no pide una voz puntual, se usa la nativa del idioma
+    // activo. Así el switch ES/EN también **se escucha**, no sólo se lee.
+    let idioma = crate::idioma::actual(&st.data_dir);
+    let voz = body["voz"]
+        .as_str()
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or_else(|| crate::idioma::voz_tts(&idioma))
+        .to_string();
     match st
         .http
         .post(&url)
-        .json(&json!({ "texto": texto, "voz": body["voz"] }))
+        .json(&json!({ "texto": texto, "voz": voz, "idioma": idioma }))
         .send()
         .await
     {

@@ -26,6 +26,7 @@ import {
   MoreHorizontal,
 } from 'lucide-react';
 import { MotorSelector } from './MotorSelector';
+import { IdiomaSwitch } from './IdiomaSwitch';
 import { ColorPickerMenu } from './ColorPickerMenu';
 import { EdgeAppearance, UserProfile } from '../types';
 import { TemplateDefinition } from '../data/templates';
@@ -288,6 +289,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       <div className="flex items-center gap-1 md:gap-1.5">
         {/* Fase 12 — motor global de inferencia */}
         <MotorSelector />
+        {/* Idioma de la interfaz y de la voz: el switch vive acá porque es una preferencia global. */}
+        <IdiomaSwitch />
 
         <button
           type="button"

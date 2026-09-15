@@ -4,6 +4,7 @@ import { type EstadoVoz } from '../services/speechmaticsRt';
 import { crearClienteStt, type ClienteStt } from '../services/sttRt';
 import { apiUrl } from '../services/apiBase';
 import { getVozEstado, getVozJwt, pedirPlanVoz, describirComando, decir, VozEstado, PlanVoz, VozComando } from '../services/vozService';
+import { useIdioma } from '../i18n/useIdioma';
 
 interface VozPanelProps {
   isOpen: boolean;
@@ -43,6 +44,9 @@ const EJEMPLOS = [
  * propone un PLAN de operaciones sobre el lienzo — que se aprueba antes de aplicarse.
  */
 export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, onPrevisualizar, onAplicarComandos, tituloNodo }) => {
+  // Textos del panel en el idioma activo. La voz (entrada y salida) sigue el mismo idioma desde el
+  // backend, así que acá sólo se traduce la interfaz.
+  const { t } = useIdioma();
   const [servicio, setServicio] = useState<VozEstado | null>(null);
   const [estado, setEstado] = useState<EstadoVoz>('inactivo');
   const [detalleEstado, setDetalleEstado] = useState('');
@@ -294,7 +298,7 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
             <div className="flex gap-2.5 items-start bg-slate-800 border border-slate-700 rounded-xl p-3.5 text-xs">
               <AlertTriangle size={15} className="shrink-0 mt-0.5 text-amber-400" />
               <div>
-                <div className="font-semibold mb-0.5 text-amber-200">Falta la clave de Speechmatics</div>
+                <div className="font-semibold mb-0.5 text-amber-200">{t('voz.faltaClave')}</div>
                 <div className="text-slate-300">{servicio.pista}</div>
                 {servicio.aviso ? (
                   <div className="text-amber-300 flex items-start gap-1">
@@ -379,7 +383,7 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
 
               <div className="space-y-1.5">
                 {plan.comandos.length === 0 && (
-                  <div className="text-xs text-slate-400">No encontré nada aplicable en el lienzo para eso.</div>
+                  <div className="text-xs text-slate-400">{t('voz.nadaAplicable')}</div>
                 )}
                 {plan.comandos.map((c, i) => (
                   <div key={i} className="flex items-center gap-2 text-xs text-slate-200 bg-slate-800 rounded-lg px-2.5 py-1.5 border border-slate-700">
@@ -404,7 +408,7 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
                 >
                   <AlertTriangle size={12} className="shrink-0 mt-0.5 text-amber-400" />
                   <span className="text-slate-200">
-                    <span className="font-semibold text-amber-200">Va a pasar esto:</span> {onPrevisualizar(plan)}
+                    <span className="font-semibold text-amber-200">{t('voz.vaAPasar')}</span> {onPrevisualizar(plan)}
                   </span>
                 </div>
               )}
@@ -427,7 +431,7 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
                 >
                   Descartar
                 </button>
-                <span className="text-[11px] text-slate-500">Ctrl+Z lo deshace si no te gusta.</span>
+                <span className="text-[11px] text-slate-500">{t('voz.deshacer')}</span>
               </div>
             </div>
           )}
@@ -442,7 +446,7 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
             <div className="rounded-xl border border-slate-700 bg-slate-800 p-3 space-y-2" id="voz-investigando">
               <div className="flex items-center gap-2 text-xs">
                 <Loader2 size={13} className="animate-spin text-violet-400" />
-                <span className="text-slate-100 font-medium">Investigando por fases</span>
+                <span className="text-slate-100 font-medium">{t('voz.investigando')}</span>
                 <span className="text-slate-400">· el nodo crece en el lienzo mientras tanto</span>
               </div>
               {fases.length === 0 ? (
@@ -472,7 +476,7 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
             <div className="rounded-xl border border-slate-700 bg-slate-800 p-3 space-y-2" id="voz-delegado">
               <div className="flex items-center gap-2 text-[11px] text-slate-300">
                 <Sparkles size={13} className="text-violet-400" />
-                <span className="font-medium text-slate-100">Motor profundo</span>
+                <span className="font-medium text-slate-100">{t('voz.motorProfundo')}</span>
                 <span className="text-slate-400">
                   · {delegado.ms > 0 ? `${Math.round(delegado.ms / 1000)} s · ` : ''}te lo respondió Hermes con sus herramientas
                 </span>
@@ -491,7 +495,7 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
               ? `dictado ${metricas.asrSeg} s · plan ${metricas.ms} ms · ${metricas.modelo} · ${metricas.cache === 'hit' ? 'caché HIT' : `US$${metricas.costo.toFixed(6)}`}`
               : 'El costo y la latencia de cada dictado se miden acá'}
           </span>
-          <span>Speechmatics Realtime + el motor elegido en la app</span>
+          <span>{t('voz.pie')}</span>
         </div>
       </div>
     </div>
