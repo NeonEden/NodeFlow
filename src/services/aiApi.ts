@@ -59,5 +59,16 @@ export async function postAiAction(payload: Record<string, any>): Promise<Respon
     /* clone() no disponible: se omite la traza */
   }
 
+  // B — «ocupado»: la app corre una generación por vez. Un 409 se avisa en la UI en vez de quedar mudo.
+  if (respuesta.status === 409) {
+    const aviso = (texto: string) =>
+      window.dispatchEvent(new CustomEvent('nodeflow:aviso', { detail: texto }));
+    respuesta
+      .clone()
+      .json()
+      .then((d: any) => aviso(d?.error || 'Ya hay una generación en curso: esperá a que termine.'))
+      .catch(() => aviso('Ya hay una generación en curso: esperá a que termine.'));
+  }
+
   return respuesta;
 }

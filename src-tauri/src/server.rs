@@ -59,6 +59,9 @@ pub struct AppState {
     /// es información nueva y el motivo viejo ("falta la clave", "requiere créditos") puede ya no
     /// aplicar. Sin esto, pegar la clave no tenía efecto hasta reiniciar la app.
     pub config_sello: Arc<std::sync::Mutex<u64>>,
+    /// B — turnos de generación en curso (clave → instante de arranque). La app no encola prompts sin
+    /// freno: una generación por nodo y acción, y una sola cuando corre en la placa.
+    pub ia_en_curso: Arc<std::sync::Mutex<std::collections::HashMap<String, f64>>>,
 }
 
 impl AppState {
@@ -72,6 +75,66 @@ impl AppState {
     pub fn motivos_de_motores(&self) -> std::collections::HashMap<String, String> {
         self.motores_caidos.lock().map(|m| m.clone()).unwrap_or_default()
     }
+
+    /// Toma el turno de generación para `claves`. `None` = ya hay una corrida con alguna de esas claves.
+    pub fn ia_tomar(&self, claves: &[String]) -> Option<IaTurno> {
+        ia_tomar_en(&self.ia_en_curso, claves, ahora_s()).then(|| IaTurno {
+            mapa: self.ia_en_curso.clone(),
+            claves: claves.to_vec(),
+        })
+    }
+}
+
+/// TTL del turno de IA. Una corrida que muere sin soltar (kill, crash, cliente que cancela) no puede
+/// dejar la IA bloqueada para siempre: es la misma lección que `investigacion::en_curso`, que guardaba
+/// "1" y rechazaba toda corrida nueva después de un apagón.
+const IA_TURNO_TTL_S: f64 = 600.0;
+
+/// Clave del turno que comparten **todos** los pedidos que corren en la placa: la GPU hace una por vez.
+pub const IA_CLAVE_PLACA: &str = "ia:placa";
+
+/// Turno de generación. Se suelta solo al salir de alcance (`Drop`), así ningún camino —incluido un
+/// `return` temprano o un error— deja el turno tomado.
+pub struct IaTurno {
+    mapa: Arc<std::sync::Mutex<std::collections::HashMap<String, f64>>>,
+    claves: Vec<String>,
+}
+
+impl Drop for IaTurno {
+    fn drop(&mut self) {
+        if let Ok(mut m) = self.mapa.lock() {
+            for k in &self.claves {
+                m.remove(k);
+            }
+        }
+    }
+}
+
+/// Toma las claves si están libres, descartando antes las vencidas. `ahora` entra por parámetro para
+/// poder testear el vencimiento sin depender del reloj.
+fn ia_tomar_en(
+    mapa: &std::sync::Mutex<std::collections::HashMap<String, f64>>,
+    claves: &[String],
+    ahora: f64,
+) -> bool {
+    let Ok(mut m) = mapa.lock() else {
+        return false;
+    };
+    m.retain(|_, t| ahora - *t < IA_TURNO_TTL_S);
+    if claves.iter().any(|k| m.contains_key(k)) {
+        return false;
+    }
+    for k in claves {
+        m.insert(k.clone(), ahora);
+    }
+    true
+}
+
+fn ahora_s() -> f64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -109,6 +172,7 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
             borrador,
             motores_caidos: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         config_sello: Arc::new(std::sync::Mutex::new(0)),
+        ia_en_curso: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         };
 
         // Aprendizaje automático: revisa cada 2 minutos si juntó suficientes decisiones nuevas como
@@ -813,6 +877,27 @@ async fn ai_action(
         .as_str()
         .map(|m| m.trim().to_lowercase())
         .filter(|m| !m.is_empty());
+
+    // B — una generación por vez. Dos claves: por (nodo, acción) siempre, y una global cuando el plan
+    // corre en la placa. La nube sí puede ir en paralelo, así que ahí no se limita.
+    // El turno se suelta al salir de la función (`Drop`): un error no lo deja tomado.
+    let toca_placa = plan_toca_la_placa(&st, modo.as_deref(), &action_type).await;
+    let mut claves = vec![format!("ia:{nodo_id}:{action_type}")];
+    if toca_placa {
+        claves.push(IA_CLAVE_PLACA.to_string());
+    }
+    let Some(_turno) = st.ia_tomar(&claves) else {
+        let error = if toca_placa {
+            format!("Ya hay una generación en curso y corre en tu placa: hace una por vez. Esperá a que termine y volvé a pedir «{action_type}».")
+        } else {
+            format!("Ya hay una generación en curso para este nodo («{action_type}»). Esperá a que termine.")
+        };
+        return (
+            StatusCode::CONFLICT,
+            Json(json!({ "success": false, "ocupado": true, "error": error })),
+        );
+    };
+
     let called = match resolve_key(&st, &headers) {
         Some(key) if !prompt.is_empty() && !schema.is_null() => {
             call_model(
@@ -1901,6 +1986,26 @@ async fn plan_de_motores(
     plan
 }
 
+/// La tarea de ruteo de una acción. Con una **conversación en curso** el pedido ya no es una orden
+/// suelta ("ahora enfocá eso"): ahí manda el perfil Diálogo.
+fn tarea_de(st: &AppState, accion: &str) -> crate::motores::Tarea {
+    if accion == "voz" && crate::dialogo::tiene_hilo(&st.vault.raiz().join(".nodeflow")) {
+        log::info!("ruteo: conversación en curso → perfil Diálogo para «{accion}»");
+        crate::motores::Tarea::Dialogo
+    } else {
+        crate::motores::Tarea::de_accion(accion)
+    }
+}
+
+/// ¿El plan de esta acción toca la placa? Se pregunta **antes** de generar: el turno local es uno solo.
+/// Cuesta un `/api/tags` extra (~40 ms) sobre una generación de segundos: se paga solo.
+async fn plan_toca_la_placa(st: &AppState, modo: Option<&str>, accion: &str) -> bool {
+    plan_de_motores(st, modo, tarea_de(st, accion), accion)
+        .await
+        .iter()
+        .any(|m| m.donde == crate::motores::EN_TU_PLACA)
+}
+
 async fn call_model(
     st: &AppState,
     key: &str,
@@ -1916,15 +2021,7 @@ async fn call_model(
     // El perfil lo decide la acción… salvo que haya una **conversación en curso**: a partir del segundo
     // turno el pedido ya no es una orden suelta ("ahora enfocá eso"), y el hilo sólo sirve si el modelo
     // lo entiende. Ahí manda el perfil Diálogo (nube primero, local como último recurso).
-    let hay_hilo = accion == "voz" && crate::dialogo::tiene_hilo(&st.vault.raiz().join(".nodeflow"));
-    if hay_hilo {
-        log::info!("ruteo: conversación en curso → perfil Diálogo para «{accion}»");
-    }
-    let tarea = if hay_hilo {
-        crate::motores::Tarea::Dialogo
-    } else {
-        crate::motores::Tarea::de_accion(accion)
-    };
+    let tarea = tarea_de(st, accion);
     for (i, m) in plan_de_motores(st, modo, tarea, accion)
         .await
         .into_iter()
@@ -2181,7 +2278,9 @@ async fn call_ollama(
         "model": model,
         "messages": messages,
         "response_format": { "type": "json_object" },
-        "temperature": 0.7
+        "temperature": 0.7,
+        // El camino compatible con OpenAI no acepta `num_ctx` ni `keep_alive`; el tope de salida sí.
+        "max_tokens": st.borrador.num_predict
     });
 
     match st
@@ -2242,7 +2341,16 @@ async fn call_ollama_nativo(
         "messages": messages,
         "stream": false,
         "format": crate::motores::esquema_para_ollama(schema),
-        "options": { "temperature": 0.7 }
+        // C — topes explícitos. Sin `num_predict` el modelo se explaya, cruza el contexto y el pedido
+        // muere (medido 15/09: 6.238 tokens, `slot context shift`, 500 a los 1m49s). `num_ctx` se fija
+        // por latencia objetivo, no por el máximo del modelo: 16k con un 7B son 426 s de TTFT.
+        // `keep_alive` por request: una variable global en -1 pinnea la VRAM para siempre.
+        "options": {
+            "temperature": 0.7,
+            "num_ctx": st.borrador.num_ctx,
+            "num_predict": st.borrador.num_predict
+        },
+        "keep_alive": st.borrador.keep_alive
     });
     let url = format!("{}/api/chat", raiz_url.trim_end_matches('/'));
     match st.http.post(&url).json(&body).send().await {
@@ -3723,4 +3831,69 @@ async fn bind_con_reintentos() -> std::io::Result<tokio::net::TcpListener> {
         }
     }
     Err(ultimo.unwrap_or_else(|| std::io::Error::other("bind: sin intentos ejecutados")))
+}
+
+#[cfg(test)]
+mod tests_turno_ia {
+    use super::{ia_tomar_en, IaTurno, IA_TURNO_TTL_S};
+    use std::sync::{Arc, Mutex};
+
+    fn claves(xs: &[&str]) -> Vec<String> {
+        xs.iter().map(|s| s.to_string()).collect()
+    }
+
+    fn mapa() -> Arc<Mutex<std::collections::HashMap<String, f64>>> {
+        Arc::new(Mutex::new(std::collections::HashMap::new()))
+    }
+
+    #[test]
+    fn el_mismo_nodo_y_accion_no_se_pisa_y_otro_nodo_si_entra() {
+        let m = mapa();
+        assert!(ia_tomar_en(&m, &claves(&["ia:n1:explore"]), 100.0));
+        assert!(
+            !ia_tomar_en(&m, &claves(&["ia:n1:explore"]), 101.0),
+            "el mismo nodo y acción no puede correr dos veces"
+        );
+        assert!(
+            ia_tomar_en(&m, &claves(&["ia:n2:explore"]), 101.0),
+            "otro nodo sí puede (salvo que comparta la clave de placa)"
+        );
+    }
+
+    #[test]
+    fn la_clave_de_placa_es_exclusiva() {
+        let m = mapa();
+        assert!(ia_tomar_en(&m, &claves(&["ia:placa", "ia:n1:explore"]), 10.0));
+        assert!(
+            !ia_tomar_en(&m, &claves(&["ia:placa", "ia:n2:critique"]), 11.0),
+            "con la placa ocupada, ningún otro pedido local entra"
+        );
+    }
+
+    #[test]
+    fn un_turno_vencido_no_bloquea_para_siempre() {
+        let m = mapa();
+        assert!(ia_tomar_en(&m, &claves(&["ia:placa"]), 1000.0));
+        assert!(!ia_tomar_en(&m, &claves(&["ia:placa"]), 1000.0 + IA_TURNO_TTL_S - 1.0));
+        assert!(
+            ia_tomar_en(&m, &claves(&["ia:placa"]), 1000.0 + IA_TURNO_TTL_S + 1.0),
+            "una corrida muerta (kill, crash) no puede dejar la IA bloqueada"
+        );
+    }
+
+    #[test]
+    fn el_turno_se_suelta_al_salir_de_alcance() {
+        // El `Drop` es lo que hace que un `return` temprano o un error no deje el turno tomado:
+        // se toma el turno de verdad (inserta la clave) y se suelta al salir del bloque.
+        let m = mapa();
+        assert!(ia_tomar_en(&m, &claves(&["ia:placa"]), 200.0), "el turno se toma");
+        {
+            let turno = IaTurno { mapa: m.clone(), claves: claves(&["ia:placa"]) };
+            drop(turno);
+        }
+        assert!(
+            ia_tomar_en(&m, &claves(&["ia:placa"]), 201.0),
+            "tras soltar, la placa vuelve a estar libre"
+        );
+    }
 }

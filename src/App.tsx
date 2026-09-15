@@ -377,6 +377,16 @@ export default function App() {
     return () => clearTimeout(timer);
   }, []);
 
+  // Avisos del backend que no son errores de la acción: p. ej. el 409 «ya hay una generación en curso».
+  useEffect(() => {
+    const aviso = (e: Event) => {
+      const detalle = (e as CustomEvent).detail;
+      if (detalle) showToast(String(detalle), 'info');
+    };
+    window.addEventListener('nodeflow:aviso', aviso);
+    return () => window.removeEventListener('nodeflow:aviso', aviso);
+  }, [showToast]);
+
   // Save states to localStorage whenever updated
   useEffect(() => {
     try {

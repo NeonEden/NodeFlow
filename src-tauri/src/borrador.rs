@@ -73,6 +73,13 @@ pub struct Config {
     pub keep_alive: String,
     /// Cuántos candidatos se mandan al modelo por pedido (el resto queda con el camino determinista).
     pub tope_por_pedido: usize,
+    /// Tope de tokens **de salida** por generación (`num_predict` / `max_tokens`). Sin tope el modelo
+    /// se explaya, cruza el contexto y el pedido muere: medido 15/09, 6.238 tokens generados,
+    /// `slot context shift (n_discard = 2045)`, HTTP 500 a los 1m49s y el daemon abajo.
+    pub num_predict: usize,
+    /// Ventana de contexto explícita (`num_ctx`). Se fija por **latencia objetivo**, no por el máximo
+    /// del modelo: 16k con un 7B en esta placa son 426 s de TTFT.
+    pub num_ctx: usize,
 }
 
 impl Default for Config {
@@ -82,6 +89,8 @@ impl Default for Config {
             modelo: "granite3.3:2b".to_string(),
             keep_alive: "5m".to_string(),
             tope_por_pedido: 5,
+            num_predict: 1024,
+            num_ctx: 4096,
         }
     }
 }
@@ -103,6 +112,12 @@ impl Config {
             if let Some(v) = seccion.get("tope_por_pedido").and_then(|v| v.as_u64()) {
                 c.tope_por_pedido = (v as usize).clamp(1, 15);
             }
+            if let Some(v) = seccion.get("num_predict").and_then(|v| v.as_u64()) {
+                c.num_predict = (v as usize).clamp(64, 8192);
+            }
+            if let Some(v) = seccion.get("num_ctx").and_then(|v| v.as_u64()) {
+                c.num_ctx = (v as usize).clamp(1024, 32768);
+            }
         }
         // El daemon compatible con OpenAI se anuncia con `/v1`; el nativo no lo lleva.
         if let Some(u) = env("NODEFLOW_DRAFT_URL").or_else(|| env("NODEFLOW_OLLAMA_URL")) {
@@ -113,6 +128,12 @@ impl Config {
         }
         if let Some(k) = env("NODEFLOW_DRAFT_KEEP_ALIVE") {
             c.keep_alive = k;
+        }
+        if let Some(n) = env("NODEFLOW_NUM_PREDICT").and_then(|v| v.trim().parse::<usize>().ok()) {
+            c.num_predict = n.clamp(64, 8192);
+        }
+        if let Some(n) = env("NODEFLOW_NUM_CTX").and_then(|v| v.trim().parse::<usize>().ok()) {
+            c.num_ctx = n.clamp(1024, 32768);
         }
         c
     }
@@ -558,14 +579,20 @@ mod tests {
 
     #[test]
     fn la_config_prioriza_entorno_config_y_default() {
-        let cfg = json!({ "modelo": "otro:2b", "keep_alive": "0", "tope_por_pedido": 99 });
+        let cfg = json!({ "modelo": "otro:2b", "keep_alive": "0", "tope_por_pedido": 99, "num_predict": 99999, "num_ctx": 64 });
         let c = Config::desde(Some(&cfg));
         assert_eq!(c.modelo, "otro:2b");
         assert_eq!(c.keep_alive, "0");
         assert_eq!(c.tope_por_pedido, 15, "el tope se acota al máximo razonable");
+        // Los topes de generación se acotan: sin cota el modelo se explaya, cruza el contexto y el
+        // pedido muere con 500 (medido 15/09).
+        assert_eq!(c.num_predict, 8192, "el tope de salida no pasa de 8192");
+        assert_eq!(c.num_ctx, 1024, "la ventana no baja de 1024");
         let d = Config::desde(None);
         assert_eq!(d.modelo, "granite3.3:2b");
         assert_eq!(d.keep_alive, "5m");
+        assert_eq!(d.num_predict, 1024);
+        assert_eq!(d.num_ctx, 4096);
         assert_eq!(d.url, "http://localhost:11434");
         // el endpoint compatible con OpenAI se normaliza al nativo
         assert_eq!(Config::desde(None).url.trim_end_matches("/v1"), "http://localhost:11434");
