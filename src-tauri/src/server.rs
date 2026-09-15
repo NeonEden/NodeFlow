@@ -158,6 +158,8 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
             .route("/api/ai/cache", get(ai_cache))
             .route("/api/voz/estado", get(voz_estado))
             .route("/api/voz/jwt", get(voz_jwt))
+            .route("/api/voz/proveedores", get(voz_proveedores))
+            .route("/api/voz/proveedor", post(voz_proveedor))
             .route("/api/voz/decir", post(voz_decir))
             .route("/api/voz/dialogo", get(voz_dialogo))
             .route("/api/ai/delegar", post(delegar).get(delegar_estado))
@@ -2383,53 +2385,22 @@ async fn vault_info(State(st): State<AppState>) -> impl IntoResponse {
 }
 
 /// Lee el grafo canónico. Con `?since=<rev>` responde barato cuando nada cambió (polling).
-/// Clave de Speechmatics: variable de entorno → `.env` del proyecto (dev) → `nodeflow.config.json`.
-/// Nunca sale del backend y nunca se escribe en un log.
-fn clave_speechmatics(st: &AppState) -> Option<String> {
-    for var in ["SPEECHMATICS_API_KEY", "SPEECHMATICS_KEY"] {
-        if let Ok(v) = std::env::var(var) {
-            let v = v.trim().to_string();
-            if !v.is_empty() {
-                return Some(v);
-            }
-        }
-    }
-    for candidate in ["../.env", ".env"] {
-        if let Ok(txt) = std::fs::read_to_string(candidate) {
-            for line in txt.lines() {
-                let line = line.trim();
-                for campo in ["SPEECHMATICS_API_KEY=", "SPEECHMATICS_KEY="] {
-                    if let Some(rest) = line.strip_prefix(campo) {
-                        let v = rest.trim().trim_matches('"').trim_matches('\'').to_string();
-                        if !v.is_empty() {
-                            log::info!("Speechmatics: clave leída desde {candidate}");
-                            return Some(v);
-                        }
-                    }
-                }
-            }
-        }
-    }
-    if let Ok(txt) = std::fs::read_to_string(st.data_dir.join("nodeflow.config.json")) {
-        if let Ok(v) = serde_json::from_str::<Value>(&txt) {
-            for campo in ["speechmatics_api_key", "SPEECHMATICS_API_KEY"] {
-                if let Some(k) = v[campo].as_str() {
-                    let k = k.trim().to_string();
-                    if !k.is_empty() {
-                        log::info!("Speechmatics: clave leída desde nodeflow.config.json");
-                        return Some(k);
-                    }
-                }
-            }
-        }
-    }
-    None
+/// Clave del motor de voz activo, delegada en `stt`: el catálogo declara dónde puede estar cada clave
+/// (entorno → `.env` del proyecto en dev → `nodeflow.config.json`). Nunca sale del backend y nunca se
+/// escribe en un log.
+fn clave_voz(st: &AppState, prov: &'static crate::stt::Proveedor) -> Option<String> {
+    crate::stt::clave_de(&st.data_dir, prov)
 }
 
 /// `GET /api/voz/estado` — si la voz está lista, sin exponer nunca la clave.
+/// Reporta el **motor elegido** y el catálogo completo: el frontend no necesita conocerlos de antemano.
 async fn voz_estado(State(st): State<AppState>) -> impl IntoResponse {
-    let configurada = clave_speechmatics(&st).is_some();
-    let (url, modelo, idioma) = crate::voz::ajustes();
+    let id = crate::stt::seleccionado(&st.data_dir);
+    let prov = crate::stt::por_id(&id).unwrap_or(&crate::stt::CATALOGO[0]);
+    let configurada = clave_voz(&st, prov).is_some();
+    // El idioma se pide como lo pide la app (entorno manda); el catálogo decide si se puede cumplir.
+    let (url, modelo, idioma_pedido) = crate::voz::ajustes();
+    let (idioma, aviso) = crate::stt::idioma_efectivo(prov, &idioma_pedido);
     // La voz de salida (Kokoro local) es opcional: si no responde, se dice sin romper nada.
     let tts_url = crate::voz::tts_url();
     let tts_disponible = st
@@ -2440,21 +2411,73 @@ async fn voz_estado(State(st): State<AppState>) -> impl IntoResponse {
         .await
         .map(|r| r.status().is_success())
         .unwrap_or(false);
+    let clave_campo = prov.clave_env.first().copied().unwrap_or("");
     Json(json!({
         "success": true,
         "configurada": configurada,
-        "proveedor": "Speechmatics",
-        "url": url,
+        "proveedor": prov.id,
+        "proveedor_etiqueta": prov.etiqueta,
+        "protocolo": prov.protocolo,
+        // Compatibilidad: el panel actual lee `url`/`modelo`/`idioma` de acá.
+        "url": prov.url,
         "modelo": modelo,
         "idioma": idioma,
-        "codec": "pcm_s16le 16000 Hz",
+        "codec": crate::stt::CODEC,
+        "idiomas_soportados": prov.idiomas,
+        "nota": prov.nota,
+        "aviso": aviso,
+        "proveedores": crate::stt::catalogo_json(),
+        // El ajuste por entorno sigue mandando cuando existe (región o idioma, sin recompilar).
+        "ajuste_entorno": { "url": url, "modelo": modelo },
         "tts": { "disponible": tts_disponible, "url": tts_url, "motor": "Kokoro (local)" },
         "pista": if configurada {
-            "Clave presente. El token temporal se pide a /api/voz/jwt."
+            "Clave presente. El token temporal se pide a /api/voz/jwt.".to_string()
         } else {
-            "Falta la clave: SPEECHMATICS_API_KEY en el entorno, o \"speechmatics_api_key\" en nodeflow.config.json."
+            format!("Falta la clave: {clave_campo} en el entorno, o \"{}\" en nodeflow.config.json.",
+                prov.clave_config.first().copied().unwrap_or(""))
         }
     }))
+}
+
+/// `GET /api/voz/proveedores` — el catálogo de motores de voz y cuál está elegido.
+async fn voz_proveedores(State(st): State<AppState>) -> impl IntoResponse {
+    let elegido = crate::stt::seleccionado(&st.data_dir);
+    Json(json!({
+        "success": true,
+        "elegido": elegido,
+        "proveedores": crate::stt::catalogo_json(),
+    }))
+}
+
+/// `POST /api/voz/proveedor` `{ "id": "assemblyai" }` — cambia el motor y lo guarda en el config.
+async fn voz_proveedor(State(st): State<AppState>, Json(body): Json<Value>) -> impl IntoResponse {
+    let id = body["id"].as_str().unwrap_or("").trim().to_string();
+    if id.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "success": false, "error": "Falta `id`. Disponibles: ".to_string() + &crate::stt::ids().join(", ") })),
+        );
+    }
+    match crate::stt::guardar_seleccion(&st.data_dir, &id) {
+        Ok(()) => {
+            log::info!("voz: motor de reconocimiento → {id}");
+            let prov = crate::stt::por_id(&id).unwrap();
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "success": true,
+                    "elegido": prov.id,
+                    "proveedor_etiqueta": prov.etiqueta,
+                    "idiomas": prov.idiomas,
+                    "nota": prov.nota,
+                })),
+            )
+        }
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "success": false, "error": e })),
+        ),
+    }
 }
 
 /// `POST /api/ai/evaluar` — corre la planilla sobre los motores pedidos (por defecto, los locales).
@@ -2739,53 +2762,47 @@ async fn voz_decir(State(st): State<AppState>, Json(body): Json<Value>) -> axum:
 
 /// `GET /api/voz/jwt` — token temporal de realtime para el WebSocket del navegador.
 /// La clave de cuenta se queda en el backend: el frontend sólo ve un token que expira.
+/// **Agnóstico del motor**: el proveedor elegido decide cómo se emite (ver `stt::abrir_sesion`).
 async fn voz_jwt(State(st): State<AppState>) -> impl IntoResponse {
-    let Some(clave) = clave_speechmatics(&st) else {
+    let id = crate::stt::seleccionado(&st.data_dir);
+    let Some(prov) = crate::stt::por_id(&id) else {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "success": false, "error": format!("Motor de voz «{id}» no está en el catálogo.") })),
+        );
+    };
+    let Some(clave) = clave_voz(&st, prov) else {
         return (
             StatusCode::BAD_REQUEST,
             Json(json!({
                 "success": false,
-                "error": "Falta la clave de Speechmatics (SPEECHMATICS_API_KEY o \"speechmatics_api_key\" en nodeflow.config.json)."
+                "proveedor": prov.id,
+                "error": format!(
+                    "Falta la clave de {}: {} en el entorno, o \"{}\" en nodeflow.config.json.",
+                    prov.etiqueta,
+                    prov.clave_env.first().copied().unwrap_or(""),
+                    prov.clave_config.first().copied().unwrap_or("")
+                )
             })),
         );
     };
-    let pedido = st
-        .http
-        .post("https://mp.speechmatics.com/v1/api_keys?type=rt")
-        .header("Authorization", format!("Bearer {clave}"))
-        .json(&json!({ "ttl": 300 }))
-        .send()
-        .await;
-    match pedido {
-        Ok(r) => {
-            let code = r.status();
-            let body: Value = r.json().await.unwrap_or(json!({}));
-            if !code.is_success() {
-                let detalle = body["error"].as_str().or(body["message"].as_str()).unwrap_or("sin detalle");
-                log::warn!("voz: Speechmatics rechazó la petición de token ({code})");
-                return (
-                    StatusCode::BAD_GATEWAY,
-                    Json(json!({ "success": false, "error": format!("Speechmatics rechazó la clave ({code}): {detalle}") })),
-                );
-            }
-            let jwt = body["key_value"].as_str().unwrap_or("").to_string();
-            if jwt.is_empty() {
-                return (
-                    StatusCode::BAD_GATEWAY,
-                    Json(json!({ "success": false, "error": "Speechmatics no devolvió token temporal." })),
-                );
-            }
-            let (url, modelo, idioma) = crate::voz::ajustes();
-            log::info!("voz: token temporal emitido (300 s)");
+    let (_, _, idioma_pedido) = crate::voz::ajustes();
+    let modelo_pedido = std::env::var("NODEFLOW_VOZ_MODELO").unwrap_or_default();
+    match crate::stt::abrir_sesion(&st.http, prov, &clave, &idioma_pedido, &modelo_pedido).await {
+        Ok(sesion) => {
+            log::info!(
+                "voz: sesión de {} emitida ({} s, idioma {})",
+                sesion.proveedor, sesion.expira_en_s, sesion.idioma
+            );
+            (StatusCode::OK, Json(sesion.a_json()))
+        }
+        Err(e) => {
+            log::warn!("voz: no pude abrir sesión con {}: {e}", prov.id);
             (
-                StatusCode::OK,
-                Json(json!({ "success": true, "jwt": jwt, "url": url, "modelo": modelo, "idioma": idioma, "expira_en_s": 300 })),
+                StatusCode::BAD_GATEWAY,
+                Json(json!({ "success": false, "proveedor": prov.id, "error": e })),
             )
         }
-        Err(e) => (
-            StatusCode::BAD_GATEWAY,
-            Json(json!({ "success": false, "error": format!("No pude hablar con Speechmatics: {e}") })),
-        ),
     }
 }
 

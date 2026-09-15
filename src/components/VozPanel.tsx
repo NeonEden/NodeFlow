@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { X, Mic, Square, Loader2, Sparkles, Check, AlertTriangle, Wand2, Target, Layers, MessageSquarePlus, Link2, Quote, Gauge, Volume2, VolumeX, PenLine } from 'lucide-react';
-import { SpeechmaticsRt, EstadoVoz } from '../services/speechmaticsRt';
+import { type EstadoVoz } from '../services/speechmaticsRt';
+import { crearClienteStt, type ClienteStt } from '../services/sttRt';
 import { apiUrl } from '../services/apiBase';
 import { getVozEstado, getVozJwt, pedirPlanVoz, describirComando, decir, VozEstado, PlanVoz, VozComando } from '../services/vozService';
 
@@ -70,7 +71,7 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
   useEffect(() => {
     silencioRef.current = silencio;
   }, [silencio]);
-  const rtRef = useRef<SpeechmaticsRt | null>(null);
+  const rtRef = useRef<ClienteStt | null>(null);
   const inicioRef = useRef(0);
 
   const consultarEstado = useCallback(async () => {
@@ -177,19 +178,19 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
     setTexto('');
     setParcial('');
     try {
-      const { jwt, url, modelo, idioma } = await getVozJwt();
-      const rt = new SpeechmaticsRt(
-        { url, jwt, idioma, modelo },
-        {
-          onEstado: (e, d) => {
-            setEstado(e);
-            setDetalleEstado(d || '');
-          },
-          onParcial: (t) => setParcial(t),
-          onFinal: (t) => setTexto(t),
-          onError: (m) => setError(m),
-        }
-      );
+      const sesion = await getVozJwt();
+      // El motor lo decide el backend: acá sólo se instancia el cliente del protocolo que devuelva.
+      // El aviso se fija antes para que no lo pise el primer `onEstado` (habla antes de escuchar).
+      if (sesion.aviso) setDetalleEstado(sesion.aviso);
+      const rt = crearClienteStt(sesion, {
+        onEstado: (e, d) => {
+          setEstado(e);
+          if (d) setDetalleEstado(d);
+        },
+        onParcial: (t) => setParcial(t),
+        onFinal: (t) => setTexto(t),
+        onError: (m) => setError(m),
+      });
       rtRef.current = rt;
       inicioRef.current = performance.now();
       await rt.start();
@@ -265,7 +266,7 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
               <div className="text-sm font-semibold text-slate-200 flex items-center gap-2">
                 Voz
                 <span className="text-[10px] font-mono px-1.5 py-0.5 rounded border border-slate-700 text-slate-400">
-                  {servicio?.proveedor || 'Speechmatics'} · {servicio?.modelo || 'enhanced'}
+                  {servicio?.proveedor_etiqueta || servicio?.proveedor || 'Speechmatics'} · {servicio?.modelo || 'enhanced'}
                 </span>
                 <span className={`w-2 h-2 rounded-full ${colorEstado} ${estado === 'escuchando' ? 'animate-pulse' : ''}`} />
               </div>
@@ -295,6 +296,12 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
               <div>
                 <div className="font-semibold mb-0.5 text-amber-200">Falta la clave de Speechmatics</div>
                 <div className="text-slate-300">{servicio.pista}</div>
+                {servicio.aviso ? (
+                  <div className="text-amber-300 flex items-start gap-1">
+                    <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
+                    <span>{servicio.aviso}</span>
+                  </div>
+                ) : null}
               </div>
             </div>
           )}

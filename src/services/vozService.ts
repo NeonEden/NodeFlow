@@ -1,5 +1,6 @@
 import { apiUrl } from './apiBase';
 import { postAiAction } from './aiApi';
+import type { SesionVoz } from './sttRt';
 
 /**
  * Voz: Speechmatics transcribe, el motor de la app interpreta y PROPONE un plan de operaciones
@@ -16,8 +17,30 @@ export interface VozEstado {
   idioma: string;
   codec: string;
   pista: string;
+  /** Nombre legible del motor elegido (`proveedor` es el id: `speechmatics` | `assemblyai`). */
+  proveedor_etiqueta?: string;
+  /** `speechmatics-v2` | `assemblyai-v3` — decide el cliente del frontend. */
+  protocolo?: string;
+  /** `*` = multilingüe; si no, la lista de idiomas soportados. */
+  idiomas_soportados?: string;
+  /** Lo que hay que saber del motor (límites, latencia, alcance). */
+  nota?: string;
+  /** Aviso cuando el idioma pedido no se puede cumplir con el motor elegido. */
+  aviso?: string | null;
+  /** Catálogo completo, para poder ofrecer el cambio de motor. */
+  proveedores?: ProveedorVoz[];
   /** Voz de salida local (Kokoro). Es opcional: si no está levantada, se avisa y nada se rompe. */
   tts?: { disponible: boolean; url: string; motor: string };
+}
+
+export interface ProveedorVoz {
+  id: string;
+  etiqueta: string;
+  url: string;
+  protocolo: string;
+  idiomas: string;
+  nota: string;
+  clave_configurada: boolean;
 }
 
 export type AccionVoz = 'crear' | 'enlazar' | 'enfocar' | 'condensar' | 'criticar' | 'delegar' | 'actualizar';
@@ -62,11 +85,36 @@ export async function getVozEstado(): Promise<VozEstado> {
   return (await r.json()) as VozEstado;
 }
 
-export async function getVozJwt(): Promise<{ jwt: string; url: string; modelo: string; idioma: string; expira_en_s: number }> {
+/**
+ * Token temporal del motor de voz elegido. El backend decide cuál es y cómo se emite; acá viaja
+ * también `proveedor`/`protocolo` para que el panel sepa qué cliente instanciar, y `aviso` cuando
+ * el idioma pedido no se puede cumplir (p. ej. streaming en inglés únicamente).
+ */
+export async function getVozJwt(): Promise<SesionVoz> {
   const r = await fetch(apiUrl('/api/voz/jwt'));
   const d = await r.json();
   if (!r.ok || !d.success) throw new Error(d?.error || 'No pude pedir el token de voz.');
-  return d;
+  return d as SesionVoz;
+}
+
+/** Catálogo de motores de voz y cuál está elegido. */
+export async function getVozProveedores(): Promise<{ elegido: string; proveedores: ProveedorVoz[] }> {
+  const r = await fetch(apiUrl('/api/voz/proveedores'));
+  const d = await r.json();
+  if (!r.ok || !d.success) throw new Error(d?.error || 'No pude leer los motores de voz.');
+  return { elegido: d.elegido, proveedores: d.proveedores || [] };
+}
+
+/** Cambia el motor de reconocimiento (queda guardado en la config de la app). */
+export async function setVozProveedor(id: string): Promise<{ elegido: string; idiomas: string; nota: string }> {
+  const r = await fetch(apiUrl('/api/voz/proveedor'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id }),
+  });
+  const d = await r.json();
+  if (!r.ok || !d.success) throw new Error(d?.error || 'No pude cambiar el motor de voz.');
+  return { elegido: d.elegido, idiomas: d.idiomas, nota: d.nota };
 }
 
 /** Manda lo dictado y recibe el plan ya validado contra el lienzo real. */

@@ -8,6 +8,7 @@ mod memoria;
 mod motores;
 mod eval;
 mod semantica;
+mod stt;
 mod dialogo;
 mod investigacion;
 mod server;
