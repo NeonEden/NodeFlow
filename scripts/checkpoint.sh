@@ -91,7 +91,20 @@ guardar() {
   local cambios ULTIMO_MIN="?"
   cambios="$(git status --porcelain | wc -l | tr -d ' ')"
   if [ "$cambios" = "0" ]; then
-    marcar "sin cambios"
+    # Un commit hecho a mano (o un push que falló por red) deja el árbol limpio pero la rama
+    # adelantada. Sin esto el guardado dice "sin cambios" y ese trabajo queda sólo en esta máquina:
+    # la red de seguridad no cubre lo que ya está commiteado y sin subir.
+    if [ "$(git rev-list --count '@{u}..HEAD' 2>/dev/null || echo 0)" -gt 0 ]; then
+      if git push -q origin HEAD 2>/dev/null; then
+        marcar "sin cambios locales · subido lo pendiente"
+        anotar "subido: rama adelantada con árbol limpio"
+      else
+        marcar "sin cambios locales · push pendiente"
+        anotar "NO subido: la rama está adelantada y el push falló (¿sin red?)"
+      fi
+    else
+      marcar "sin cambios"
+    fi
     return 0
   fi
 
