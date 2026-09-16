@@ -72,6 +72,7 @@ import { LinajeModal } from './components/LinajeModal';
 import { VozPanel } from './components/VozPanel';
 import { EvaluacionPanel } from './components/EvaluacionPanel';
 import { InvestigacionPanel, type EstadoInvestigacion, type PasoInvestigacion } from './components/InvestigacionPanel';
+import { CerebroPanel } from './components/CerebroPanel';
 import { SiguientePanel } from './components/SiguientePanel';
 import type { PlanVoz } from './services/vozService';
 import { medirContraste, resumenContraste } from './utils/contraste';
@@ -282,6 +283,7 @@ export default function App() {
   const [isVozOpen, setIsVozOpen] = useState(false);
   const [isEvaluacionOpen, setIsEvaluacionOpen] = useState(false);
   const [isInvestigacionOpen, setIsInvestigacionOpen] = useState(false);
+  const [isCerebroOpen, setIsCerebroOpen] = useState(false);
   const [isSiguienteOpen, setIsSiguienteOpen] = useState(false);
 
   // Auditoría de contraste a mano: en la consola del WebView (o desde devtools) `nfContraste()`.
@@ -3348,6 +3350,17 @@ export default function App() {
                 </button>
                 <button
                   type="button"
+                  id="btn-panel-cerebro"
+                  onClick={() => setIsCerebroOpen(true)}
+                  title="Pensar desde el lienzo: un turno del cerebro residente (sesión de Hermes con memoria, ve el lienzo y la bóveda)"
+                  className="w-full flex items-center gap-2 px-3 py-2 bg-slate-900/70 hover:bg-slate-800/70 text-cyan-200 border border-slate-800 hover:border-cyan-700/60 rounded-xl text-xs font-medium transition-colors cursor-pointer group"
+                >
+                  <Brain size={14} className="text-cyan-400 shrink-0" />
+                  <span className="truncate">Pensar</span>
+                  <span className="ml-auto shrink-0 whitespace-nowrap text-[9px] text-cyan-300 font-mono bg-cyan-900/50 px-1.5 py-0.5 rounded border border-cyan-700/50">cerebro</span>
+                </button>
+                <button
+                  type="button"
                   id="btn-panel-siguiente"
                   onClick={() => setIsSiguienteOpen(true)}
                   title="Lo que sigue: el camino crítico del mapa (qué frena, qué falta y qué conviene hacer primero)"
@@ -3859,6 +3872,16 @@ export default function App() {
           .map((n) => (n.data.title || '').trim())
           .filter((x) => x.length >= 4)
           .slice(0, 8)}
+      />
+
+      <CerebroPanel
+        isOpen={isCerebroOpen}
+        onClose={() => setIsCerebroOpen(false)}
+        showToast={showToast}
+        sugerencias={nodes
+          .map((n) => (n.data.title || '').trim())
+          .filter((x) => x.length >= 4)
+          .slice(0, 6)}
       />
 
       <VozPanel

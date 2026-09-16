@@ -2896,7 +2896,13 @@ async fn delegar_estado(State(st): State<AppState>) -> impl IntoResponse {
     Json(json!({
         "success": true,
         "corriendo": crate::voz::delegacion_en_curso(&st.data_dir),
+        // El resultado trae también `contexto`: qué visión, recuerdos y foco se le mandaron al agente.
+        // El panel lo muestra — el prompt del cerebro no es una caja negra.
         "resultado": crate::voz::leer_delegacion(&st.data_dir),
+        "cerebro": {
+            "sesion": st.cerebro.sesion,
+            "notas": crate::cerebro::contar_notas(&st.vault.raiz()),
+        },
     }))
 }
 

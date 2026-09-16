@@ -11,6 +11,9 @@
 
 use serde_json::Value;
 
+/// La carpeta del cerebro dentro de la bóveda: una nota por turno. La usan el que nombra y el que cuenta.
+pub const CARPETA: &str = "cerebro";
+
 /// Parámetros del cerebro residente. Prioridad: variable de entorno → `nodeflow.config.json`
 /// (`"cerebro": {...}`) → default.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -146,6 +149,24 @@ pub struct Contexto {
     pub pendientes: usize,
 }
 
+/// Cuántas notas de turno hay en la carpeta del cerebro. El panel lo muestra como señal de que la
+/// memoria crece en la bóveda (y no en el chat): una nota por turno, con su fecha local.
+pub fn contar_notas(raiz_boveda: &std::path::Path) -> usize {
+    std::fs::read_dir(raiz_boveda.join(CARPETA))
+        .map(|d| {
+            d.filter_map(|e| e.ok())
+                .filter(|e| {
+                    e.path()
+                        .extension()
+                        .and_then(|x| x.to_str())
+                        .map(|x| x.eq_ignore_ascii_case("md"))
+                        .unwrap_or(false)
+                })
+                .count()
+        })
+        .unwrap_or(0)
+}
+
 /// Prompt del turno del cerebro. El cambio de fondo respecto del viejo `prompt_delegar`: la app **no**
 /// le pasa el lienzo masticado (hasta 40 títulos, que crecían con el mapa) — le da la visión, el
 /// recuerdo dirigido y el puntero a sus herramientas MCP, y el agente consulta lo que necesita.
@@ -238,7 +259,7 @@ pub fn nombre_nota(sello: &str) -> String {
         .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '-' })
         .collect();
     let limpio = limpio.trim_matches('-').to_string();
-    format!("cerebro/{limpio}-turno.md")
+    format!("{CARPETA}/{limpio}-turno.md")
 }
 
 /// La nota que deja cada turno. Es la memoria episódica: qué se pidió, qué volvió y en qué sesión.
@@ -269,6 +290,19 @@ pub fn nota_markdown(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cuenta_las_notas_del_cerebro_y_ignora_lo_que_no_es_md() {
+        let base = std::env::temp_dir().join(format!("nf-cerebro-test-{}", std::process::id()));
+        let dir = base.join("cerebro");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("2026-09-15T21-16-turno.md"), "—").unwrap();
+        std::fs::write(dir.join("2026-09-15T21-30-turno.md"), "—").unwrap();
+        std::fs::write(dir.join("borrame.txt"), "—").unwrap();
+        assert_eq!(super::contar_notas(&base), 2, "sólo las notas .md del cerebro");
+        assert_eq!(super::contar_notas(&base.join("no-existe")), 0, "sin carpeta no hay notas, no hay error");
+        let _ = std::fs::remove_dir_all(&base);
+    }
 
     #[test]
     fn la_config_prioriza_entorno_config_y_default() {
