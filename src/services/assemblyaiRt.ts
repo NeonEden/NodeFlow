@@ -59,7 +59,9 @@ export class AssemblyAiRt {
       // El modo agente prefiere el transcript sin formatear: llega antes y al LLM le da igual.
       format_turns: this.cfg.formatear ? 'true' : 'false',
     });
-    if (this.cfg.modelo) q.set('speech_model', this.cfg.modelo);
+    // El modelo viaja explícito y validado por el servidor (un valor inválido cierra con 3006):
+    // `u3-rt-pro` es el default documentado de streaming. Sin parámetro, el servidor usa el suyo.
+    q.set('speech_model', this.cfg.modelo?.trim() || 'u3-rt-pro');
     const ws = new WebSocket(`${this.cfg.url}?${q.toString()}`);
     ws.binaryType = 'arraybuffer';
     this.ws = ws;

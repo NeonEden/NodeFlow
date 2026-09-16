@@ -2754,6 +2754,13 @@ async fn voz_estado(State(st): State<AppState>) -> impl IntoResponse {
     let configurada = clave_voz(&st, prov).is_some();
     // El idioma se pide como lo pide la app (el entorno manda); si no, sigue al idioma de la interfaz.
     let (url, modelo, idioma_ajustes) = crate::voz::ajustes();
+    // El panel tiene que mostrar el modelo del motor ELEGIDO: con AssemblyAI anunciaba «enhanced»
+    // (el default de Speechmatics) mientras la sesión real iba con otro modelo.
+    let modelo_mostrado = if prov.id == "speechmatics" {
+        modelo.clone() // Speechmatics sí se ajusta por entorno (NODEFLOW_VOZ_MODELO)
+    } else {
+        crate::stt::modelo_por_defecto(prov.id).to_string()
+    };
     let idioma_pedido = if std::env::var("NODEFLOW_VOZ_IDIOMA").is_ok() {
         idioma_ajustes
     } else {
@@ -2779,7 +2786,7 @@ async fn voz_estado(State(st): State<AppState>) -> impl IntoResponse {
         "protocolo": prov.protocolo,
         // Compatibilidad: el panel actual lee `url`/`modelo`/`idioma` de acá.
         "url": prov.url,
-        "modelo": modelo,
+        "modelo": modelo_mostrado,
         "idioma": idioma,
         "codec": crate::stt::CODEC,
         "idiomas_soportados": prov.idiomas,

@@ -64,6 +64,17 @@ pub const CATALOGO: &[Proveedor] = &[
 /// Motor por defecto cuando la configuración no dice nada.
 pub const POR_DEFECTO: &str = "speechmatics";
 
+/// Modelo por defecto de cada motor, en **un solo lugar**: lo usan la sesión real (`abrir_sesion`)
+/// y lo que se muestra en el panel (`voz_estado`). Estaban duplicados y por eso el panel podía
+/// anunciar el modelo de un motor mientras la sesión usaba el de otro (`enhanced` vs `u3-rt-pro`).
+pub fn modelo_por_defecto(id: &str) -> &'static str {
+    match id {
+        "speechmatics" => "enhanced",
+        "assemblyai" => "u3-rt-pro",
+        _ => "",
+    }
+}
+
 /// Formato de audio que usan los dos motores del catálogo (y el que captura el frontend).
 pub const CODEC: &str = "pcm_s16le 16000 Hz";
 
@@ -336,11 +347,7 @@ pub async fn abrir_sesion(
     };
 
     let modelo = if modelo_pedido.trim().is_empty() {
-        match prov.id {
-            "speechmatics" => "enhanced".to_string(),
-            "assemblyai" => "universal-3-5-pro".to_string(),
-            _ => String::new(),
-        }
+        crate::stt::modelo_por_defecto(prov.id).to_string()
     } else {
         modelo_pedido.trim().to_lowercase()
     };
