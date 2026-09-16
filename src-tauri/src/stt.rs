@@ -56,8 +56,8 @@ pub const CATALOGO: &[Proveedor] = &[
         protocolo: "assemblyai-v3",
         clave_env: &["ASSEMBLYAI_API_KEY"],
         clave_config: &["assemblyai_api_key", "ASSEMBLYAI_API_KEY"],
-        idiomas: "en",
-        nota: "Streaming en inglés únicamente: en otro idioma el efectivo degrada a «en» y se avisa. Token temporal de hasta 600 s.",
+        idiomas: "en, es, de, fr",
+        nota: "Universal-Streaming multilingüe (en, es, de, fr). Verificado en vivo el 16/09 contra el WS v3: transcribió castellano tal cual, sin parámetro de idioma ni de modelo. Token temporal de hasta 600 s.",
     },
 ];
 
@@ -467,18 +467,22 @@ mod tests {
     }
 
     #[test]
-    fn assemblyai_degrada_el_idioma_con_aviso() {
+    fn assemblyai_transcribe_castellano() {
         let p = por_id("assemblyai").unwrap();
+        // Medido en vivo el 16/09 contra el WS v3 real: castellano, sin parámetro de idioma.
+        assert_eq!(idioma_efectivo(p, "es"), ("es".to_string(), None));
+        assert_eq!(idioma_efectivo(p, "es-AR"), ("es-ar".to_string(), None));
         assert_eq!(idioma_efectivo(p, "en"), ("en".to_string(), None));
-        let (idioma, aviso) = idioma_efectivo(p, "es");
-        assert_eq!(idioma, "en", "debe degradar al idioma soportado");
-        let aviso = aviso.expect("debe haber aviso: prometer castellano sería mentir");
+        assert!(soporta(p, "de"));
+        assert!(soporta(p, "fr"));
+        // Un idioma fuera de la lista sigue degradando **con aviso**: nunca en silencio.
+        let (idioma, aviso) = idioma_efectivo(p, "ja");
+        assert_eq!(idioma, "en", "fuera de la lista debe degradar al primero");
+        let aviso = aviso.expect("debe haber aviso: prometer japonés sería mentir");
         assert!(
             aviso.contains("todavía no transcribe"),
             "aviso poco claro: {aviso}"
         );
-        assert!(soporta(p, "en-GB"));
-        assert!(!soporta(p, "es-AR"));
     }
 
     #[test]

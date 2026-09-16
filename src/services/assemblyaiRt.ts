@@ -13,8 +13,9 @@
  *   cierre   → { "type": "Terminate" }
  *   eventos  ← Begin · Turn (transcript, end_of_turn) · Termination · Error
  *
- * Nota de idioma: Universal-Streaming hoy transcribe **inglés**. El backend ya avisa (campo `aviso`)
- * cuando el idioma pedido no se puede cumplir; acá no se inventa traducción.
+ * Nota de idioma: Universal-Streaming transcribe **en, es, de, fr** (verificado en vivo el 16/09 contra el
+ * WS v3: castellano, sin parámetro de idioma). El backend ya avisa (campo `aviso`) cuando el idioma pedido
+ * no está en esa lista; acá no se inventa traducción.
  */
 
 import type { EstadoVoz, EventosVoz } from './speechmaticsRt';
