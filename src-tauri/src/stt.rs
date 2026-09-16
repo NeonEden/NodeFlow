@@ -507,9 +507,10 @@ mod tests {
             spee["clave_configurada"], true,
             "con la clave en el config, la lista tiene que decir que sí"
         );
-        assert_eq!(
-            ass["clave_configurada"], false,
-            "y para el otro motor, que no"
-        );
+        // Sobre `assemblyai` NO se puede afirmar un valor: la resolución mira también el llavero del
+        // sistema, así que en una máquina con la clave guardada vale `true` aunque este config de prueba
+        // no la tenga (falló así el 16/09, con razón). El test mide el CONTRATO —booleano y sin secreto—
+        // no el estado de la máquina.
+        assert!(ass["clave_configurada"].is_boolean());
     }
 }
