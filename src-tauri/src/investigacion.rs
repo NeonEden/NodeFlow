@@ -234,7 +234,9 @@ pub async fn correr(st: &AppState, pedido: String) {
     anotar(
         &dir,
         "friccion",
-        &format!("Encontró {} fuentes y las colgó del nodo central.", fuentes.len()),
+        // Las fuentes no se vuelven nodos: viajan como datos de la fase y la app las mete en la
+        // nota del nodo central (ver `proponer` en App.tsx). El lienzo no se llena de bibliografía.
+        &format!("Encontró {} fuentes: van dentro de la nota del nodo.", fuentes.len()),
         comandos_de_fuentes(&pedido, &fuentes),
     );
 

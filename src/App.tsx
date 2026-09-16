@@ -2050,29 +2050,39 @@ export default function App() {
           body: JSON.stringify({ ...cuerpo, prompt_original: 'Investigación por fases' }),
         }).catch(() => undefined);
 
-      // 1) el nodo central: la conclusión utilizable ES el nodo (madurez de hexágono 🚀)
+      // Las fuentes **no** se proponen como nodos: van dentro de la nota del nodo central. Antes cada
+      // fuente se volvía un nodo FUENTE y el lienzo se llenaba de bibliografía suelta (medido: 15 de
+      // 89 nodos eran fuentes de tres investigaciones, y hubo que sintetizarlas a mano). Ahora la
+      // investigación aterriza en UN nodo cuya nota lleva la evidencia: eso es lo que la bóveda
+      // recuerda y lo que el cerebro puede citar después.
+      const seccionFuentes = fuentes.length
+        ? `\n\nFuentes:\n${fuentes
+            .map((f) => {
+              const resto = f.descripcion
+                .split('\n')
+                .map((l) => l.trim())
+                .filter(Boolean)
+                .join(' · ');
+              return `- ${f.titulo}${resto ? ` — ${resto}` : ''}`;
+            })
+            .join('\n')}`
+        : '';
+
+      // 1) el nodo central: la conclusión utilizable ES el nodo (madurez de hexágono 🚀), y queda
+      //    colgado del Norte Estratégico para que la investigación alimente la visión del proyecto.
       await pedir({
         title: central,
-        description: sintesis || `Investigación por fases sobre ${inv.pedido}`,
+        description: `${sintesis || `Investigación por fases sobre ${inv.pedido}`}${seccionFuentes}`,
         category: 'INVESTIGACIÓN',
         maturity: 5,
+        parent: 'Norte Estratégico · NodeFlow',
+        link_label: 'alimenta',
       });
-      // 2) las fuentes, colgadas del central en la misma pasada
-      for (const f of fuentes) {
-        if (!f.titulo) continue;
-        await pedir({
-          title: f.titulo,
-          description: f.descripcion,
-          category: 'FUENTE',
-          maturity: 2,
-          parent: central,
-          link_label: 'fuente',
-        });
-      }
       showToast(
-        `Investigación lista: ${1 + fuentes.length} propuesta(s) en «Cambios del agente» para que decidas.`,
+        `Investigación lista: 1 propuesta en «Cambios del agente» — la conclusión con sus ${fuentes.length} fuente(s) adentro.`,
         'success'
       );
+
     };
 
     const consultar = async () => {
