@@ -789,19 +789,6 @@ TOOLS = [
         }
     },
     {
-        "name": "azure_foundry_agent",
-        "description": "Invoca un agente de Azure AI Projects (Foundry) mediante azure-ai-projects SDK. Necesita credenciales Azure (DefaultAzureCredential) y el endpoint del proyecto.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "endpoint": {"type": "string", "description": "URL del proyecto Azure AI Projects"},
-                "agent": {"type": "string", "description": "Nombre del agente"},
-                "version": {"type": "string", "description": "Versión del agente (p. ej. \"1\")"}
-            },
-            "required": ["endpoint", "agent", "version"]
-        }
-    },
-    {
         "name": "mi_espacio",
         "description": (
             "Lee MI espacio (el del cerebro residente): la bitácora de decisiones y mis planes en la bóveda. "
