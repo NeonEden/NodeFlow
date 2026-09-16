@@ -32,17 +32,6 @@ pub fn hermes_exe() -> String {
 
 /// Prompt que se le manda a Hermes: contexto del lienzo + el pedido, y una respuesta corta
 /// (se muestra en el panel y puede volverse un nodo).
-pub fn prompt_delegar(pedido: &str, titulos: &[String]) -> String {
-    let contexto = if titulos.is_empty() {
-        "(lienzo vacío)".to_string()
-    } else {
-        titulos.iter().take(40).cloned().collect::<Vec<_>>().join(" · ")
-    };
-    format!(
-        "Sos el motor profundo de NodeFlow, un lienzo visual de ideas. El usuario pidió: {pedido}\n\n         Nodos que hay hoy en el lienzo: {contexto}\n\n         Respondé en 2 a 4 frases, en español, concreto y sin adornos: es lo que se va a mostrar en el\
-         panel y puede convertirse en un nodo nuevo del lienzo."
-    )
-}
 /// Tope de operaciones por dictado. Medido: un pedido de "dejá sólo lo que se conecta con X"
 /// llegó como 5 condensaciones y colapsó media lienzo, cuando la intención era UNA operación.
 /// Una frase son pocas operaciones; si el motor propone más, no se aplica el excedente.
@@ -144,13 +133,6 @@ mod tests_voz_selectiva {
     }
 
     #[test]
-    fn el_prompt_de_hermes_lleva_contexto_y_pedido() {
-        let p = super::prompt_delegar("buscá precios", &["Motor dual".to_string(), "Voz local".to_string()]);
-        assert!(p.contains("buscá precios"));
-        assert!(p.contains("Motor dual") && p.contains("Voz local"));
-    }
-
-    #[test]
     fn crear_y_enlazar_son_silencio() {
         // Acción obvia: se ve en el lienzo, no hace falta narrarla.
         let plan = json!({"comandos": [{"accion": "crear", "titulo": "Sensor"}, {"accion": "enlazar"}]});
@@ -190,12 +172,15 @@ pub fn guardar_delegacion(
     ok: bool,
     texto: &str,
     ms: u64,
+    contexto: &str,
 ) -> Result<(), String> {
     let v = serde_json::json!({
         "pedido": pedido,
         "ok": ok,
         "salida": texto,
         "ms": ms,
+        // Qué contexto se le mandó al agente: el panel lo puede mostrar (no es una caja negra).
+        "contexto": contexto,
         "cuando": std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())

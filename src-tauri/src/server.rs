@@ -2748,38 +2748,39 @@ async fn delegar(State(st): State<AppState>, Json(body): Json<Value>) -> impl In
     tokio::spawn(async move {
         let t0 = std::time::Instant::now();
         let salida = tokio::task::spawn_blocking({
-            let titulos = st2
-                .vault
-                .read_state()
-                .unwrap_or(json!({}))["nodes"]
-                .as_array()
-                .map(|ns| {
-                    ns.iter()
-                        .filter_map(|n| n["data"]["title"].as_str().map(String::from))
-                        .collect::<Vec<String>>()
-                })
-                .unwrap_or_default();
-            let prompt = crate::voz::prompt_delegar(&pedido2, &titulos);
             let exe = crate::voz::hermes_exe();
             let cfg = st2.cerebro.clone();
+            let st3 = st2.clone();
+            let pedido3 = pedido2.clone();
             move || {
+                // Fase 2: el contexto lo arma la app **desde la bóveda** (visión + recuerdo dirigido +
+                // puntero a las herramientas). Ya no se le manda el lienzo masticado, que crecía con el mapa.
+                let ctx = contexto_del_turno(&st3, &pedido3);
+                let prompt = crate::cerebro::prompt_turno(&pedido3, &ctx);
                 let args = crate::cerebro::argv(&prompt, &cfg);
-                correr_proceso_argv(&exe, &args, std::time::Duration::from_secs(cfg.tope_s))
+                let r = correr_proceso_argv(&exe, &args, std::time::Duration::from_secs(cfg.tope_s));
+                (r, crate::cerebro::resumen_contexto(&ctx))
             }
         })
         .await;
+        let (salida, contexto_usado) = match salida {
+            Ok((r, resumen)) => (r, resumen),
+            Err(e) => (
+                Err(format!("no pude correr el motor profundo: {e}")),
+                String::new(),
+            ),
+        };
         // El turno corre en una **sesión nombrada** de Hermes: además de la respuesta queda la memoria
         // (el turno siguiente recuerda éste) y, si está activado, la nota episódica en la bóveda.
         let (ok, texto, sesion_vista) = match salida {
-            Ok(Ok(bruto)) => {
+            Ok(bruto) => {
                 let (limpio, id) = crate::cerebro::limpiar_salida(&bruto);
                 (true, limpio, id)
             }
-            Ok(Err(e)) => (false, e, None),
-            Err(e) => (false, format!("no pude correr el motor profundo: {e}"), None),
+            Err(e) => (false, e, None),
         };
         let ms = t0.elapsed().as_millis() as u64;
-        let _ = crate::voz::guardar_delegacion(&st2.data_dir, &pedido2, ok, &texto, ms);
+        let _ = crate::voz::guardar_delegacion(&st2.data_dir, &pedido2, ok, &texto, ms, &contexto_usado);
         if st2.cerebro.notas {
             let utc = now_iso();
             let local = sello_local((now_ms() / 1000) as i64, st2.cerebro.offset_h);
@@ -2854,6 +2855,57 @@ async fn delegar_estado(State(st): State<AppState>) -> impl IntoResponse {
 /// nada de ventanas apareciendo mientras la app trabaja.
 fn correr_proceso(exe: &str, arg: &str, tope: std::time::Duration) -> Result<String, String> {
     correr_proceso_argv(exe, &["-z".to_string(), arg.to_string()], tope)
+}
+
+/// Arma el contexto del turno **desde la bóveda**: la visión (nodo del Norte), el recuerdo dirigido
+/// (BM25 sobre el pedido) y el foco del hilo. Todo acotado: **no crece con el tamaño del lienzo**.
+fn contexto_del_turno(st: &AppState, pedido: &str) -> crate::cerebro::Contexto {
+    let estado = st.vault.read_state().unwrap_or(json!({}));
+    let nodos_arr = estado["nodes"].as_array();
+    let titulo_de = |id: &str| {
+        nodos_arr
+            .and_then(|ns| ns.iter().find(|n| n["id"].as_str() == Some(id)))
+            .and_then(|n| n["data"]["title"].as_str().map(String::from))
+    };
+    let norte = nodos_arr
+        .and_then(|ns| {
+            ns.iter()
+                .find(|n| n["data"]["category"].as_str() == Some("NORTE"))
+                .or_else(|| ns.iter().find(|n| n["data"]["es_nucleo"].as_bool() == Some(true)))
+        })
+        .and_then(|n| n["data"]["title"].as_str().map(String::from));
+    let memoria = st
+        .memoria
+        .buscar(pedido, 6)
+        .get("resultados")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|r| Some((r["titulo"].as_str()?.to_string(), r["ruta"].as_str()?.to_string())))
+                .collect::<Vec<(String, String)>>()
+        })
+        .unwrap_or_default();
+    // El foco guarda ids: se traducen a títulos para que el prompt se lea (y el agente igual tiene el id).
+    let foco = crate::dialogo::leer(&st.data_dir)["foco"]
+        .as_array()
+        .map(|v| {
+            v.iter()
+                .filter_map(|x| x.as_str())
+                .map(|id| match titulo_de(id) {
+                    Some(t) => format!("{t} [{id}]"),
+                    None => id.to_string(),
+                })
+                .collect::<Vec<String>>()
+        })
+        .unwrap_or_default();
+    crate::cerebro::Contexto {
+        norte,
+        memoria,
+        foco,
+        nodos: nodos_arr.map(|n| n.len()).unwrap_or(0),
+        aristas: estado["edges"].as_array().map(|e| e.len()).unwrap_or(0),
+        pendientes: st.vault.count_pending(),
+    }
 }
 
 /// Igual que `correr_proceso` pero con argumentos explícitos: lo usa el cerebro residente, que corre

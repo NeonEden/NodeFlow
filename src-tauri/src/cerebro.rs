@@ -83,6 +83,70 @@ impl Config {
     }
 }
 
+/// Lo que la app le manda al agente como contexto del turno. **Nada de esto crece con el tamaño del
+/// lienzo**: son la visión, un puñado de recuerdos dirigidos y el puntero a las herramientas.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Contexto {
+    /// El nodo del Norte Estratégico: la visión del proyecto, siempre presente.
+    pub norte: Option<String>,
+    /// Notas de la bóveda que la memoria (BM25) consideró relevantes para **este** pedido: (título, ruta).
+    pub memoria: Vec<(String, String)>,
+    /// Foco del hilo de diálogo (títulos). Da continuidad sin arrastrar toda la conversación.
+    pub foco: Vec<String>,
+    pub nodos: usize,
+    pub aristas: usize,
+    pub pendientes: usize,
+}
+
+/// Prompt del turno del cerebro. El cambio de fondo respecto del viejo `prompt_delegar`: la app **no**
+/// le pasa el lienzo masticado (hasta 40 títulos, que crecían con el mapa) — le da la visión, el
+/// recuerdo dirigido y el puntero a sus herramientas MCP, y el agente consulta lo que necesita.
+pub fn prompt_turno(pedido: &str, c: &Contexto) -> String {
+    let mut p = String::new();
+    p.push_str("Sos el motor profundo de NodeFlow, un lienzo visual de ideas que vive en la bóveda del usuario.\n");
+    p.push_str(&format!("Pedido del usuario: {pedido}\n\n"));
+    if let Some(n) = c.norte.as_deref().filter(|n| !n.trim().is_empty()) {
+        p.push_str(&format!("Visión del proyecto (Norte Estratégico): {n}\n"));
+    }
+    p.push_str(&format!(
+        "Lienzo ahora: {} nodos · {} aristas · {} propuesta(s) esperando aprobación del humano.\n",
+        c.nodos, c.aristas, c.pendientes
+    ));
+    if !c.memoria.is_empty() {
+        p.push_str("\nRecuerdo dirigido (notas de la bóveda que la memoria consideró relevantes):\n");
+        for (titulo, ruta) in c.memoria.iter().take(6) {
+            p.push_str(&format!("- {titulo} ({ruta})\n"));
+        }
+    }
+    if !c.foco.is_empty() {
+        let foco: Vec<&str> = c.foco.iter().take(8).map(|s| s.as_str()).collect();
+        p.push_str(&format!("\nFoco del hilo de diálogo: {}\n", foco.join(" · ")));
+    }
+    p.push_str(
+        "\nTenés las herramientas MCP del lienzo (canvas_summary, canvas_stats, search_nodes, search_vault,\n\
+         leer_nota, garden_scan, capture_knowledge, export_document, ...): usalas para mirar lo que necesites\n\
+         antes de responder, en vez de suponer. Toda escritura que propongas queda en la cola de aprobación\n\
+         del humano: no toca el lienzo por sí sola.\n\n\
+         Respondé en 2 a 4 frases, en español, concreto y sin adornos: es lo que se va a mostrar en el panel y\n\
+         puede convertirse en un nodo nuevo del lienzo.",
+    );
+    p
+}
+
+/// Resumen del contexto usado, para guardarlo en `delegacion.json` y que el panel pueda mostrar **qué
+/// se le mandó** (transparencia: el prompt no es una caja negra).
+pub fn resumen_contexto(c: &Contexto) -> String {
+    format!(
+        "lienzo={}/{} · pendientes={} · norte={} · memoria=[{}] · foco=[{}]",
+        c.nodos,
+        c.aristas,
+        c.pendientes,
+        c.norte.as_deref().unwrap_or("-"),
+        c.memoria.iter().map(|(t, _)| t.as_str()).collect::<Vec<_>>().join(", "),
+        c.foco.join(", ")
+    )
+}
+
 /// Argumentos para `hermes chat`: sesión nombrada (creada si falta), salida limpia, una sola respuesta.
 pub fn argv(prompt: &str, c: &Config) -> Vec<String> {
     vec![
@@ -173,6 +237,53 @@ mod tests {
         assert_eq!(d.offset_h, -3, "por defecto, hora de Buenos Aires");
         let e = Config::desde(Some(&serde_json::json!({"offset_h": 99})));
         assert_eq!(e.offset_h, 14, "el desfase se acota");
+    }
+
+    #[test]
+    fn el_prompt_lleva_vision_recuerdo_y_el_puntero_a_las_herramientas() {
+        let c = Contexto {
+            norte: Some("Norte Estratégico · NodeFlow".into()),
+            memoria: vec![
+                ("Motor dual por tarea".into(), "nodos/motor-dual.md".into()),
+                ("Caché semántica".into(), "nodos/cache.md".into()),
+            ],
+            foco: vec!["Motor dual".into()],
+            nodos: 89,
+            aristas: 119,
+            pendientes: 2,
+        };
+        let p = prompt_turno("¿por dónde sigo?", &c);
+        assert!(p.contains("¿por dónde sigo?"));
+        assert!(p.contains("Norte Estratégico · NodeFlow"), "la visión viaja siempre");
+        assert!(p.contains("89 nodos · 119 aristas · 2 propuesta(s)"));
+        assert!(p.contains("- Motor dual por tarea (nodos/motor-dual.md)"), "recuerdo con su ruta");
+        assert!(p.contains("Foco del hilo de diálogo: Motor dual"));
+        assert!(p.contains("herramientas MCP del lienzo"), "el agente consulta, no recibe el mapa masticado");
+    }
+
+    #[test]
+    fn el_prompt_sin_contexto_no_deja_secciones_vacias() {
+        let p = prompt_turno("hola", &Contexto::default());
+        assert!(!p.contains("Recuerdo dirigido"));
+        assert!(!p.contains("Foco del hilo"));
+        assert!(!p.contains("Visión del proyecto"));
+        assert!(p.contains("0 nodos · 0 aristas"));
+    }
+
+    #[test]
+    fn el_resumen_del_contexto_es_legible_por_el_panel() {
+        let c = Contexto {
+            norte: Some("N".into()),
+            memoria: vec![("A".into(), "a.md".into()), ("B".into(), "b.md".into())],
+            foco: vec!["F".into()],
+            nodos: 3,
+            aristas: 4,
+            pendientes: 1,
+        };
+        let r = resumen_contexto(&c);
+        assert!(r.contains("lienzo=3/4"));
+        assert!(r.contains("memoria=[A, B]"));
+        assert!(r.contains("foco=[F]"));
     }
 
     #[test]
