@@ -3332,7 +3332,7 @@ export default function App() {
                   type="button"
                   id="btn-panel-voz"
                   onClick={() => setIsVozOpen(true)}
-                  title="Hablá y operá el lienzo: dictá ideas nuevas o comandá cambios (Speechmatics)"
+                  title="Hablá y operá el lienzo: dictá ideas nuevas o comandá cambios (el motor de voz activo)"
                   className="w-full flex items-center gap-2 px-3 py-2 bg-slate-900/70 hover:bg-slate-800/70 text-cyan-200 border border-slate-800 hover:border-cyan-700/60 rounded-xl text-xs font-medium transition-colors cursor-pointer group"
                 >
                   <Mic size={14} className="text-cyan-400 shrink-0" />

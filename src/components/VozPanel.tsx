@@ -269,8 +269,12 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
             <div>
               <div className="text-sm font-semibold text-slate-200 flex items-center gap-2">
                 Voz
+                {/* El motor es DATO: el panel no sabe con quién habla. Si el backend no declara
+                    modelo, se dice, no se inventa uno (antes caía en 'enhanced', que es un
+                    modelo de Speechmatics y mentía cuando el motor activo era otro). */}
                 <span className="text-[10px] font-mono px-1.5 py-0.5 rounded border border-slate-700 text-slate-400">
-                  {servicio?.proveedor_etiqueta || servicio?.proveedor || 'Speechmatics'} · {servicio?.modelo || 'enhanced'}
+                  {servicio?.proveedor_etiqueta || servicio?.proveedor || 'motor de voz'}
+                  {servicio?.modelo ? ` · ${servicio.modelo}` : ' · modelo no declarado'}
                 </span>
                 <span className={`w-2 h-2 rounded-full ${colorEstado} ${estado === 'escuchando' ? 'animate-pulse' : ''}`} />
               </div>
@@ -278,7 +282,7 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
                 {estado === 'escuchando'
                   ? 'Escuchando… hablá normal'
                   : estado === 'conectando'
-                    ? 'Conectando con Speechmatics…'
+                    ? `Conectando con ${servicio?.proveedor_etiqueta || servicio?.proveedor || 'el motor de voz'}…`
                     : estado === 'cerrando'
                       ? 'Cerrando el dictado…'
                       : estado === 'error'

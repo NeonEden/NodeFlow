@@ -115,13 +115,13 @@ const ES = {
   'agente.sinPendientes': 'No hay cambios pendientes',
 
   // --- voz
-  'voz.faltaClave': 'Falta la clave de Speechmatics',
+  'voz.faltaClave': 'Falta la clave del motor de voz',
   'voz.nadaAplicable': 'No encontré nada aplicable en el lienzo para eso.',
   'voz.vaAPasar': 'Va a pasar esto:',
   'voz.deshacer': 'Ctrl+Z lo deshace si no te gusta.',
   'voz.investigando': 'Investigando por fases',
   'voz.motorProfundo': 'Motor profundo',
-  'voz.pie': 'Speechmatics Realtime + el motor elegido en la app',
+  'voz.pie': 'Realtime del proveedor activo + el motor elegido en la app',
   'voz.idiomaAviso': 'La voz usa el idioma de la interfaz.',
 } as const;
 
@@ -214,13 +214,13 @@ const EN: Record<Clave, string> = {
 
   'agente.sinPendientes': 'No pending changes',
 
-  'voz.faltaClave': 'Speechmatics key is missing',
+  'voz.faltaClave': 'The voice engine key is missing',
   'voz.nadaAplicable': 'I found nothing on the canvas that applies to that.',
   'voz.vaAPasar': 'This is what will happen:',
   'voz.deshacer': 'Ctrl+Z undoes it if you do not like it.',
   'voz.investigando': 'Researching in phases',
   'voz.motorProfundo': 'Deep engine',
-  'voz.pie': 'Speechmatics Realtime + the engine chosen in the app',
+  'voz.pie': 'Realtime from the active provider + the engine chosen in the app',
   'voz.idiomaAviso': 'Voice uses the interface language.',
 };
 

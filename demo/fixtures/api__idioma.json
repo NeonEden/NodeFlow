@@ -1,9 +1,9 @@
 {
- "idioma": "es",
- "idiomas": [
-  "es",
-  "en"
- ],
- "ok": true,
- "voz_tts": "ef_dora"
+  "idioma": "es",
+  "idiomas": [
+    "es",
+    "en"
+  ],
+  "ok": true,
+  "voz_tts": "ef_dora"
 }
