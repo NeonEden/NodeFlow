@@ -11,7 +11,7 @@
 //! Es **sólo lectura sobre el lienzo**: emite comandos (crear/enlazar/actualizar/condensar) en el mismo
 //! formato que el plan de voz, y quien los aplica es la app, con el deshacer disponible.
 
-use crate::server::{AppState, API_PORT};
+use crate::server::AppState;
 use serde_json::{json, Value};
 use std::path::Path;
 
@@ -375,9 +375,11 @@ pub async fn buscar_con_tavily(st: &AppState, consulta: &str) -> Result<Vec<Valu
 /// Una pasada de Hermes (tiene las herramientas: web, archivos, terminal).
 async fn correr_hermes(st: &AppState, prompt: &str, tope_s: u64) -> Result<String, String> {
     let exe = crate::voz::hermes_exe();
-    let prompt = prompt.to_string();
+    // Fase 2: la investigación corre en la **misma sesión nombrada** que los turnos del panel. Antes era
+    // un `-z` suelto: investigaba, olvidaba todo y el usuario quedaba con un cerebro amnésico.
+    let args = crate::cerebro::argv(prompt, &st.cerebro);
     tokio::task::spawn_blocking(move || {
-        correr_proceso(&exe, &prompt, std::time::Duration::from_secs(tope_s))
+        crate::cerebro::correr(&exe, &args, std::time::Duration::from_secs(tope_s))
     })
     .await
     .map_err(|e| format!("{e}"))?
@@ -442,39 +444,6 @@ fn clave_del_motor(st: &AppState, m: &crate::motores::Motor) -> Option<String> {
         .map(String::from)
         .filter(|s| !s.trim().is_empty())
         .or_else(|| (nombre.len() > 20 && !nombre.contains(char::is_whitespace)).then(|| nombre.clone()))
-}
-
-/// Igual que el del servidor: sin consola y con tope de tiempo.
-fn correr_proceso(exe: &str, arg: &str, tope: std::time::Duration) -> Result<String, String> {
-    use std::process::{Command, Stdio};
-    let mut cmd = Command::new(exe);
-    cmd.arg("-z")
-        .arg(arg)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000);
-    }
-    let mut hijo = cmd.spawn().map_err(|e| format!("no pude iniciar el motor del mundo: {e}"))?;
-    let inicio = std::time::Instant::now();
-    loop {
-        match hijo.try_wait() {
-            Ok(Some(_)) => break,
-            Ok(None) => {
-                if inicio.elapsed() > tope {
-                    let _ = hijo.kill();
-                    return Err(format!("el motor del mundo tardó más de {} s", tope.as_secs()));
-                }
-                std::thread::sleep(std::time::Duration::from_millis(200));
-            }
-            Err(e) => return Err(format!("{e}")),
-        }
-    }
-    let salida = hijo.wait_with_output().map_err(|e| format!("{e}"))?;
-    Ok(String::from_utf8_lossy(&salida.stdout).to_string())
 }
 
 /// Arranca la investigación (endpoint `POST /api/ai/investigar`).

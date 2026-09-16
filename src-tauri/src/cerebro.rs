@@ -83,6 +83,54 @@ impl Config {
     }
 }
 
+/// Corre `hermes` con argumentos explícitos, **sin consola** y con tope de tiempo (mata el hijo si se
+/// pasa). Vive acá para que **todos** los caminos de la app que despiertan a Hermes compartan sesión y
+/// forma de invocarlo: antes había una copia en `server.rs` (one-shot) y otra en `investigacion.rs`
+/// (también one-shot), y ninguna tenía memoria.
+pub fn correr(exe: &str, args: &[String], tope: std::time::Duration) -> Result<String, String> {
+    use std::process::{Command, Stdio};
+    let mut cmd = Command::new(exe);
+    cmd.args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    let mut hijo = cmd
+        .spawn()
+        .map_err(|e| format!("No pude iniciar el motor profundo ({exe}): {e}"))?;
+    let inicio = std::time::Instant::now();
+    loop {
+        match hijo.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) => {
+                if inicio.elapsed() > tope {
+                    let _ = hijo.kill();
+                    return Err(format!(
+                        "El motor profundo tardó más de {} s y lo detuve.",
+                        tope.as_secs()
+                    ));
+                }
+                std::thread::sleep(std::time::Duration::from_millis(200));
+            }
+            Err(e) => return Err(format!("no pude seguir el proceso del motor profundo: {e}")),
+        }
+    }
+    let salida = hijo.wait_with_output().map_err(|e| e.to_string())?;
+    let texto = String::from_utf8_lossy(&salida.stdout).trim().to_string();
+    if texto.is_empty() {
+        let err = String::from_utf8_lossy(&salida.stderr);
+        return Err(format!(
+            "el motor profundo no devolvió texto ({})",
+            err.trim().chars().take(200).collect::<String>()
+        ));
+    }
+    Ok(texto)
+}
+
 /// Lo que la app le manda al agente como contexto del turno. **Nada de esto crece con el tamaño del
 /// lienzo**: son la visión, un puñado de recuerdos dirigidos y el puntero a las herramientas.
 #[derive(Clone, Debug, Default, PartialEq)]
