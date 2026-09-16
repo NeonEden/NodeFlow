@@ -76,6 +76,9 @@ export const CerebroPanel: React.FC<Props> = ({ isOpen, onClose, showToast, suge
   const [resueltas, setResueltas] = useState(0);
   /** Línea de estado visible: levantar el gateway tarda y el panel no puede quedarse mudo. */
   const [aviso, setAviso] = useState('');
+  /** El briefing del proyecto que se antepuso al último turno (Norte, camino, abierto, hitos, recuerdos). */
+  const [briefing, setBriefing] = useState('');
+  const [verBriefing, setVerBriefing] = useState(false);
   const cliente = useRef<GatewayCerebro | null>(null);
 
   const traer = useCallback(async () => {
@@ -246,8 +249,28 @@ export const CerebroPanel: React.FC<Props> = ({ isOpen, onClose, showToast, suge
         });
         turnoVivo.current = true;
         setCorriendo(true);
+        // 5.1 — el **briefing del proyecto** delante del pedido. Sin esto, un turno en una sesión nueva
+        // arranca sin saber dónde estamos parados (el contexto quedaba sólo en la memoria de Hermes).
+        setAviso('Armando el briefing del proyecto…');
+        let aMandar = limpio;
+        try {
+          const b = await (
+            await fetch(apiUrl('/api/cerebro/briefing'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ pedido: limpio }),
+            })
+          ).json();
+          if (b?.briefing) {
+            setBriefing(String(b.briefing));
+            aMandar = `${String(b.briefing).trim()}\n---\nPedido del usuario: ${limpio}`;
+          }
+        } catch {
+          /* sin briefing el turno corre igual: no es bloqueante */
+        }
+        setAviso('');
         const previa = window.localStorage.getItem(CLAVE_SESION);
-        await cli.turno(limpio, previa);
+        await cli.turno(aMandar, previa);
         if (cli.sesionActual) {
           try {
             window.localStorage.setItem(CLAVE_SESION, cli.sesionActual);
@@ -430,6 +453,25 @@ export const CerebroPanel: React.FC<Props> = ({ isOpen, onClose, showToast, suge
               </div>
             )}
           </div>
+
+          {/* El briefing del proyecto que se antepuso al turno (transparencia: se puede leer) */}
+          {briefing && (
+            <div className="rounded-xl border border-slate-700 bg-slate-800/40 px-3 py-2 space-y-1">
+              <button
+                type="button"
+                onClick={() => setVerBriefing((v) => !v)}
+                className="text-[10px] uppercase tracking-widest text-slate-500 hover:text-cyan-300 font-bold cursor-pointer"
+                title="Norte, camino, abierto, hitos y recuerdos: lo que se le mandó delante del pedido"
+              >
+                {verBriefing ? '▾' : '▸'} briefing del proyecto ({briefing.length} chars)
+              </button>
+              {verBriefing && (
+                <pre className="text-[11px] text-slate-300 whitespace-pre-wrap font-mono" id="cerebro-briefing">
+                  {briefing}
+                </pre>
+              )}
+            </div>
+          )}
 
           {/* Línea de estado visible: levantar el gateway, conectar, o por qué se cayó al modo clásico */}
           {aviso && (

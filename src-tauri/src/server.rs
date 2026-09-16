@@ -290,6 +290,7 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
             .route("/api/agent/pending", get(agent_pending))
             // Fase 4 — el gateway propio del cerebro: el panel se conecta por WebSocket y ve el turno
             // en vivo. Se levanta a pedido y se baja a pedido (nada corriendo de más).
+            .route("/api/cerebro/briefing", post(cerebro_briefing))
             .route("/api/cerebro/gateway", get(cerebro_gateway_estado))
             .route(
                 "/api/cerebro/gateway/arrancar",
@@ -2884,6 +2885,27 @@ async fn ai_evaluar_leer(State(st): State<AppState>) -> impl IntoResponse {
     }))
 }
 
+/// `POST /api/cerebro/briefing {pedido}` — el estado del proyecto en un bloque corto, para anteponerlo al
+/// turno del gateway. Sin esto, un turno en una sesión nueva arranca sin saber dónde estamos parados: el
+/// contexto quedaba sólo en la memoria de Hermes. Acotado: no crece con el tamaño del lienzo.
+async fn cerebro_briefing(
+    State(st): State<AppState>,
+    Json(body): Json<Value>,
+) -> impl IntoResponse {
+    let pedido = body["pedido"].as_str().unwrap_or("").trim().to_string();
+    let ctx = contexto_del_turno(&st, &pedido);
+    let briefing = crate::cerebro::briefing_texto(&ctx);
+    (
+        StatusCode::OK,
+        Json(json!({
+            "success": true,
+            "briefing": briefing,
+            "resumen": crate::cerebro::resumen_contexto(&ctx),
+            "caracteres": briefing.chars().count(),
+        })),
+    )
+}
+
 /// `GET /api/cerebro/gateway` — estado del gateway propio. El panel usa `url` (ya trae el token) para
 /// abrir el WebSocket.
 async fn cerebro_gateway_estado(State(st): State<AppState>) -> impl IntoResponse {
@@ -2980,6 +3002,26 @@ fn contexto_del_turno(st: &AppState, pedido: &str) -> crate::cerebro::Contexto {
                 .collect::<Vec<String>>()
         })
         .unwrap_or_default();
+    // El estado del proyecto, tal cual está en el lienzo: es lo que evita que un turno nuevo arranque
+    // sin saber dónde estamos parados (y lo que el usuario pidió como «briefing»).
+    let titulos_de = |categoria: &str, tope: usize| -> Vec<String> {
+        nodos_arr
+            .map(|ns| {
+                ns.iter()
+                    .filter(|n| n["data"]["category"].as_str() == Some(categoria))
+                    .filter_map(|n| n["data"]["title"].as_str().map(String::from))
+                    .take(tope)
+                    .collect::<Vec<String>>()
+            })
+            .unwrap_or_default()
+    };
+    let hitos_todos = titulos_de("HITO", usize::MAX);
+    let hitos = hitos_todos
+        .iter()
+        .rev()
+        .take(4)
+        .cloned()
+        .collect::<Vec<String>>();
     crate::cerebro::Contexto {
         norte,
         memoria,
@@ -2987,7 +3029,29 @@ fn contexto_del_turno(st: &AppState, pedido: &str) -> crate::cerebro::Contexto {
         nodos: nodos_arr.map(|n| n.len()).unwrap_or(0),
         aristas: estado["edges"].as_array().map(|e| e.len()).unwrap_or(0),
         pendientes: st.vault.count_pending(),
+        camino: titulos_de("EJECUCIÓN", 8),
+        abiertos: titulos_de("PENDIENTE", 12),
+        hitos,
+        mis_notas: mis_notas_del_cerebro(&st),
     }
+}
+
+/// Las notas propias del cerebro (planes, bitácora) que ya existen en la bóveda: lo que pensé antes
+/// queda a mano en el turno siguiente sin que nadie lo arrastre a mano.
+fn mis_notas_del_cerebro(st: &AppState) -> Vec<String> {
+    let raiz = st.vault.raiz().join(crate::cerebro::CARPETA);
+    let mut nombres: Vec<String> = std::fs::read_dir(raiz)
+        .map(|d| {
+            d.filter_map(|e| e.ok())
+                .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("md"))
+                .filter_map(|e| e.file_name().to_str().map(String::from))
+                .filter(|n| n.starts_with("plan") || n.starts_with("bitacora"))
+                .collect()
+        })
+        .unwrap_or_default();
+    nombres.sort();
+    nombres.truncate(6);
+    nombres
 }
 /// `POST /api/ai/delegar` — el **motor profundo** de NodeFlow.
 ///

@@ -151,8 +151,8 @@ impl Gateway {
             }
             // Ojo: no alcanza con que el health conteste 200. Un gateway ajeno (huérfano, otro token)
             // también lo contesta y nos deja creyendo que estamos listos; el panel entonces no puede
-            // conectar. Se comprueba que **el nuestro** acepte el token.
-            if propio_ok(self.puerto, &self.token) {
+            // conectar. Se comprueba con un handshake real que **el nuestro** acepte el token.
+            if acepta_nuestro_token(self.puerto, &self.token) {
                 self.listo.store(true, Ordering::Relaxed);
                 return;
             }
@@ -209,35 +209,39 @@ fn token_nuevo() -> String {
     out
 }
 
-/// Código de estado de un GET mínimo (sin dependencias HTTP).
-fn http_status(url: &str) -> Option<u16> {
+/// ¿El gateway que escucha en ese puerto acepta **nuestro** token? Sólo un handshake real lo dice.
+///
+/// Medido el 16/09 contra un `serve` real: con `GET` plano, la ruta del WebSocket contesta **401
+/// siempre** (token bueno o malo), así que un 401 no distingue «es mío» de «es de otro» — con ese
+/// criterio el gateway nunca se daba por listo y el panel caía al modo clásico. El handshake contesta
+/// `101` con token válido y `403` con ajeno: es, además, exactamente lo que hará el panel al conectar.
+fn acepta_nuestro_token(puerto: u16, token: &str) -> bool {
     use std::io::{Read, Write};
-    use std::net::TcpStream;
-    let resto = url.strip_prefix("http://")?;
-    let (host_puerto, ruta) = resto.split_once('/')?;
-    let (host, puerto) = host_puerto.split_once(':')?;
-    let mut s = TcpStream::connect_timeout(
-        &format!("{host}:{puerto}").parse().ok()?,
-        Duration::from_millis(900),
-    )
-    .ok()?;
+    use std::net::{SocketAddr, TcpStream};
+    let Ok(dir) = format!("127.0.0.1:{puerto}").parse::<SocketAddr>() else {
+        return false;
+    };
+    let Ok(mut s) = TcpStream::connect_timeout(&dir, Duration::from_millis(900)) else {
+        return false;
+    };
     let _ = s.set_read_timeout(Some(Duration::from_millis(1500)));
-    s.write_all(
-        format!("GET /{ruta} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n").as_bytes(),
-    )
-    .ok()?;
-    let mut buf = [0u8; 256];
-    let n = s.read(&mut buf).ok()?;
-    let cabeza = String::from_utf8_lossy(&buf[..n]);
-    cabeza.split_whitespace().nth(1)?.parse().ok()
-}
-
-/// ¿El gateway que escucha es **nuestro**? Se pide la ruta del WebSocket con nuestro token: con token
-/// válido el server contesta 400/426 (falta el upgrade); con un token ajeno, 403.
-fn propio_ok(puerto: u16, token: &str) -> bool {
-    match http_status(&format!("http://127.0.0.1:{puerto}/api/ws?token={token}")) {
-        Some(codigo) => codigo != 401 && codigo != 403,
-        None => false,
+    // La clave del handshake no necesita ser aleatoria para una prueba de alcance: el server sólo la
+    // devuelve hasheada en `Sec-WebSocket-Accept`.
+    let pedido = format!(
+        "GET /api/ws?token={token} HTTP/1.1\r\n\
+         Host: 127.0.0.1:{puerto}\r\n\
+         Upgrade: websocket\r\n\
+         Connection: Upgrade\r\n\
+         Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\
+         Sec-WebSocket-Version: 13\r\n\r\n"
+    );
+    if s.write_all(pedido.as_bytes()).is_err() {
+        return false;
+    }
+    let mut buf = [0u8; 128];
+    match s.read(&mut buf) {
+        Ok(n) if n > 0 => String::from_utf8_lossy(&buf[..n]).contains(" 101"),
+        _ => false,
     }
 }
 
@@ -298,12 +302,12 @@ mod tests_gateway {
 
     #[test]
     fn sin_nada_escuchando_el_gateway_no_se_da_por_listo() {
-        // Puerto libre de verdad: nadie contesta, así que `propio_ok` tiene que dar falso (nada de
+        // Puerto libre de verdad: nadie contesta, así que el handshake tiene que dar falso (nada de
         // creerle a un health ajeno).
         let l = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let p = l.local_addr().unwrap().port();
         drop(l);
-        assert!(!propio_ok(p, "token-de-prueba"));
+        assert!(!acepta_nuestro_token(p, "token-de-prueba"));
     }
 
     #[test]

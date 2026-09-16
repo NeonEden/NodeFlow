@@ -157,7 +157,16 @@ pub struct Contexto {
     pub foco: Vec<String>,
     pub nodos: usize,
     pub aristas: usize,
+    /// Propuestas esperando aprobación humana en la cola.
     pub pendientes: usize,
+    /// El camino del proyecto: los nodos de EJECUCIÓN (fases), en orden.
+    pub camino: Vec<String>,
+    /// Lo abierto: nodos PENDIENTE del lienzo.
+    pub abiertos: Vec<String>,
+    /// Los últimos hitos (HITO): lo que ya está hecho, para no reproponerlo.
+    pub hitos: Vec<String>,
+    /// Las notas propias del cerebro (planes, bitácora): lo que pensé antes, en la bóveda.
+    pub mis_notas: Vec<String>,
 }
 
 /// Cuántas notas de turno hay en la carpeta del cerebro. El panel lo muestra como señal de que la
@@ -185,13 +194,7 @@ pub fn prompt_turno(pedido: &str, c: &Contexto) -> String {
     let mut p = String::new();
     p.push_str("Sos el motor profundo de NodeFlow, un lienzo visual de ideas que vive en la bóveda del usuario.\n");
     p.push_str(&format!("Pedido del usuario: {pedido}\n\n"));
-    if let Some(n) = c.norte.as_deref().filter(|n| !n.trim().is_empty()) {
-        p.push_str(&format!("Visión del proyecto (Norte Estratégico): {n}\n"));
-    }
-    p.push_str(&format!(
-        "Lienzo ahora: {} nodos · {} aristas · {} propuesta(s) esperando aprobación del humano.\n",
-        c.nodos, c.aristas, c.pendientes
-    ));
+    p.push_str(&briefing_texto(c));
     if !c.memoria.is_empty() {
         p.push_str(
             "\nRecuerdo dirigido (notas de la bóveda que la memoria consideró relevantes):\n",
@@ -215,6 +218,50 @@ pub fn prompt_turno(pedido: &str, c: &Contexto) -> String {
          Respondé en 2 a 4 frases, en español, concreto y sin adornos: es lo que se va a mostrar en el panel y\n\
          puede convertirse en un nodo nuevo del lienzo.",
     );
+    p
+}
+
+/// El **briefing**: el estado del proyecto en un bloque acotado que se antepone al pedido.
+///
+/// Es la versión aplicada de lo que pide el usuario en sus notas: en vez de subir todo el lienzo en cada
+/// turno, va sólo lo que hace falta para saber dónde estamos parados — visión, camino, abierto, hitos,
+/// notas propias y los recuerdos que el BM25 consideró relevantes para **este** pedido. No crece con el
+/// tamaño del lienzo: todo va recortado.
+pub fn briefing_texto(c: &Contexto) -> String {
+    let mut p = String::new();
+    if let Some(n) = c.norte.as_deref().filter(|n| !n.trim().is_empty()) {
+        p.push_str(&format!("Visión del proyecto (Norte Estratégico): {n}\n"));
+    }
+    p.push_str(&format!(
+        "Lienzo ahora: {} nodos · {} aristas · {} propuesta(s) esperando aprobación del humano.\n",
+        c.nodos, c.aristas, c.pendientes
+    ));
+    let linea = |p: &mut String, rotulo: &str, xs: &[String], tope: usize| {
+        if xs.is_empty() {
+            return;
+        }
+        let cortos: Vec<&str> = xs.iter().take(tope).map(|s| s.as_str()).collect();
+        p.push_str(&format!("{rotulo}: {}\n", cortos.join(" · ")));
+    };
+    linea(&mut p, "Camino del proyecto", &c.camino, 8);
+    linea(&mut p, "Abierto", &c.abiertos, 10);
+    linea(&mut p, "Ya hecho", &c.hitos, 5);
+    linea(&mut p, "Mis notas del cerebro", &c.mis_notas, 6);
+    if !c.memoria.is_empty() {
+        p.push_str(
+            "\nRecuerdo dirigido (notas de la bóveda que la memoria consideró relevantes):\n",
+        );
+        for (titulo, ruta) in c.memoria.iter().take(6) {
+            p.push_str(&format!("- {titulo} ({ruta})\n"));
+        }
+    }
+    if !c.foco.is_empty() {
+        let foco: Vec<&str> = c.foco.iter().take(8).map(|s| s.as_str()).collect();
+        p.push_str(&format!(
+            "\nFoco del hilo de diálogo: {}\n",
+            foco.join(" · ")
+        ));
+    }
     p
 }
 
@@ -373,6 +420,7 @@ mod tests {
             nodos: 89,
             aristas: 119,
             pendientes: 2,
+            ..Contexto::default()
         };
         let p = prompt_turno("¿por dónde sigo?", &c);
         assert!(p.contains("¿por dónde sigo?"));
@@ -393,6 +441,46 @@ mod tests {
     }
 
     #[test]
+    fn el_briefing_lleva_el_estado_del_proyecto_y_no_secciones_vacias() {
+        let c = Contexto {
+            norte: Some("Norte Estratégico · NodeFlow".into()),
+            camino: vec!["Fase 3b".into(), "Fase 4".into()],
+            abiertos: vec!["Partir el skill".into()],
+            hitos: vec!["v0.3.0 publicada".into()],
+            mis_notas: vec!["plan-cerebro.md".into()],
+            memoria: vec![("Caché semántica".into(), "nodos/cache.md".into())],
+            nodos: 42,
+            aristas: 72,
+            pendientes: 2,
+            foco: vec!["Fase 4 [n-ag-fase-4]".into()],
+        };
+        let b = briefing_texto(&c);
+        assert!(b.contains("Visión del proyecto (Norte Estratégico): Norte Estratégico · NodeFlow"));
+        assert!(b.contains("Camino del proyecto: Fase 3b · Fase 4"));
+        assert!(b.contains("Abierto: Partir el skill"));
+        assert!(b.contains("Ya hecho: v0.3.0 publicada"));
+        assert!(b.contains("Mis notas del cerebro: plan-cerebro.md"));
+        assert!(b.contains("42 nodos · 72 aristas · 2 propuesta(s)"));
+        assert!(b.contains("- Caché semántica (nodos/cache.md)"));
+        assert!(b.contains("Foco del hilo de diálogo: Fase 4 [n-ag-fase-4]"));
+
+        let vacio = briefing_texto(&Contexto::default());
+        for rotulo in [
+            "Camino del proyecto",
+            "Abierto",
+            "Ya hecho",
+            "Mis notas",
+            "Recuerdo dirigido",
+            "Foco del hilo",
+        ] {
+            assert!(
+                !vacio.contains(rotulo),
+                "sin datos no se imprime «{rotulo}»"
+            );
+        }
+    }
+
+    #[test]
     fn el_prompt_sin_contexto_no_deja_secciones_vacias() {
         let p = prompt_turno("hola", &Contexto::default());
         assert!(!p.contains("Recuerdo dirigido"));
@@ -410,6 +498,7 @@ mod tests {
             nodos: 3,
             aristas: 4,
             pendientes: 1,
+            ..Contexto::default()
         };
         let r = resumen_contexto(&c);
         assert!(r.contains("lienzo=3/4"));
