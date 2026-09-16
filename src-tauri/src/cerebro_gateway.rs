@@ -40,6 +40,19 @@ pub struct Gateway {
     listo: AtomicBool,
 }
 
+/// Puerto libre desde `desde`: un `hermes serve` huérfano de una corrida anterior **sobrevive a un cierre
+/// forzado** (el `Drop` no corre si matan el proceso), sigue escuchando y contesta el health — y entonces
+/// el panel recibe 403 al conectar porque el token del huérfano es otro (medido 16/09: dos `serve` en el
+/// 9121, el nuevo sin poder bindear). Elegir un puerto realmente libre evita quedar colgados de un zombie.
+fn puerto_libre(desde: u16) -> u16 {
+    for p in desde..desde.saturating_add(20) {
+        if std::net::TcpListener::bind(("127.0.0.1", p)).is_ok() {
+            return p;
+        }
+    }
+    desde
+}
+
 impl Gateway {
     pub fn nuevo(puerto: u16) -> Self {
         let puerto = if puerto == 0 {
@@ -47,6 +60,7 @@ impl Gateway {
         } else {
             puerto
         };
+        let puerto = puerto_libre(puerto);
         Self {
             puerto,
             token: token_nuevo(),
@@ -130,13 +144,15 @@ impl Gateway {
     /// Marca `listo` cuando `/api/health` contesta. Se llama en un hilo aparte (arrancar un gateway
     /// tarda: importa el agente, la config y los MCP).
     pub fn esperar_listo(&self) {
-        let url = format!("http://127.0.0.1:{}/api/health", self.puerto);
         let limite = Instant::now() + Duration::from_secs(ESPERA_LISTO_S);
         while Instant::now() < limite {
             if !self.vivo() {
                 break;
             }
-            if health_ok(&url) {
+            // Ojo: no alcanza con que el health conteste 200. Un gateway ajeno (huérfano, otro token)
+            // también lo contesta y nos deja creyendo que estamos listos; el panel entonces no puede
+            // conectar. Se comprueba que **el nuestro** acepte el token.
+            if propio_ok(self.puerto, &self.token) {
                 self.listo.store(true, Ordering::Relaxed);
                 return;
             }
@@ -193,32 +209,35 @@ fn token_nuevo() -> String {
     out
 }
 
-/// ¿El gateway ya contesta? Sin dependencias HTTP: un connect TCP + un GET mínimo.
-fn health_ok(url: &str) -> bool {
+/// Código de estado de un GET mínimo (sin dependencias HTTP).
+fn http_status(url: &str) -> Option<u16> {
     use std::io::{Read, Write};
     use std::net::TcpStream;
-    let puerto = match url.rsplit(':').next().and_then(|p| p.split('/').next()) {
-        Some(p) => p.to_string(),
-        None => return false,
-    };
-    let Ok(mut s) = TcpStream::connect_timeout(
-        &match format!("127.0.0.1:{puerto}").parse() {
-            Ok(a) => a,
-            Err(_) => return false,
-        },
+    let resto = url.strip_prefix("http://")?;
+    let (host_puerto, ruta) = resto.split_once('/')?;
+    let (host, puerto) = host_puerto.split_once(':')?;
+    let mut s = TcpStream::connect_timeout(
+        &format!("{host}:{puerto}").parse().ok()?,
         Duration::from_millis(900),
-    ) else {
-        return false;
-    };
+    )
+    .ok()?;
     let _ = s.set_read_timeout(Some(Duration::from_millis(1500)));
-    let pedido = format!("GET {url} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n");
-    if s.write_all(pedido.as_bytes()).is_err() {
-        return false;
-    }
+    s.write_all(
+        format!("GET /{ruta} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n").as_bytes(),
+    )
+    .ok()?;
     let mut buf = [0u8; 256];
-    match s.read(&mut buf) {
-        Ok(n) if n > 0 => String::from_utf8_lossy(&buf[..n]).contains(" 200"),
-        _ => false,
+    let n = s.read(&mut buf).ok()?;
+    let cabeza = String::from_utf8_lossy(&buf[..n]);
+    cabeza.split_whitespace().nth(1)?.parse().ok()
+}
+
+/// ¿El gateway que escucha es **nuestro**? Se pide la ruta del WebSocket con nuestro token: con token
+/// válido el server contesta 400/426 (falta el upgrade); con un token ajeno, 403.
+fn propio_ok(puerto: u16, token: &str) -> bool {
+    match http_status(&format!("http://127.0.0.1:{puerto}/api/ws?token={token}")) {
+        Some(codigo) => codigo != 401 && codigo != 403,
+        None => false,
     }
 }
 
@@ -240,14 +259,17 @@ mod tests_gateway {
     #[test]
     fn la_url_del_websocket_lleva_el_token_y_no_es_el_puerto_del_escritorio() {
         let g = Gateway::nuevo(0);
-        assert_eq!(g.puerto(), PUERTO_POR_DEFECTO);
+        assert!(
+            g.puerto() >= PUERTO_POR_DEFECTO,
+            "arranca en el puerto propio, o en el siguiente libre si el propio está ocupado"
+        );
         assert_ne!(
             g.puerto(),
             9119,
             "9119 es del escritorio de Hermes: no se pisa"
         );
         let url = g.url_ws();
-        assert!(url.starts_with("ws://127.0.0.1:9121/api/ws?token="));
+        assert!(url.starts_with(&format!("ws://127.0.0.1:{}/api/ws?token=", g.puerto())));
         assert!(url.ends_with(g.token()));
         assert!(g.token().len() >= 24, "token corto = adivinable");
     }
@@ -264,12 +286,36 @@ mod tests_gateway {
     }
 
     #[test]
+    fn el_puerto_libre_salta_los_ocupados() {
+        let ocupado = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let p = ocupado.local_addr().unwrap().port();
+        assert_ne!(
+            puerto_libre(p),
+            p,
+            "no puede elegir un puerto que ya está escuchando: sería el de un gateway zombie"
+        );
+    }
+
+    #[test]
+    fn sin_nada_escuchando_el_gateway_no_se_da_por_listo() {
+        // Puerto libre de verdad: nadie contesta, así que `propio_ok` tiene que dar falso (nada de
+        // creerle a un health ajeno).
+        let l = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let p = l.local_addr().unwrap().port();
+        drop(l);
+        assert!(!propio_ok(p, "token-de-prueba"));
+    }
+
+    #[test]
     fn el_estado_arranca_apagado_y_parar_sin_proceso_no_revienta() {
         let g = Gateway::nuevo(9121);
         let e = g.estado();
         assert_eq!(e["listo"], json!(false));
         assert_eq!(e["vivo"], json!(false));
-        assert_eq!(e["puerto"], json!(9121));
+        assert!(
+            e["puerto"].as_u64().unwrap_or(0) >= PUERTO_POR_DEFECTO as u64,
+            "informa el puerto propio (o el siguiente libre si estaba ocupado)"
+        );
         g.parar();
         assert!(!g.listo());
         assert!(!g.vivo());
