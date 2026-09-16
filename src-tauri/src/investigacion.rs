@@ -186,6 +186,54 @@ fn recorta(s: &str, n: usize) -> String {
     }
 }
 
+/// Lee el JSON de la síntesis. Tolerante a propósito: si el motor lo envolvió en prosa o en markdown,
+/// se busca el objeto adentro. Devuelve vacío si no hay resumen — y eso el llamador lo trata como fallo,
+/// no como éxito silencioso.
+pub fn leer_sintesis(texto: &str) -> (String, String, Vec<String>) {
+    let v = match primer_json(texto) {
+        Some(v) => v,
+        None => return (String::new(), String::new(), Vec::new()),
+    };
+    (
+        v["resumen"].as_str().unwrap_or("").trim().to_string(),
+        v["principio"].as_str().unwrap_or("").trim().to_string(),
+        v["descartar"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|d| d.as_str().map(String::from))
+            .collect(),
+    )
+}
+
+/// **Fallback declarado** para la síntesis: primero el motor barato y medido (DeepSeek) y, si falla o no
+/// devuelve algo usable, Hermes — que además corre en la sesión del cerebro (ve el lienzo y tiene
+/// herramientas). Antes un proveedor caído dejaba la investigación a mitad de camino **en silencio**:
+/// el error se descartaba con `Err(_)` y la fase terminaba sin decir por qué (pasado el 15/09 con
+/// DeepSeek inestable, la investigación quedaba inservible sin explicación).
+async fn sintetizar(st: &AppState, prompt: &str) -> Result<(String, String, Vec<String>), String> {
+    match correr_deepseek(st, prompt, 180).await {
+        Ok(texto) => {
+            let (resumen, principio, descartar) = leer_sintesis(&texto);
+            if !resumen.is_empty() {
+                return Ok((resumen, principio, descartar));
+            }
+            log::warn!("investigación: DeepSeek respondió sin resumen usable; la síntesis pasa a Hermes");
+        }
+        Err(e) => log::warn!("investigación: DeepSeek no respondió ({e}); la síntesis pasa a Hermes"),
+    }
+    match correr_hermes(st, prompt, 300).await {
+        Ok(texto) => {
+            let (resumen, principio, descartar) = leer_sintesis(&texto);
+            if resumen.is_empty() {
+                return Err("los dos motores respondieron, pero ninguno devolvió un resumen usable".into());
+            }
+            Ok((resumen, principio, descartar))
+        }
+        Err(e) => Err(format!("DeepSeek no respondió y Hermes tampoco: {e}")),
+    }
+}
+
 /// Corre la investigación completa. Es lo que arranca `POST /api/ai/investigar`.
 pub async fn correr(st: &AppState, pedido: String) {
     let dir = st.data_dir.clone();
@@ -267,26 +315,13 @@ pub async fn correr(st: &AppState, pedido: String) {
          \"descartar\":[\"títulos de fuentes que no aportan, si hay\"]}}\n\
          Si una fuente no aporta al hallazgo, decila en 'descartar'."
     );
-    let (resumen, principio, descartar) = match correr_deepseek(st, &prompt_sintesis, 180).await {
-        Ok(texto) => match primer_json(&texto) {
-            Some(v) => (
-                v["resumen"].as_str().unwrap_or("").trim().to_string(),
-                v["principio"].as_str().unwrap_or("").trim().to_string(),
-                v["descartar"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|d| d.as_str().map(String::from))
-                    .collect::<Vec<String>>(),
-            ),
-            None => (String::new(), String::new(), Vec::new()),
-        },
-        Err(_) => (String::new(), String::new(), Vec::new()),
+    let (resumen, principio, descartar) = match sintetizar(st, &prompt_sintesis).await {
+        Ok(t) => t,
+        Err(e) => {
+            terminar(&dir, &format!("Se hallaron las fuentes, pero la síntesis no salió: {e}"), false);
+            return;
+        }
     };
-    if resumen.is_empty() {
-        terminar(&dir, "Las fuentes quedaron en el lienzo, pero la síntesis no volvió usable.", false);
-        return;
-    }
     anotar(
         &dir,
         "capsula",
@@ -540,4 +575,28 @@ mod tests_investigacion {
         assert_eq!(FASES[3].0, "hexagono");
         assert_eq!(FASES[3].2, "🚀");
     }
+    #[test]
+    fn lee_la_sintesis_del_json_limpio() {
+        let (r, p, d) = super::leer_sintesis(
+            "{\"resumen\":\"Q4_K_M de 7B entra en 12 GB\",\"principio\":\"mejor calidad por GB\",\"descartar\":[\"uno\"]}",
+        );
+        assert_eq!(r, "Q4_K_M de 7B entra en 12 GB");
+        assert_eq!(p, "mejor calidad por GB");
+        assert_eq!(d, vec!["uno".to_string()]);
+    }
+
+    #[test]
+    fn lee_la_sintesis_envuelta_en_prosa() {
+        let (r, _, _) = super::leer_sintesis("Claro, acá va:\n```json\n{\"resumen\":\"ok\"}\n```\nSaludos.");
+        assert_eq!(r, "ok", "el motor a veces envuelve el JSON: hay que encontrarlo igual");
+    }
+
+    #[test]
+    fn sin_resumen_es_fallo_no_exito() {
+        let (r, _, _) = super::leer_sintesis("no tengo idea");
+        assert!(r.is_empty(), "vacío = el llamador reintenta con el otro motor");
+    }
+
+
+
 }
