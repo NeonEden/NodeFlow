@@ -291,7 +291,10 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
             // Fase 4 — el gateway propio del cerebro: el panel se conecta por WebSocket y ve el turno
             // en vivo. Se levanta a pedido y se baja a pedido (nada corriendo de más).
             .route("/api/cerebro/gateway", get(cerebro_gateway_estado))
-            .route("/api/cerebro/gateway/arrancar", post(cerebro_gateway_arrancar))
+            .route(
+                "/api/cerebro/gateway/arrancar",
+                post(cerebro_gateway_arrancar),
+            )
             .route("/api/cerebro/gateway/parar", post(cerebro_gateway_parar))
             .route("/api/agent/approve", post(agent_approve))
             .route("/api/agent/reject", post(agent_reject))
@@ -2905,7 +2908,9 @@ async fn cerebro_gateway_arrancar(State(st): State<AppState>) -> impl IntoRespon
             );
             (
                 StatusCode::OK,
-                Json(json!({ "success": true, "gateway": st.gateway.estado(), "url": st.gateway.url_ws() })),
+                Json(
+                    json!({ "success": true, "gateway": st.gateway.estado(), "url": st.gateway.url_ws() }),
+                ),
             )
         }
         Err(e) => {

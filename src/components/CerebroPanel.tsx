@@ -74,6 +74,8 @@ export const CerebroPanel: React.FC<Props> = ({ isOpen, onClose, showToast, suge
   const [uso, setUso] = useState<Record<string, unknown> | null>(null);
   const [aprobacion, setAprobacion] = useState<Aprobacion | null>(null);
   const [resueltas, setResueltas] = useState(0);
+  /** Línea de estado visible: levantar el gateway tarda y el panel no puede quedarse mudo. */
+  const [aviso, setAviso] = useState('');
   const cliente = useRef<GatewayCerebro | null>(null);
 
   const traer = useCallback(async () => {
@@ -147,14 +149,9 @@ export const CerebroPanel: React.FC<Props> = ({ isOpen, onClose, showToast, suge
     return '';
   }, [mirarGateway]);
 
-  const pensar = useCallback(
-    async (texto: string) => {
-      const limpio = texto.trim();
-      if (limpio.length < 4 || corriendo) return;
-      pedidoEnCurso.current = limpio;
-      setPedido('');
-      setCorriendo(true);
-      turnoVivo.current = false;
+  /** El POST del camino clásico (subproceso). Separado para poder caer acá desde el modo en vivo. */
+  const lanzarClasico = useCallback(
+    async (limpio: string) => {
       try {
         const r = await fetch(apiUrl('/api/ai/delegar'), {
           method: 'POST',
@@ -170,7 +167,21 @@ export const CerebroPanel: React.FC<Props> = ({ isOpen, onClose, showToast, suge
         setCorriendo(false);
       }
     },
-    [corriendo, showToast]
+    [showToast]
+  );
+
+  const pensar = useCallback(
+    async (texto: string) => {
+      const limpio = texto.trim();
+      if (limpio.length < 4 || corriendo) return;
+      pedidoEnCurso.current = limpio;
+      setPedido('');
+      setCorriendo(true);
+      turnoVivo.current = false;
+      setAviso('');
+      await lanzarClasico(limpio);
+    },
+    [corriendo, lanzarClasico]
   );
 
   /** Fase 4: el turno por el gateway — stream en vivo y aprobaciones en el panel. */
@@ -186,16 +197,28 @@ export const CerebroPanel: React.FC<Props> = ({ isOpen, onClose, showToast, suge
       setUso(null);
       setAprobacion(null);
       cliente.current?.cerrar();
+      // Feedback inmediato: acá estaba el bache. Antes el panel no decía nada hasta que el gateway
+      // estaba listo (decenas de segundos) y el usuario veía una pantalla muerta.
+      setCorriendo(true);
+      setAviso('Levantando el gateway del cerebro… (importa el agente y sus herramientas)');
       const url = await asegurarGateway();
       if (!url) {
-        showToast('El gateway no arrancó; paso al modo clásico.', 'info');
-        void pensar(limpio);
+        // Nada de caer en silencio: se dice, se pasa al modo clásico y se cambia el interruptor.
+        setVivo(false);
+        setAviso('El gateway no respondió: este turno corre en modo clásico (una sola respuesta al final).');
+        showToast('El gateway no respondió; sigo en modo clásico.', 'info');
+        await lanzarClasico(limpio);
         return;
       }
+      setAviso('Conectando con el gateway…');
       const cli = new GatewayCerebro();
       cliente.current = cli;
       try {
         await cli.conectar(url, {
+          onEstado: (e) => {
+            if (e === 'conectado') setAviso('');
+            else if (e === 'cortado') setAviso('Se cortó la conexión con el gateway.');
+          },
           onDelta: (t) => setEnVivo(t),
           onPensando: (t) => setPensando(t),
           onInfo: (i) => setModelo(String(i.model || i.provider || '')),
@@ -238,7 +261,7 @@ export const CerebroPanel: React.FC<Props> = ({ isOpen, onClose, showToast, suge
         showToast(String(e).slice(0, 120), 'error');
       }
     },
-    [corriendo, asegurarGateway, pensar, showToast, herramientas, modelo]
+    [corriendo, asegurarGateway, lanzarClasico, showToast, herramientas, modelo]
   );
 
   /** Responde una aprobación desde el panel. `all` la aplica a todo lo pendiente (cambios grandes). */
@@ -407,6 +430,16 @@ export const CerebroPanel: React.FC<Props> = ({ isOpen, onClose, showToast, suge
               </div>
             )}
           </div>
+
+          {/* Línea de estado visible: levantar el gateway, conectar, o por qué se cayó al modo clásico */}
+          {aviso && (
+            <div
+              className="rounded-xl border border-amber-700/40 bg-amber-950/20 px-3 py-2 text-[11px] text-amber-100"
+              id="cerebro-aviso"
+            >
+              {aviso}
+            </div>
+          )}
 
           {/* ── El turno en vivo (Fase 4) ─────────────────────────────────── */}
           {vivo && (corriendo || enVivo) && (

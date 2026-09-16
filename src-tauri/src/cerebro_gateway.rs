@@ -42,7 +42,11 @@ pub struct Gateway {
 
 impl Gateway {
     pub fn nuevo(puerto: u16) -> Self {
-        let puerto = if puerto == 0 { PUERTO_POR_DEFECTO } else { puerto };
+        let puerto = if puerto == 0 {
+            PUERTO_POR_DEFECTO
+        } else {
+            puerto
+        };
         Self {
             puerto,
             token: token_nuevo(),
@@ -98,11 +102,16 @@ impl Gateway {
         }
         let mut cmd = Command::new(exe);
         argv(&mut cmd, self.puerto);
+        // **Nunca `piped()` para un proceso largo sin lector**: un `hermes serve` escribe su log de
+        // arranque y, al llenarse el buffer del pipe (~64 KB), el hijo **se bloquea escribiendo** y
+        // nunca llega a contestar `/api/health`. Síntoma medido: `vivo: true` y `listo: false` para
+        // siempre, y el panel esperando el gateway que ya estaba trabado. La salida del gateway no se
+        // usa: va a null. (En `cerebro::correr` sí hay pipe, pero ahí se lee al terminar.)
         cmd.current_dir(cwd)
             .env("HERMES_DASHBOARD_SESSION_TOKEN", &self.token)
             .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
@@ -111,7 +120,10 @@ impl Gateway {
         let hijo = cmd
             .spawn()
             .map_err(|e| format!("no pude levantar el gateway del cerebro ({exe}): {e}"))?;
-        *self.proceso.lock().map_err(|_| "gateway bloqueado".to_string())? = Some(hijo);
+        *self
+            .proceso
+            .lock()
+            .map_err(|_| "gateway bloqueado".to_string())? = Some(hijo);
         Ok(())
     }
 
@@ -229,7 +241,11 @@ mod tests_gateway {
     fn la_url_del_websocket_lleva_el_token_y_no_es_el_puerto_del_escritorio() {
         let g = Gateway::nuevo(0);
         assert_eq!(g.puerto(), PUERTO_POR_DEFECTO);
-        assert_ne!(g.puerto(), 9119, "9119 es del escritorio de Hermes: no se pisa");
+        assert_ne!(
+            g.puerto(),
+            9119,
+            "9119 es del escritorio de Hermes: no se pisa"
+        );
         let url = g.url_ws();
         assert!(url.starts_with("ws://127.0.0.1:9121/api/ws?token="));
         assert!(url.ends_with(g.token()));
@@ -240,7 +256,11 @@ mod tests_gateway {
     fn dos_gateways_no_comparten_token() {
         let a = Gateway::nuevo(9121);
         let b = Gateway::nuevo(9121);
-        assert_ne!(a.token(), b.token(), "el token es por arranque, no una constante");
+        assert_ne!(
+            a.token(),
+            b.token(),
+            "el token es por arranque, no una constante"
+        );
     }
 
     #[test]
