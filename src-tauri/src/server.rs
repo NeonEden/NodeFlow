@@ -2793,8 +2793,16 @@ async fn voz_estado(State(st): State<AppState>) -> impl IntoResponse {
         "nota": prov.nota,
         "aviso": aviso,
         "proveedores": crate::stt::catalogo_json(&st.data_dir),
-        // El ajuste por entorno sigue mandando cuando existe (región o idioma, sin recompilar).
-        "ajuste_entorno": { "url": url, "modelo": modelo },
+        // Ajuste por entorno: se declara SÓLO cuando existe de verdad. Antes mostraba siempre los
+        // valores base de Speechmatics, así que con AssemblyAI elegido el mismo endpoint anunciaba
+        // `proveedor: assemblyai` y un modelo `enhanced` con la URL de otro motor.
+        "ajuste_entorno": if std::env::var("NODEFLOW_VOZ_URL").is_ok()
+            || std::env::var("NODEFLOW_VOZ_MODELO").is_ok()
+        {
+            json!({ "url": url, "modelo": modelo, "por_entorno": true })
+        } else {
+            json!({ "url": prov.url, "modelo": modelo_mostrado, "por_entorno": false })
+        },
         "tts": { "disponible": tts_disponible, "url": tts_url, "motor": "Kokoro (local)" },
         "pista": if configurada {
             "Clave presente. El token temporal se pide a /api/voz/jwt.".to_string()
