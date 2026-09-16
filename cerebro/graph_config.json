@@ -1,0 +1,4 @@
+{
+  "client_id": "9a35e643-3ea9-4ce4-94a2-594935abd0a5",
+  "scopes": ["Files.ReadWrite.All", "offline_access"]
+}
