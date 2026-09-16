@@ -55,6 +55,8 @@ let LIENZO = estadoInicial();
 let PROPUESTAS = [];
 let REV = 1;
 let ID = 0;
+/** Idioma de la interfaz, tal como lo pide el switch (el backend real también es fuente de verdad). */
+let IDIOMA = (FIXTURAS.get('/api/idioma') || {}).idioma === 'en' ? 'en' : 'es';
 const nuevoId = (p = 'demo') => `${p}-${Date.now().toString(36)}-${(ID++).toString(36)}`;
 
 /** El sobre completo que espera el front, con el lienzo vivo adentro. */
@@ -297,6 +299,12 @@ export async function handle({ method, ruta, query, body, ip = 'anon' }) {
     // El front decide con `res.ok` (VaultSaveResult), no con `success`: sin `ok` el demo mostraba
     // «Vault: error al escribir» aunque el lienzo estuviera intacto.
     return json(200, { ok: true, success: true, revision: REV, nodos: LIENZO.nodes.length, aristas: LIENZO.edges.length, rev: REV });
+  }
+
+  // --- idioma: el switch de la interfaz tiene que pegarse también en el demo
+  if (ruta === '/api/idioma') {
+    if (m === 'POST' && typeof body?.idioma === 'string') IDIOMA = body.idioma === 'en' ? 'en' : 'es';
+    return json(200, { success: true, idioma: IDIOMA });
   }
 
   // --- voz

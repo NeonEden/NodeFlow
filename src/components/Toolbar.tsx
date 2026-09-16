@@ -30,6 +30,7 @@ import { IdiomaSwitch } from './IdiomaSwitch';
 import { ColorPickerMenu } from './ColorPickerMenu';
 import { EdgeAppearance, UserProfile } from '../types';
 import { TemplateDefinition } from '../data/templates';
+import { useIdioma } from '../i18n/useIdioma';
 
 interface ToolbarProps {
   canUndo: boolean;
@@ -136,6 +137,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   searchQuery = '',
   onSearchChange,
 }) => {
+  const { t } = useIdioma();
   // Un solo menú abierto por vez; se cierra al hacer click afuera o con Escape.
   const [menuAbierto, setMenuAbierto] = useState<'salida' | 'mas' | null>(null);
   const refSalida = useRef<HTMLDivElement>(null);
@@ -202,7 +204,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               type="text"
               value={searchQuery}
               onChange={(e) => onSearchChange(e.target.value)}
-              placeholder="Buscar nodos... (Ctrl+F)"
+              placeholder={t('toolbar.buscar')}
               className="bg-slate-900 border border-slate-800 text-xs text-slate-200 rounded-lg pl-7 pr-7 py-1.5 w-32 lg:w-40 focus:w-52 transition-all focus:outline-none focus:border-indigo-500 placeholder:text-slate-500"
             />
             {searchQuery && (
@@ -227,7 +229,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             id="btn-undo"
             onClick={onUndo}
             disabled={!canUndo}
-            title="Deshacer (Ctrl+Z)"
+            title={t('toolbar.deshacer')}
             className="p-1.5 hover:bg-slate-800 rounded text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:hover:bg-transparent transition-colors cursor-pointer"
           >
             <Undo2 size={15} />
@@ -237,7 +239,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             id="btn-redo"
             onClick={onRedo}
             disabled={!canRedo}
-            title="Rehacer (Ctrl+Y)"
+            title={t('toolbar.rehacer')}
             className="p-1.5 hover:bg-slate-800 rounded text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:hover:bg-transparent transition-colors cursor-pointer"
           >
             <Redo2 size={15} />
@@ -253,7 +255,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             title="Auto-organizar nodos en jerarquía limpia (evita solapamiento)"
           >
             <Network size={14} className="text-indigo-400" />
-            <span className="hidden 2xl:inline">Organizar</span>
+            <span className="hidden 2xl:inline">{t('toolbar.organizar')}</span>
           </button>
         )}
 
@@ -301,10 +303,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               ? 'bg-indigo-600 hover:bg-indigo-500 shadow-indigo-500/30 text-white ring-2 ring-indigo-400'
               : 'bg-indigo-600 hover:bg-indigo-500 shadow-indigo-500/20 text-white'
           }`}
-          title="Descubrir sinergias y fusionar ideas seleccionadas con IA"
+          title={t('toolbar.descubrir')}
         >
           <Combine size={14} className={isAiProcessing ? 'animate-spin' : ''} />
-          <span className="hidden xl:inline">Hibridador IA</span>
+          <span className="hidden xl:inline">{t('toolbar.hibridar')}</span>
           {selectedNodesCount >= 2 && (
             <span className="bg-indigo-900 text-indigo-200 text-[10px] px-1.5 py-0.2 rounded-full font-mono">
               {selectedNodesCount}
@@ -321,7 +323,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             title="Descarga Mental Rápida: convierte notas o viñetas en un mapa completo (Ctrl+B)"
           >
             <Zap size={14} className="text-emerald-400 group-hover:animate-pulse" />
-            <span className="hidden 2xl:inline">Descarga</span>
+            <span className="hidden 2xl:inline">{t('toolbar.descargaCorta')}</span>
           </button>
         )}
 
@@ -332,10 +334,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             id="btn-toolbar-exportar"
             onClick={() => setMenuAbierto(menuAbierto === 'salida' ? null : 'salida')}
             className="flex items-center gap-1.5 bg-purple-950/40 hover:bg-purple-900/60 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors border border-purple-500/40 text-purple-200 hover:text-white cursor-pointer"
-            title="Exportar el mapa: Obsidian, JSON o estados guardados"
+            title={t('toolbar.exportar.ayuda')}
           >
             <Download size={14} className="text-purple-400" />
-            <span className="hidden xl:inline">Exportar</span>
+            <span className="hidden xl:inline">{t('toolbar.exportar')}</span>
             <ChevronDown size={12} className="opacity-70" />
           </button>
           {menuAbierto === 'salida' && (
@@ -363,14 +365,14 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             id="btn-toolbar-mas"
             onClick={() => setMenuAbierto(menuAbierto === 'mas' ? null : 'mas')}
             className="flex items-center gap-1 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-white px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer"
-            title="Más herramientas: inteligencia, núcleos de ideas y sistema"
+            title={t('toolbar.mas.ayuda')}
           >
             <MoreHorizontal size={15} />
-            <span className="hidden xl:inline">Más</span>
+            <span className="hidden xl:inline">{t('toolbar.mas')}</span>
           </button>
           {menuAbierto === 'mas' && (
             <div className="absolute right-0 top-full mt-1.5 w-64 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl p-1.5 z-50 text-xs">
-              <div className="px-2 py-1 text-[10px] uppercase font-bold text-slate-500 tracking-wider">Inteligencia</div>
+              <div className="px-2 py-1 text-[10px] uppercase font-bold text-slate-500 tracking-wider">{t('toolbar.inteligencia')}</div>
               {onOpenBridgesModal && (
                 <MenuItemP id="btn-toolbar-bridges" icon={Network} label="Puentes"
                   hint={bridgesCount > 0 ? `${bridgesCount} sinergias` : 'conexiones ocultas'}
@@ -382,7 +384,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               )}
 
               <div className="my-1 border-t border-slate-800" />
-              <div className="px-2 py-1 text-[10px] uppercase font-bold text-slate-500 tracking-wider">Núcleos de ideas</div>
+              <div className="px-2 py-1 text-[10px] uppercase font-bold text-slate-500 tracking-wider">{t('toolbar.nucleos')}</div>
               {onOpenTemplatesModal && (
                 <MenuItemP id="btn-templates-menu" icon={LayoutTemplate} label="Plantillas y galería"
                   onClick={() => { setMenuAbierto(null); onOpenTemplatesModal(); }} />
@@ -394,7 +396,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               )}
 
               <div className="my-1 border-t border-slate-800" />
-              <div className="px-2 py-1 text-[10px] uppercase font-bold text-slate-500 tracking-wider">Sistema</div>
+              <div className="px-2 py-1 text-[10px] uppercase font-bold text-slate-500 tracking-wider">{t('toolbar.sistema')}</div>
               {onOpenHitlModal && (
                 <MenuItemP id="btn-toolbar-hitl" icon={Brain} label="Auto-Mejora (HITL)"
                   hint={hitlDecisionsCount !== undefined ? String(hitlDecisionsCount) : undefined}
@@ -416,7 +418,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             id="btn-user-profile"
             onClick={onOpenAuthModal}
             className="flex items-center gap-2 group text-left transition-opacity hover:opacity-90"
-            title="Autenticación y perfil de usuario"
+            title={t('toolbar.perfil.ayuda')}
           >
             {currentUser?.avatar ? (
               <img

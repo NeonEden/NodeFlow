@@ -7,6 +7,7 @@ import {
   rechazarPropuestas,
 } from '../services/agentService';
 import { apiUrl } from '../services/apiBase';
+import { useIdioma } from '../i18n/useIdioma';
 
 interface AgentChangesPanelProps {
   isOpen: boolean;
@@ -47,6 +48,7 @@ export const AgentChangesPanel: React.FC<AgentChangesPanelProps> = ({
   onResolved,
   showToast,
 }) => {
+  const { t } = useIdioma();
   const [ocupado, setOcupado] = useState<string | null>(null);
 
   /** Fase 5.5 — el curador: mira el lienzo y propone fusiones y podas con motivo. No aplica nada. */
@@ -147,7 +149,7 @@ export const AgentChangesPanel: React.FC<AgentChangesPanelProps> = ({
           <button
             onClick={onClose}
             className="p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
-            title="Cerrar"
+            title={t('modal.cerrarCorto')}
           >
             <X className="w-5 h-5" />
           </button>
@@ -158,7 +160,7 @@ export const AgentChangesPanel: React.FC<AgentChangesPanelProps> = ({
           {total === 0 ? (
             <div className="flex flex-col items-center justify-center py-14 text-center">
               <Inbox className="w-10 h-10 text-slate-600 mb-3" />
-              <p className="text-sm text-slate-300">No hay cambios pendientes</p>
+              <p className="text-sm text-slate-300">{t('agente.sinPendientes')}</p>
               <p className="text-[11px] text-slate-500 mt-1 max-w-md">
                 Cuando el agente escriba en el lienzo (por MCP), cada escritura va a aparecer acá con su
                 vista previa para que la apruebes o la rechaces. El panel se refresca solo cada 3 s.

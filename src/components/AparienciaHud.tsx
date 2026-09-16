@@ -8,6 +8,7 @@ import {
   PREFS_POR_DEFECTO,
 } from '../state/canvasPrefs';
 import { luminancia } from '../state/canvasTheme';
+import { useIdioma } from '../i18n/useIdioma';
 
 /**
  * Apariencia del lienzo: fondo y superficie de las tarjetas.
@@ -17,6 +18,7 @@ import { luminancia } from '../state/canvasTheme';
  * modal de edición), que sí es un dato del concepto.
  */
 export const AparienciaHud: React.FC = () => {
+  const { t } = useIdioma();
   const prefs = usePrefs();
   const [abierto, setAbierto] = useState(false);
   const fondoActivo = FONDOS.find((f) => f.id === prefs.fondoId);
@@ -31,10 +33,10 @@ export const AparienciaHud: React.FC = () => {
             ? 'bg-indigo-500/10 border-indigo-400/70 text-indigo-600'
             : 'bg-[var(--nf-hud-bg)] border-[var(--nf-hud-border)] text-[var(--nf-hud-text)] hover:bg-[var(--nf-hud-hover)]'
         }`}
-        title="Colores del fondo y de las tarjetas"
+        title={t('apariencia.colores.ayuda')}
       >
         <Palette size={14} />
-        <span className="text-[10px] hidden sm:inline font-mono">Colores</span>
+        <span className="text-[10px] hidden sm:inline font-mono">{t('apariencia.colores')}</span>
       </button>
 
       {abierto && (
@@ -49,11 +51,11 @@ export const AparienciaHud: React.FC = () => {
             }}
           >
             <div className="flex items-center justify-between pb-2 mb-2 border-b border-[var(--nf-hud-border)]">
-              <span className="text-[11px] font-semibold">Apariencia del lienzo</span>
+              <span className="text-[11px] font-semibold">{t('apariencia.titulo')}</span>
               <button
                 type="button"
                 onClick={() => canvasPrefs.reset()}
-                title="Volver a los colores por defecto"
+                title={t('apariencia.restaurar')}
                 className="flex items-center gap-1 text-[10px] hover:opacity-80 transition-opacity cursor-pointer"
               >
                 <RotateCcw size={11} />
@@ -93,13 +95,13 @@ export const AparienciaHud: React.FC = () => {
             {/* Color propio: la paleta se deriva del fondo para que no queden
                 combinaciones ilegibles (tarjetas y textos siguen el contraste). */}
             <div className="flex items-center gap-2 mt-2 pt-2 border-t border-[var(--nf-hud-border)]">
-              <span className="text-[10px] opacity-70">Color propio:</span>
+              <span className="text-[10px] opacity-70">{t('apariencia.colorPropio')}</span>
               <input
                 type="color"
                 value={prefs.fondoLibre}
                 onChange={(e) => canvasPrefs.setFondoLibre(e.target.value)}
                 className="w-6 h-6 rounded cursor-pointer bg-transparent border-0"
-                title="Elegir cualquier color de fondo"
+                title={t('apariencia.colorPropio.ayuda')}
               />
               <span className="text-[10px] font-mono opacity-70 uppercase">
                 {prefs.fondoId === 'libre' ? prefs.fondoLibre : fondoActivo?.color || ''}

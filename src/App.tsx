@@ -78,6 +78,7 @@ import type { PlanVoz } from './services/vozService';
 import { medirContraste, resumenContraste } from './utils/contraste';
 import { TemplatesModal } from './components/TemplatesModal';
 import { ClearCanvasModal } from './components/ClearCanvasModal';
+import { useIdioma } from './i18n/useIdioma';
 import { HitlLearningModal } from './components/HitlLearningModal';
 import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal';
 import { ApiKeyModal } from './components/ApiKeyModal';
@@ -190,6 +191,7 @@ function posicionLibre(
 }
 
 export default function App() {
+  const { t } = useIdioma();
   // 1. Initial State from persistent localStorage or default template
   const initialCanvas = useMemo(() => loadInitialCanvas(), []);
   const [nodes, setNodes] = useState<CustomNode[]>(initialCanvas.nodes);
@@ -3136,7 +3138,7 @@ export default function App() {
                   </button>
                 </div>
                 {searchMatchingNodeIds.size === 0 ? (
-                  <p className="text-[11px] text-slate-500 italic">No se encontraron nodos coincidentes.</p>
+                  <p className="text-[11px] text-slate-500 italic">{t('busqueda.sinResultados')}</p>
                 ) : (
                   <div className="flex flex-col gap-1.5 max-h-40 overflow-y-auto pr-1">
                     {nodes
@@ -3169,23 +3171,23 @@ export default function App() {
                   type="button"
                   onClick={() => handleAddNode(true)}
                   className="h-16 border border-dashed border-slate-700 rounded-lg flex flex-col items-center justify-center gap-1 cursor-pointer hover:border-indigo-500 hover:bg-indigo-500/5 transition-colors group"
-                  title="Crear nodo raíz"
+                  title={t('lienzo.root.ayuda')}
                 >
                   <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" fill="none" strokeWidth="2" className="text-slate-500 group-hover:text-indigo-400">
                     <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
                   </svg>
-                  <span className="text-[10px] text-slate-500 group-hover:text-indigo-300 font-medium">Root</span>
+                  <span className="text-[10px] text-slate-500 group-hover:text-indigo-300 font-medium">{t('lienzo.root')}</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => handleAddNode(false)}
                   className="h-16 border border-dashed border-slate-700 rounded-lg flex flex-col items-center justify-center gap-1 cursor-pointer hover:border-emerald-500 hover:bg-emerald-500/5 transition-colors group"
-                  title="Crear nodo de lógica / hipótesis"
+                  title={t('lienzo.logic.ayuda')}
                 >
                   <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" fill="none" strokeWidth="2" className="text-slate-500 group-hover:text-emerald-400">
                     <circle cx="12" cy="12" r="10" />
                   </svg>
-                  <span className="text-[10px] text-slate-500 group-hover:text-emerald-300 font-medium">Logic</span>
+                  <span className="text-[10px] text-slate-500 group-hover:text-emerald-300 font-medium">{t('lienzo.logic')}</span>
                 </button>
               </div>
             </section>
@@ -3203,7 +3205,7 @@ export default function App() {
                   className="w-full flex items-center gap-2 px-3 py-1.5 bg-rose-950/10 hover:bg-rose-950/30 text-rose-300/90 hover:text-rose-200 border border-rose-900/30 hover:border-rose-800/50 rounded-xl text-xs font-medium transition-colors cursor-pointer"
                 >
                   <Trash2 size={13} className="text-rose-400" />
-                  <span>Borrar / Limpiar Lienzo</span>
+                  <span>{t('lienzo.borrar')}</span>
                 </button>
               </div>
             </section>
@@ -3211,7 +3213,7 @@ export default function App() {
             {/* Section 3: Active State & Persistence */}
             <section className="space-y-1.5">
               <h3 className="text-[10px] uppercase tracking-widest text-slate-500 font-bold mb-2 flex items-center justify-between">
-                <span>Persistencia</span>
+                <span>{t('lienzo.persistencia')}</span>
                 <span className="flex items-center gap-1.5">
                   {propuestas.length > 0 && (
                     <span className="text-[9px] normal-case text-amber-300 font-mono bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/30">
@@ -3230,7 +3232,7 @@ export default function App() {
                 type="button"
                 id="btn-cambios-del-agente"
                 onClick={() => setIsAgentPanelOpen(true)}
-                title="Propuestas del agente esperando aprobación"
+                title={t('hud.agente.ayuda')}
                 className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold border transition-colors cursor-pointer ${
                   propuestas.length
                     ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-50 border-amber-500/50'
@@ -3238,7 +3240,7 @@ export default function App() {
                 }`}
               >
                 <Inbox size={14} className={propuestas.length ? 'text-amber-300' : 'text-slate-500'} />
-                <span>Cambios del agente</span>
+                <span>{t('hud.agente')}</span>
                 <span className={`ml-auto text-[9px] font-mono px-1.5 py-0.5 rounded border ${
                   propuestas.length
                     ? 'text-amber-300 bg-amber-900/40 border-amber-700/50'
@@ -3250,20 +3252,20 @@ export default function App() {
 
               <div className="bg-slate-900/70 rounded-xl border border-slate-800 p-3">
                 <div className="flex justify-between items-center mb-1.5">
-                  <span className="text-[10px] text-slate-400">Almacenamiento</span>
-                  <span className="text-[10px] text-indigo-300 font-mono">Persistente</span>
+                  <span className="text-[10px] text-slate-400">{t('hud.almacenamiento')}</span>
+                  <span className="text-[10px] text-indigo-300 font-mono">{t('hud.persistente')}</span>
                 </div>
                 <div className="flex justify-between items-center mb-1.5">
-                  <span className="text-[10px] text-slate-400">Último guardado</span>
+                  <span className="text-[10px] text-slate-400">{t('hud.ultimoGuardado')}</span>
                   <span className="text-[10px] text-slate-300 font-mono truncate max-w-[130px]">{lastSyncText}</span>
                 </div>
                 <div className="flex justify-between items-center mb-1.5">
-                  <span className="text-[10px] text-slate-400">Nodos / conexiones</span>
+                  <span className="text-[10px] text-slate-400">{t('hud.nodosConexiones')}</span>
                   <span className="text-[10px] text-slate-300 font-mono tabular-nums">{nodes.length} / {edges.length}</span>
                 </div>
                 {/* Fase 3: el disco es la fuente de verdad */}
                 <div className="flex justify-between items-center mb-1.5">
-                  <span className="text-[10px] text-slate-400">Vault en disco</span>
+                  <span className="text-[10px] text-slate-400">{t('hud.vaultEnDisco')}</span>
                   <span
                     className="text-[10px] text-emerald-300 font-mono truncate max-w-[130px]"
                     title={vaultInfo?.vault || 'sin conexión con el backend'}
@@ -3301,28 +3303,28 @@ export default function App() {
               </div>
 
               {/* Paneles: mismo lenguaje que las secciones de arriba — icono + etiqueta + chip */}
-              <p className="text-[10px] uppercase tracking-widest text-slate-500 font-bold pt-1">Paneles</p>
+              <p className="text-[10px] uppercase tracking-widest text-slate-500 font-bold pt-1">{t('hud.paneles')}</p>
               <div className="space-y-1.5">
                 {/* Fase 5b: buscar en toda la bóveda de Obsidian */}
                 <button
                   type="button"
                   onClick={() => setIsMemoriaOpen(true)}
-                  title="Buscar en todas tus notas y traer una al lienzo"
+                  title={t('panel.memoria.ayuda')}
                   className="w-full flex items-center gap-2 px-3 py-2 bg-slate-900/70 hover:bg-slate-800/70 text-sky-200 border border-slate-800 hover:border-sky-700/60 rounded-xl text-xs font-medium transition-colors cursor-pointer group"
                 >
                   <Database size={14} className="text-sky-400 shrink-0" />
-                  <span className="truncate">Memoria del vault</span>
+                  <span className="truncate">{t('panel.memoria')}</span>
                   <span className="ml-auto shrink-0 whitespace-nowrap text-[9px] text-sky-300 font-mono bg-sky-900/50 px-1.5 py-0.5 rounded border border-sky-700/50">BM25</span>
                 </button>
                 {/* Fase 8: capturar conocimiento y exportar el mapa */}
                 <button
                   type="button"
                   onClick={() => setIsConocimientoOpen(true)}
-                  title="Convertir texto en nodos propuestos y exportar el mapa"
+                  title={t('panel.conocimiento.ayuda')}
                   className="w-full flex items-center gap-2 px-3 py-2 bg-slate-900/70 hover:bg-slate-800/70 text-emerald-200 border border-slate-800 hover:border-emerald-700/60 rounded-xl text-xs font-medium transition-colors cursor-pointer group"
                 >
                   <BookOpen size={14} className="text-emerald-400 shrink-0" />
-                  <span className="truncate">Conocimiento</span>
+                  <span className="truncate">{t('panel.conocimiento')}</span>
                   <span className="ml-auto shrink-0 whitespace-nowrap text-[9px] text-emerald-300 font-mono bg-emerald-900/50 px-1.5 py-0.5 rounded border border-emerald-700/50">captura</span>
                 </button>
                 {/* Fase B: voz → plan de operaciones sobre el lienzo (Speechmatics) */}
@@ -3334,7 +3336,7 @@ export default function App() {
                   className="w-full flex items-center gap-2 px-3 py-2 bg-slate-900/70 hover:bg-slate-800/70 text-cyan-200 border border-slate-800 hover:border-cyan-700/60 rounded-xl text-xs font-medium transition-colors cursor-pointer group"
                 >
                   <Mic size={14} className="text-cyan-400 shrink-0" />
-                  <span className="truncate">Voz</span>
+                  <span className="truncate">{t('panel.voz')}</span>
                   <span className="ml-auto shrink-0 whitespace-nowrap text-[9px] text-cyan-300 font-mono bg-cyan-900/50 px-1.5 py-0.5 rounded border border-cyan-700/50">hablar</span>
                 </button>
                 <button
@@ -3345,7 +3347,7 @@ export default function App() {
                   className="w-full flex items-center gap-2 px-3 py-2 bg-slate-900/70 hover:bg-slate-800/70 text-violet-200 border border-slate-800 hover:border-violet-700/60 rounded-xl text-xs font-medium transition-colors cursor-pointer group"
                 >
                   <Telescope size={14} className="text-violet-400 shrink-0" />
-                  <span className="truncate">Investigación</span>
+                  <span className="truncate">{t('panel.investigacion')}</span>
                   <span className="ml-auto shrink-0 whitespace-nowrap text-[9px] text-violet-300 font-mono bg-violet-900/50 px-1.5 py-0.5 rounded border border-violet-800/60">{estadoInvestigacion?.corriendo ? 'en curso' : `${estadoInvestigacion?.pasos?.length || 0} pasos`}</span>
                 </button>
                 <button
@@ -3356,7 +3358,7 @@ export default function App() {
                   className="w-full flex items-center gap-2 px-3 py-2 bg-slate-900/70 hover:bg-slate-800/70 text-cyan-200 border border-slate-800 hover:border-cyan-700/60 rounded-xl text-xs font-medium transition-colors cursor-pointer group"
                 >
                   <Brain size={14} className="text-cyan-400 shrink-0" />
-                  <span className="truncate">Pensar</span>
+                  <span className="truncate">{t('panel.pensar')}</span>
                   <span className="ml-auto shrink-0 whitespace-nowrap text-[9px] text-cyan-300 font-mono bg-cyan-900/50 px-1.5 py-0.5 rounded border border-cyan-700/50">cerebro</span>
                 </button>
                 <button
@@ -3367,7 +3369,7 @@ export default function App() {
                   className="w-full flex items-center gap-2 px-3 py-2 bg-slate-900/70 hover:bg-slate-800/70 text-amber-200 border border-slate-800 hover:border-amber-700/60 rounded-xl text-xs font-medium transition-colors cursor-pointer group"
                 >
                   <Compass size={14} className="text-amber-400 shrink-0" />
-                  <span className="truncate">Lo que sigue</span>
+                  <span className="truncate">{t('panel.siguiente')}</span>
                   <span className="ml-auto shrink-0 whitespace-nowrap text-[9px] text-amber-300 font-mono bg-amber-900/50 px-1.5 py-0.5 rounded border border-amber-800/60">camino crítico</span>
                 </button>
                 {/* Planilla de evaluación: medir los motores con las tareas reales */}
@@ -3379,7 +3381,7 @@ export default function App() {
                   className="w-full flex items-center gap-2 px-3 py-2 bg-slate-900/70 hover:bg-slate-800/70 text-violet-200 border border-slate-800 hover:border-violet-700/60 rounded-xl text-xs font-medium transition-colors cursor-pointer group"
                 >
                   <FlaskConical size={14} className="text-violet-400 shrink-0" />
-                  <span className="truncate">Evaluación</span>
+                  <span className="truncate">{t('panel.evaluacion')}</span>
                   <span className="ml-auto shrink-0 whitespace-nowrap text-[9px] text-violet-300 font-mono bg-violet-900/50 px-1.5 py-0.5 rounded border border-violet-700/50">medir</span>
                 </button>
 
@@ -3391,7 +3393,7 @@ export default function App() {
                   className="w-full flex items-center gap-2 px-3 py-2 bg-slate-900/70 hover:bg-slate-800/70 text-lime-200 border border-slate-800 hover:border-lime-700/60 rounded-xl text-xs font-medium transition-colors cursor-pointer group"
                 >
                   <Sprout size={14} className="text-lime-400 shrink-0" />
-                  <span className="truncate">Jardín del lienzo</span>
+                  <span className="truncate">{t('panel.jardin')}</span>
                   <span className="ml-auto shrink-0 whitespace-nowrap text-[9px] text-lime-300 font-mono bg-lime-900/50 px-1.5 py-0.5 rounded border border-lime-700/50">grafo</span>
                 </button>
                 {/* Slice 1: expertos y artefactos */}
@@ -3402,7 +3404,7 @@ export default function App() {
                   className="w-full flex items-center gap-2 px-3 py-2 bg-slate-900/70 hover:bg-slate-800/70 text-violet-200 border border-slate-800 hover:border-violet-700/60 rounded-xl text-xs font-medium transition-colors cursor-pointer group"
                 >
                   <WandSparkles size={14} className="text-violet-400 shrink-0" />
-                  <span className="truncate">Orquestador</span>
+                  <span className="truncate">{t('panel.orquestador')}</span>
                   <span className="ml-auto shrink-0 whitespace-nowrap text-[9px] text-violet-300 font-mono bg-violet-900/50 px-1.5 py-0.5 rounded border border-violet-700/50">experto</span>
                 </button>
                 <button
@@ -3411,7 +3413,7 @@ export default function App() {
                   className="w-full flex items-center gap-2 px-3 py-2 bg-slate-900/70 hover:bg-slate-800/70 text-indigo-200 border border-slate-800 hover:border-indigo-700/60 rounded-xl text-xs font-medium transition-colors cursor-pointer group"
                 >
                   <Save size={14} className="text-indigo-400 shrink-0" />
-                  <span className="truncate">Guardar progreso ahora</span>
+                  <span className="truncate">{t('hud.guardarAhora')}</span>
                   <span className="ml-auto shrink-0 whitespace-nowrap text-[9px] text-indigo-300 font-mono bg-indigo-900/50 px-1.5 py-0.5 rounded border border-indigo-700/50">disco</span>
                 </button>
               </div>
@@ -3420,7 +3422,7 @@ export default function App() {
             {/* Section: HITL Continuous Learning Engine */}
             <section>
               <h3 className="text-[10px] uppercase tracking-widest text-slate-500 font-bold mb-2 flex items-center justify-between">
-                <span>Aprendizaje Continuo</span>
+                <span>{t('hitl.titulo')}</span>
                 <span className="flex items-center gap-1 text-[9px] normal-case text-violet-400 font-normal">
                   <span className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse" />
                   HITL Activo
@@ -3428,15 +3430,15 @@ export default function App() {
               </h3>
               <div className="bg-violet-950/20 rounded-xl border border-violet-800/40 p-3 space-y-2">
                 <div className="flex justify-between items-center text-[11px]">
-                  <span className="text-slate-400">Decisiones HITL</span>
+                  <span className="text-slate-400">{t('hitl.decisiones')}</span>
                   <span className="text-violet-200 font-bold font-mono">{hitlProfile.totalDecisions}</span>
                 </div>
                 <div className="flex justify-between items-center text-[11px]">
-                  <span className="text-slate-400">Aceptación</span>
+                  <span className="text-slate-400">{t('hitl.aceptacion')}</span>
                   <span className="text-emerald-400 font-bold font-mono">{hitlProfile.acceptanceRate}%</span>
                 </div>
                 <div className="flex justify-between items-center text-[11px]">
-                  <span className="text-slate-400">Aprendizaje automático</span>
+                  <span className="text-slate-400">{t('hitl.auto')}</span>
                   {hitlProfile.autoAprendizaje?.activo ? (
                     <span className="text-violet-200 font-mono">cada {hitlProfile.autoAprendizaje.cada}</span>
                   ) : (
@@ -3453,7 +3455,7 @@ export default function App() {
                   className="w-full mt-1 flex items-center justify-center gap-1.5 px-2.5 py-2 bg-violet-900/40 hover:bg-violet-900/60 text-violet-200 border border-violet-800/50 rounded-xl text-xs font-medium transition-colors cursor-pointer"
                 >
                   <Brain size={14} className="text-violet-400" />
-                  <span>Configurar Aprendizaje</span>
+                  <span>{t('hitl.configurar')}</span>
                 </button>
               </div>
             </section>
@@ -3486,7 +3488,7 @@ export default function App() {
                       className="w-full py-1.5 bg-slate-800 hover:bg-slate-700 text-indigo-300 hover:text-white font-medium text-[10px] rounded border border-indigo-500/30 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
                     >
                       <Compass size={12} className="text-emerald-400" />
-                      <span>SÍNTESIS ESTRATÉGICA</span>
+                      <span>{t('cocreacion.sintesis')}</span>
                     </button>
                   </div>
                 </div>
@@ -3574,7 +3576,7 @@ export default function App() {
                 type="button"
                 onClick={handleZoomOut}
                 className="p-1.5 md:p-2 hover:bg-[var(--nf-hud-hover)] rounded text-[var(--nf-hud-text)] border-r border-[var(--nf-hud-border)] transition-colors text-xs font-bold leading-none cursor-pointer"
-                title="Alejar"
+                title={t('zoom.alejar')}
               >
                 -
               </button>
@@ -3585,7 +3587,7 @@ export default function App() {
                 type="button"
                 onClick={handleZoomIn}
                 className="p-1.5 md:p-2 hover:bg-[var(--nf-hud-hover)] rounded text-[var(--nf-hud-text)] border-l border-[var(--nf-hud-border)] transition-colors text-xs font-bold leading-none cursor-pointer"
-                title="Acercar"
+                title={t('zoom.acercar')}
               >
                 +
               </button>
@@ -3593,7 +3595,7 @@ export default function App() {
                 type="button"
                 onClick={handleFitView}
                 className="p-1.5 md:p-2 hover:bg-[var(--nf-hud-hover)] rounded text-[var(--nf-hud-text)] border-l border-[var(--nf-hud-border)] transition-colors cursor-pointer"
-                title="Ajustar y centrar vista"
+                title={t('zoom.ajustar')}
               >
                 <Maximize2 size={13} />
               </button>
@@ -3622,10 +3624,10 @@ export default function App() {
               type="button"
               onClick={() => setIsShortcutsOpen(true)}
               className="bg-[var(--nf-hud-bg)] hover:bg-[var(--nf-hud-hover)] border border-[var(--nf-hud-border)] rounded-lg p-2 text-[var(--nf-hud-text)] backdrop-blur-md flex items-center gap-1.5 text-xs shadow-lg transition-colors cursor-pointer"
-              title="Atajos de teclado y ayuda"
+              title={t('atajos.ayuda')}
             >
               <Keyboard size={14} />
-              <span className="text-[10px] hidden sm:inline font-mono">Atajos</span>
+              <span className="text-[10px] hidden sm:inline font-mono">{t('atajos.titulo')}</span>
             </button>
 
             {/* Autoría: chica, pero en la esquina donde se lee */}
@@ -3659,7 +3661,7 @@ export default function App() {
                   type="button"
                   onClick={() => setIsNorteOpen(false)}
                   className="text-slate-500 hover:text-slate-200 transition-colors cursor-pointer"
-                  title="Cerrar (Enter)"
+                  title={t('modal.cerrar')}
                 >
                   <X size={13} />
                 </button>
@@ -3677,7 +3679,7 @@ export default function App() {
                 }`}
               >
                 <Target size={13} className={norte ? 'text-violet-400' : ''} />
-                {norte ? <span className="max-w-[22rem] truncate">{norte}</span> : <span>Norte estratégico</span>}
+                {norte ? <span className="max-w-[22rem] truncate">{norte}</span> : <span>{t('norte.titulo')}</span>}
               </button>
             )}
           </div>
@@ -3698,11 +3700,11 @@ export default function App() {
                   type="button"
                   id="btn-quick-connect-nodes"
                   onClick={handleConnectSelectedNodes}
-                  title="Crear conexión directa entre ambos nodos (Atajo: U)"
+                  title={t('accion.unir.ayuda')}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-100 hover:text-white rounded-xl text-xs font-medium border border-slate-700/80 transition-colors cursor-pointer"
                 >
                   <Network size={14} className="text-emerald-400" />
-                  <span>Unir Conexión</span>
+                  <span>{t('accion.unir')}</span>
                   <kbd className="text-[10px] px-1 py-0.5 bg-slate-900 text-slate-400 rounded font-mono">U</kbd>
                 </button>
               )}
@@ -3716,7 +3718,7 @@ export default function App() {
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-xl text-xs font-semibold shadow-md transition-all cursor-pointer disabled:opacity-50"
               >
                 <Sparkles size={14} />
-                <span>Hibridar IA</span>
+                <span>{t('accion.hibridar')}</span>
                 <kbd className="text-[10px] px-1 py-0.5 bg-purple-900/60 text-purple-200 rounded font-mono">H</kbd>
               </button>
 
@@ -3736,11 +3738,11 @@ export default function App() {
                 type="button"
                 id="btn-quick-bridges-scan"
                 onClick={handleOpenBridgesModal}
-                title="Escanear puentes semánticos y relaciones ocultas"
+                title={t('accion.puentes.ayuda')}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-xl text-xs font-medium border border-slate-700/80 transition-colors cursor-pointer"
               >
                 <Compass size={14} className="text-cyan-400" />
-                <span className="hidden sm:inline">Puentes Ocultos</span>
+                <span className="hidden sm:inline">{t('accion.puentes')}</span>
               </button>
 
               <button
@@ -3748,7 +3750,7 @@ export default function App() {
                 id="btn-quick-deselect"
                 onClick={() => setSelectedNodes([])}
                 className="p-1.5 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
-                title="Deseleccionar (Esc)"
+                title={t('accion.deseleccionar')}
               >
                 <X size={15} />
               </button>
@@ -3772,12 +3774,12 @@ export default function App() {
                 <div>
                   <div className="font-semibold text-white text-[13px] flex items-center justify-between mb-0.5">
                     <span className="flex items-center gap-1.5">
-                      <span>Co-creación IA</span>
+                      <span>{t('cocreacion.titulo')}</span>
                       <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-400">
-                    Selecciona 2 o más nodos y pulsa <strong className="text-indigo-300 font-medium">Hibridador IA</strong> para descubrir sinergias conceptuales, o pulsa <strong className="text-emerald-300 font-medium">Ramificar</strong> en cualquier nodo.
+                    Selecciona 2 o más nodos y pulsa <strong className="text-indigo-300 font-medium">{t('cocreacion.hibridador')}</strong> para descubrir sinergias conceptuales, o pulsa <strong className="text-emerald-300 font-medium">{t('accion.ramificar')}</strong> en cualquier nodo.
                   </p>
                 </div>
               </div>
@@ -3789,7 +3791,7 @@ export default function App() {
               className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900/70 hover:bg-slate-900 border border-slate-800 hover:border-indigo-500/40 text-slate-400 hover:text-indigo-300 text-xs backdrop-blur-md shadow-lg transition-all duration-200 cursor-pointer opacity-30 hover:opacity-100 group-hover:opacity-100 group-hover:border-indigo-500/60"
             >
               <BrainCircuit size={14} className="text-indigo-400" />
-              <span className="text-[11px] font-medium tracking-tight">Co-creación IA</span>
+              <span className="text-[11px] font-medium tracking-tight">{t('cocreacion.titulo')}</span>
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
             </div>
           </div>
