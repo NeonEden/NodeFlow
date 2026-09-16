@@ -69,6 +69,8 @@ export const CerebroPanel: React.FC<Props> = ({ isOpen, onClose, showToast, suge
   const [estadoGateway, setEstadoGateway] = useState<'apagado' | 'arrancando' | 'listo' | 'error'>('apagado');
   const [enVivo, setEnVivo] = useState('');
   const [pensando, setPensando] = useState('');
+  /** Cuánto razonó el modelo en el turno (llega en cientos de pedacitos: se resume). */
+  const [razonado, setRazonado] = useState(0);
   const [herramientas, setHerramientas] = useState<string[]>([]);
   const [modelo, setModelo] = useState('');
   const [uso, setUso] = useState<Record<string, unknown> | null>(null);
@@ -196,6 +198,7 @@ export const CerebroPanel: React.FC<Props> = ({ isOpen, onClose, showToast, suge
       setPedido('');
       setEnVivo('');
       setPensando('');
+      setRazonado(0);
       setHerramientas([]);
       setUso(null);
       setAprobacion(null);
@@ -224,6 +227,7 @@ export const CerebroPanel: React.FC<Props> = ({ isOpen, onClose, showToast, suge
           },
           onDelta: (t) => setEnVivo(t),
           onPensando: (t) => setPensando(t),
+          onRazonando: (n) => setRazonado(n),
           onInfo: (i) => setModelo(String(i.model || i.provider || '')),
           onHerramienta: (nombre, fase) =>
             setHerramientas((hs) => {
@@ -492,6 +496,11 @@ export const CerebroPanel: React.FC<Props> = ({ isOpen, onClose, showToast, suge
                 {modelo && <span className="text-[10px] font-mono text-slate-400">{modelo}</span>}
                 {pensando && (
                   <span className="text-[11px] text-slate-400 italic truncate">· {pensando}</span>
+                )}
+                {razonado > 0 && (
+                  <span className="text-[10px] font-mono text-violet-300/80" title="Tokens de razonamiento del modelo en este turno">
+                    razonando {razonado}
+                  </span>
                 )}
                 <span className="ml-auto flex items-center gap-1 text-[11px] text-slate-400">
                   <Clock size={11} /> {segundos}s

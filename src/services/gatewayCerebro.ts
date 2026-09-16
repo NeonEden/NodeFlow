@@ -41,6 +41,8 @@ export interface Manos {
   onSesion?: (id: string, reanudada: boolean) => void;
   onDelta?: (texto: string) => void;
   onPensando?: (texto: string) => void;
+  /** El modelo razonando (`reasoning.delta`): llega en cientos de pedacitos, se resume en un contador. */
+  onRazonando?: (chars: number) => void;
   onHerramienta?: (nombre: string, fase: 'inicio' | 'fin', detalle?: string) => void;
   onTitulo?: (titulo: string) => void;
   onInfo?: (info: Record<string, unknown>) => void;
@@ -60,6 +62,7 @@ export class GatewayCerebro {
   private contador = 0;
   private pendientes = new Map<string, Pendiente>();
   private texto = '';
+  private razonado = 0;
   private sesion: string | null = null;
   private pedidoActual = '';
 
@@ -120,6 +123,7 @@ export class GatewayCerebro {
   async turno(texto: string, sesionPrevia?: string | null): Promise<void> {
     this.pedidoActual = texto;
     this.texto = '';
+    this.razonado = 0;
     if (!this.sesion) {
       if (sesionPrevia) {
         try {
@@ -245,6 +249,13 @@ export class GatewayCerebro {
       case 'thinking.delta':
         this.manos.onPensando?.(String(p.text || ''));
         break;
+      case 'reasoning.delta': {
+        // El razonamiento del modelo llega en cientos de pedacitos (medido: 312 en un turno). En vez de
+        // pintar cada uno, se cuenta: el panel muestra «razonando… N».
+        this.razonado += String(p.text || '').length;
+        this.manos.onRazonando?.(this.razonado);
+        break;
+      }
       case 'tool.start':
       case 'tool.started':
       case 'tool.generating':
