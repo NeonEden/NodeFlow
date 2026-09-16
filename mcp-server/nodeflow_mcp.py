@@ -568,7 +568,91 @@ def texto_error(data):
     return f"ERROR: {data}"
 
 
+# ── Fase 5.3: el registro de herramientas del cerebro ─────────────────────────────────────────
+# El agente crea herramientas (scripts en la bóveda); el humano las aprueba; acá se exponen como tools
+# MCP de primera clase, así el modelo las ve y las usa como cualquier otra. La ejecución la hace el
+# backend de la app (jaula, tope de tiempo y auditoría viven ahí, no en este adaptador).
+PREFIJO_HERRAMIENTA = "cerebro_"
+_ultimas_herramientas = []
+
+
+def registro():
+    """Las herramientas ya aprobadas (vacío si la app no responde)."""
+    ok, d = api("/api/cerebro/herramientas")
+    if not ok:
+        return []
+    return d.get("herramientas") or []
+
+
+def tools_del_registro():
+    """Cada herramienta del registro se expone como una tool MCP más."""
+    out = []
+    for h in registro():
+        nombre = str(h.get("nombre") or "").strip()
+        if not nombre:
+            continue
+        out.append({
+            "name": PREFIJO_HERRAMIENTA + nombre,
+            "description": f"[herramienta del cerebro] {h.get('descripcion')} · riesgo: {h.get('riesgo')}",
+            "inputSchema": h.get("parametros") or {"type": "object", "properties": {}},
+        })
+    return out
+
+
+def llamar_herramienta(nombre, args):
+    """Corre una herramienta del registro por el backend (que aplica la jaula y el tope)."""
+    ok, d = api("/api/cerebro/herramienta", {"nombre": nombre, "parametros": args or {}}, "POST")
+    if not ok:
+        return f"«{nombre}» falló: {d.get('error') or d}", True
+    return f"{d.get('salida')}\n\n({nombre} · {d.get('ms')} ms)", False
+
+
+def t_crear_herramienta(args):
+    """Propone una herramienta nueva: entra a la cola de propuestas y el humano la aprueba."""
+    ok, d = api("/api/cerebro/herramienta/proponer", args, "POST")
+    if not ok:
+        return f"No pude proponer la herramienta: {d.get('error') or d}"
+    vista = d.get("vista") or {}
+    return (
+        f"Propuesta registrada ({d.get('id_pendiente')}): {vista.get('resumen')}\n"
+        f"Riesgo: {vista.get('riesgo')} · se escribe en {vista.get('ubicacion')}\n"
+        "Espera aprobación humana en «Cambios del agente»; cuando la aprueben, la vas a ver como tool."
+    )
+
+
+def avisar_lista_cambiada():
+    """Avisa que la lista de tools cambió (una herramienta nueva aprobada): Hermes re-registra en caliente."""
+    try:
+        sys.stdout.write(
+            json.dumps({"jsonrpc": "2.0", "method": "notifications/tools/list_changed"}) + "\n"
+        )
+        sys.stdout.flush()
+    except Exception:
+        pass
+
+
 TOOLS = [
+    {
+        "name": "crear_herramienta",
+        "description": (
+            "Propone una HERRAMIENTA nueva para el cerebro de NodeFlow: un script Python (run.py) que "
+            "recibe los parámetros por stdin en JSON. Se guarda en <bóveda>/cerebro/herramientas/<nombre>/ "
+            "y pasa a la cola de aprobación; cuando el humano la aprueba, queda disponible como tool "
+            "`cerebro_<nombre>` en el próximo turno. Usala cuando una tarea se repita o el proyecto necesite "
+            "una capacidad que hoy no existe. El nombre es un slug (minúsculas, números y _, 3-40)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "nombre": {"type": "string", "description": "Slug: resumen_lienzo, contar_categorias…"},
+                "descripcion": {"type": "string", "description": "Qué hace y cuándo usarla (lo lee el modelo)."},
+                "parametros": {"type": "object", "description": "JSON-Schema de los parámetros que recibe."},
+                "riesgo": {"type": "string", "description": "lectura · escritura · destructiva"},
+                "codigo": {"type": "string", "description": "El código de run.py (lee el JSON de stdin)."},
+            },
+            "required": ["nombre", "descripcion", "codigo"],
+        },
+    },
     {
         "name": "canvas_summary",
         "description": (
@@ -844,6 +928,7 @@ TOOLS = [
 ]
 
 HANDLERS = {
+    "crear_herramienta": t_crear_herramienta,
     "canvas_summary": t_summary,
     "canvas_stats": t_stats,
     "search_nodes": t_search,
@@ -890,7 +975,9 @@ def manejar(msg):
             "id": rid,
             "result": {
                 "protocolVersion": pedido,
-                "capabilities": {"tools": {"listChanged": False}},
+                # listChanged: el registro puede crecer en caliente (una herramienta nueva aprobada),
+                # así que el cliente tiene que poder re-registrar sin reiniciar nada.
+                "capabilities": {"tools": {"listChanged": True}},
                 "serverInfo": SERVER_INFO,
             },
         }
@@ -899,7 +986,14 @@ def manejar(msg):
     if metodo == "ping":
         return {"jsonrpc": "2.0", "id": rid, "result": {}}
     if metodo == "tools/list":
-        return {"jsonrpc": "2.0", "id": rid, "result": {"tools": TOOLS}}
+        global _ultimas_herramientas
+        del_registro = tools_del_registro()
+        todas = TOOLS + del_registro
+        nombres = [t["name"] for t in todas]
+        if nombres != _ultimas_herramientas:
+            _ultimas_herramientas = nombres
+            avisar_lista_cambiada()
+        return {"jsonrpc": "2.0", "id": rid, "result": {"tools": todas}}
     if metodo == "resources/list":
         return {"jsonrpc": "2.0", "id": rid, "result": {"resources": []}}
     if metodo == "prompts/list":
@@ -908,6 +1002,9 @@ def manejar(msg):
         params = msg.get("params") or {}
         nombre = params.get("name")
         args = params.get("arguments") or {}
+        if isinstance(nombre, str) and nombre.startswith(PREFIJO_HERRAMIENTA):
+            texto, fallo = llamar_herramienta(nombre[len(PREFIJO_HERRAMIENTA):], args)
+            return resultado(rid, texto, error=fallo)
         fn = HANDLERS.get(nombre)
         if fn is None:
             return resultado(rid, f"Herramienta desconocida: {nombre}", error=True)

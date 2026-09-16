@@ -1619,6 +1619,45 @@ impl Vault {
 
     /// Guarda una propuesta: valida el pedido y arma la vista para el panel, SIN tocar el grafo.
     /// Validar acá es lo que le da al agente un error inmediato en vez de uno diferido.
+    /// Vista de una herramienta propuesta: qué se va a escribir, con qué riesgo y cuánto código, para
+    /// que el humano decida con la información a la vista (no un «aprobar» a ciegas).
+    fn preview_herramienta(&self, req: &Value) -> Result<Value, String> {
+        let h = crate::cerebro_tools::parsear(&req.to_string())?;
+        let codigo = req["codigo"].as_str().unwrap_or("");
+        if codigo.trim().chars().count() < 10 {
+            return Err("la herramienta necesita código (run.py)".into());
+        }
+        let ubicacion = crate::cerebro_tools::dir_herramienta(&self.raiz(), &h.nombre)?;
+        Ok(json!({
+            "accion_legible": format!("Crear la herramienta «{}»", h.nombre),
+            "resumen": format!("herramienta {} ({}) — {} chars de código", h.nombre, h.riesgo, codigo.chars().count()),
+            "riesgo": h.riesgo,
+            "descripcion": h.descripcion,
+            "parametros": h.parametros,
+            "ubicacion": ubicacion.to_string_lossy(),
+            "codigo_chars": codigo.chars().count(),
+        }))
+    }
+
+    /// Aplica la propuesta: escribe la ficha y el código en el registro. Recién acá la herramienta existe.
+    fn aplicar_herramienta(&self, req: &Value) -> Result<Value, String> {
+        let h = crate::cerebro_tools::parsear(&req.to_string())?;
+        let codigo = req["codigo"].as_str().unwrap_or("");
+        let escritos = crate::cerebro_tools::escribir(&self.raiz(), &h, codigo)?;
+        log::info!(
+            "herramientas: creada «{}» ({}) en {}",
+            h.nombre,
+            h.riesgo,
+            escritos[0].display()
+        );
+        Ok(json!({
+            "accion": "herramienta_creada",
+            "nombre": h.nombre,
+            "riesgo": h.riesgo,
+            "archivos": escritos.iter().map(|p| p.to_string_lossy().to_string()).collect::<Vec<_>>(),
+        }))
+    }
+
     pub fn propose(&self, tipo: &str, req: &Value) -> Result<Value, String> {
         let vista = match tipo {
             "nodo" => self.preview_nodo(req)?,
@@ -1626,6 +1665,8 @@ impl Vault {
             "borrar" => self.preview_borrar(req)?,
             "sanear" => self.preview_sanear()?,
             "reacomodar" => self.preview_reacomodar(req)?,
+            // Fase 5.3 — una herramienta nueva del cerebro: entra a la cola como cualquier otra escritura.
+            "herramienta" => self.preview_herramienta(req)?,
             otro => return Err(format!("tipo de propuesta desconocido: {otro}")),
         };
         let resumen = vista["resumen"].as_str().unwrap_or("").to_string();
@@ -1711,6 +1752,7 @@ impl Vault {
                 "borrar" => self.delete_node(payload),
                 "sanear" => self.prune(payload),
                 "reacomodar" => self.aplicar_layout(payload),
+                "herramienta" => self.aplicar_herramienta(payload),
                 _ => Err(format!("tipo desconocido: {tipo}")),
             };
             match res {

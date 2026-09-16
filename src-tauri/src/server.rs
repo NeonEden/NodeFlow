@@ -291,6 +291,13 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
             // Fase 4 — el gateway propio del cerebro: el panel se conecta por WebSocket y ve el turno
             // en vivo. Se levanta a pedido y se baja a pedido (nada corriendo de más).
             .route("/api/cerebro/briefing", post(cerebro_briefing))
+            // Fase 5.3 — el registro de herramientas del cerebro: listar, proponer (entra a la cola) y usar.
+            .route("/api/cerebro/herramientas", get(cerebro_herramientas))
+            .route(
+                "/api/cerebro/herramienta/proponer",
+                post(cerebro_herramienta_proponer),
+            )
+            .route("/api/cerebro/herramienta", post(cerebro_herramienta_usar))
             .route("/api/cerebro/gateway", get(cerebro_gateway_estado))
             .route(
                 "/api/cerebro/gateway/arrancar",
@@ -2883,6 +2890,83 @@ async fn ai_evaluar_leer(State(st): State<AppState>) -> impl IntoResponse {
         "corriendo": crate::eval::en_curso(&st.data_dir),
         "tabla": crate::eval::leer(&st),
     }))
+}
+
+/// `GET /api/cerebro/herramientas` — el registro: lo que el cerebro puede usar más allá de las 22 del
+/// lienzo. Lo consumen el panel y el servidor MCP (una sola fuente de verdad).
+async fn cerebro_herramientas(State(st): State<AppState>) -> impl IntoResponse {
+    let lista = crate::cerebro_tools::listar(&st.vault.raiz());
+    Json(json!({
+        "success": true,
+        "herramientas": lista.iter().map(|h| json!({
+            "nombre": h.nombre,
+            "descripcion": h.descripcion,
+            "parametros": h.parametros,
+            "riesgo": h.riesgo,
+        })).collect::<Vec<_>>(),
+        "carpeta": crate::cerebro_tools::dir_registro(&st.vault.raiz()).to_string_lossy(),
+    }))
+}
+
+/// `POST /api/cerebro/herramienta/proponer` — una herramienta nueva entra a la **cola de propuestas**: el
+/// humano la ve (riesgo, descripción, qué archivos se escriben) y recién al aprobarla queda disponible.
+async fn cerebro_herramienta_proponer(
+    State(st): State<AppState>,
+    Json(mut body): Json<Value>,
+) -> impl IntoResponse {
+    if body["origen"].is_null() {
+        body["origen"] = json!("cerebro");
+    }
+    match st.vault.propose("herramienta", &body) {
+        Ok(v) => (StatusCode::OK, Json(v)),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "success": false, "error": e })),
+        ),
+    }
+}
+
+/// `POST /api/cerebro/herramienta {nombre, parametros}` — la ejecuta. La jaula (nombre válido, carpeta
+/// dentro del registro, tope de tiempo, salida acotada) vive en `cerebro_tools`.
+async fn cerebro_herramienta_usar(
+    State(st): State<AppState>,
+    Json(body): Json<Value>,
+) -> impl IntoResponse {
+    let nombre = body["nombre"].as_str().unwrap_or("").trim().to_string();
+    if nombre.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "success": false, "error": "falta `nombre`" })),
+        );
+    }
+    let parametros = body.get("parametros").cloned().unwrap_or_else(|| json!({}));
+    let raiz = st.vault.raiz();
+    // `ejecutar` es bloqueante (subproceso con tope): no puede frenar el runtime de axum.
+    let para_correr = nombre.clone();
+    let r = tokio::task::spawn_blocking(move || {
+        crate::cerebro_tools::ejecutar(&raiz, &para_correr, &parametros)
+    })
+    .await;
+    match r {
+        Ok(Ok((salida, ms))) => {
+            log::info!("herramientas: «{nombre}» ok en {ms} ms");
+            (
+                StatusCode::OK,
+                Json(json!({ "success": true, "nombre": nombre, "salida": salida, "ms": ms })),
+            )
+        }
+        Ok(Err(e)) => {
+            log::warn!("herramientas: «{nombre}» falló: {e}");
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "success": false, "nombre": nombre, "error": e })),
+            )
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "success": false, "error": format!("no pude ejecutar: {e}") })),
+        ),
+    }
 }
 
 /// `POST /api/cerebro/briefing {pedido}` — el estado del proyecto en un bloque corto, para anteponerlo al
