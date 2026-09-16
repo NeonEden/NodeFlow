@@ -6,6 +6,7 @@ import {
   aprobarPropuestas,
   rechazarPropuestas,
 } from '../services/agentService';
+import { apiUrl } from '../services/apiBase';
 
 interface AgentChangesPanelProps {
   isOpen: boolean;
@@ -26,6 +27,9 @@ const ICONO_TIPO: Record<string, string> = {
   conectar: '→',
   borrar: '✕',
   sanear: '⌗',
+  reacomodar: '⇅',
+  herramienta: '⚒',
+  fusionar: '⇥',
 };
 
 function hace(ms: number): string {
@@ -44,6 +48,36 @@ export const AgentChangesPanel: React.FC<AgentChangesPanelProps> = ({
   showToast,
 }) => {
   const [ocupado, setOcupado] = useState<string | null>(null);
+
+  /** Fase 5.5 — el curador: mira el lienzo y propone fusiones y podas con motivo. No aplica nada. */
+  const curar = async () => {
+    setOcupado('curar');
+    try {
+      const r = await fetch(apiUrl('/api/cerebro/curaduria'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      const d = await r.json();
+      if (d?.success) {
+        const n = (d.propuestas || []).length;
+        const decl = (d.declarados || []).length;
+        showToast(
+          n > 0
+            ? `Curaduría: ${n} propuesta(s) con motivo${decl ? ` y ${decl} aviso(s) de lo que no toqué` : ''}.`
+            : 'El lienzo no tiene ruido mecánico (sin duplicados, fragmentos ni sueltos).',
+          n > 0 ? 'info' : 'success',
+        );
+        onResolved();
+      } else {
+        showToast(String(d?.error || 'No pude curar el lienzo.'), 'error');
+      }
+    } catch {
+      showToast('No pude curar el lienzo (¿el backend está corriendo?).', 'error');
+    } finally {
+      setOcupado(null);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -101,6 +135,15 @@ export const AgentChangesPanel: React.FC<AgentChangesPanelProps> = ({
               </p>
             </div>
           </div>
+          <button
+            onClick={() => void curar()}
+            disabled={ocupado === 'curar'}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-900/70 text-slate-200 hover:bg-slate-800 border border-slate-700 disabled:opacity-40 cursor-pointer"
+            title="El curador mira el lienzo y propone fusiones y podas, cada una con su motivo y su evidencia. No aplica nada: entran acá."
+          >
+            {ocupado === 'curar' ? <Loader2 size={13} className="animate-spin" /> : <Bot size={13} />}
+            Curar lienzo
+          </button>
           <button
             onClick={onClose}
             className="p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
@@ -164,6 +207,9 @@ export const AgentChangesPanel: React.FC<AgentChangesPanelProps> = ({
                         </p>
                       ) : null}
 
+                      {p.payload?.evidencia ? (
+                        <p className="mt-1 text-[10px] text-slate-500 font-mono">{p.payload.evidencia}</p>
+                      ) : null}
                       {p.motivo ? (
                         <p className="mt-2 text-[11px] text-slate-500 italic">motivo: {p.motivo}</p>
                       ) : null}

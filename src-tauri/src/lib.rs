@@ -7,6 +7,7 @@ mod cerebro_tools;
 mod claves;
 mod conocimiento;
 mod costo;
+mod curador;
 mod dialogo;
 mod eval;
 mod expertos;

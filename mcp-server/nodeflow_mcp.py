@@ -611,6 +611,54 @@ def llamar_herramienta(nombre, args):
     return f"{d.get('salida')}\n\n({nombre} · {d.get('ms')} ms)", False
 
 
+def t_curaduria(args):
+    """Corre el curador mecánico: mira el lienzo y **propone** fusiones y podas con motivo (no toca nada).
+    Es idempotente: repetirla no duplica propuestas."""
+    ok, d = api("/api/cerebro/curaduria", {}, "POST")
+    if not ok:
+        return f"No pude curar: {d.get('error') or d}"
+    r = d.get("resumen") or {}
+    lineas = [
+        f"Curaduría del lienzo ({d.get('lienzo', {}).get('nodos')} nodos / {d.get('lienzo', {}).get('aristas')} aristas): "
+        f"{r.get('hallazgos')} hallazgo(s) · {r.get('propuestas')} propuesta(s) · {r.get('declarados')} declarado(s) sin proponer."
+    ]
+    for p in d.get("propuestas") or []:
+        estado = "ya estaba propuesto" if p.get("ya_estaba") else "propuesto"
+        lineas.append(f"- [{p.get('clase_legible')} · {p.get('confianza')}] {p.get('titulo')} → {estado} ({p.get('id_pendiente')})\n  porque: {p.get('motivo')}")
+    for p in d.get("declarados") or []:
+        lineas.append(f"- [sin proponer] {p.get('titulo')}: {p.get('motivo')}")
+    for e in d.get("errores") or []:
+        lineas.append(f"- [error] {e.get('titulo')}: {e.get('error')}")
+    if not (d.get("propuestas") or d.get("declarados")):
+        lineas.append("- El lienzo no tiene ruido mecánico: sin duplicados, sin títulos cubiertos por otro, sin fragmentos, sin sueltos.")
+    lineas.append("El humano aprueba (o rechaza) en bloque en «Cambios del agente».")
+    return "\n".join(lineas)
+
+
+def t_fusionar_nodos(args):
+    """Propone fusionar dos nodos que son el mismo tema (`origen` se absorbe en `destino`). Entra a la
+    cola: el humano aprueba. Es la vía del juicio del turno, cuando ninguna regla lo detecta."""
+    ok, d = api(
+        "/api/graph/merge",
+        {
+            "origen": args.get("origen", ""),
+            "destino": args.get("destino", ""),
+            "motivo": args.get("motivo", ""),
+        },
+        "POST",
+    )
+    if not ok:
+        return f"No pude proponer la fusión: {d.get('error') or d}"
+    v = d.get("vista") or {}
+    return (
+        f"{v.get('resumen')}\n"
+        f"- se re-apuntan {v.get('aristas_reapuntadas')} conexión(es), se descartan {v.get('aristas_descartadas')}"
+        f" · descripción del origen: {'se anexa al destino' if v.get('anexa_descripcion') else 'ya estaba en el destino'}\n"
+        f"- motivo: {v.get('motivo') or args.get('motivo')}\n"
+        f"Espera aprobación humana en «Cambios del agente» ({d.get('id_pendiente')})."
+    )
+
+
 def t_arquitectura(args):
     """Inventaría el proyecto (módulos, tamaños, roles, rutas HTTP, tools) y actualiza la nota
     `cerebro/arquitectura.md`. El bloque *mapa* de esa nota ya viaja en el briefing de cada turno: esta
@@ -700,6 +748,32 @@ def avisar_lista_cambiada():
 
 
 TOOLS = [
+    {
+        "name": "curaduria",
+        "description": (
+            "Corre el CURADOR del lienzo: reglas mecánicas (duplicados, casi duplicados, títulos cubiertos por "
+            "otro, fragmentos sin contenido, nodos sueltos) y **propone** fusiones y podas con motivo. No toca "
+            "nada: todo entra a la cola y el humano aprueba en bloque. Idempotente."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "fusionar_nodos",
+        "description": (
+            "Propone fusionar dos nodos que son el mismo tema: `origen` se absorbe en `destino` (se re-apuntan "
+            "sus conexiones y su texto se anexa al destino). Usala cuando VOS ves la duplicación semántica que "
+            "las reglas no ven — va a la cola con tu motivo."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "origen": {"type": "string", "description": "Nodo que se absorbe (id o título)."},
+                "destino": {"type": "string", "description": "Nodo que queda (id o título)."},
+                "motivo": {"type": "string", "description": "Por qué son el mismo tema (lo lee el humano)."},
+            },
+            "required": ["origen", "destino", "motivo"],
+        },
+    },
     {
         "name": "arquitectura",
         "description": (
@@ -1051,6 +1125,8 @@ HANDLERS = {
     "crear_herramienta": t_crear_herramienta,
     "mi_espacio": t_mi_espacio,
     "arquitectura": t_arquitectura,
+    "curaduria": t_curaduria,
+    "fusionar_nodos": t_fusionar_nodos,
     "anotar_bitacora": t_anotar_bitacora,
     "escribir_plan": t_escribir_plan,
     "canvas_summary": t_summary,

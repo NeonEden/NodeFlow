@@ -273,6 +273,7 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
             .route("/api/graph/node", post(graph_node))
             .route("/api/graph/edge", post(graph_edge))
             .route("/api/graph/node/delete", post(graph_delete))
+            .route("/api/graph/merge", post(graph_merge))
             .route("/api/graph/prune", post(graph_prune))
             // Fase 7a — agente jardín: diagnóstico, arreglo propuesto y reacomodo por niveles
             .route("/api/graph/garden", get(graph_garden))
@@ -291,6 +292,8 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
             // Fase 4 — el gateway propio del cerebro: el panel se conecta por WebSocket y ve el turno
             // en vivo. Se levanta a pedido y se baja a pedido (nada corriendo de más).
             .route("/api/cerebro/briefing", post(cerebro_briefing))
+            // Fase 5.5 — el curador: propone fusiones y podas con motivo (no aplica nada: va a la cola).
+            .route("/api/cerebro/curaduria", post(cerebro_curaduria))
             // Fase 5.4 — la arquitectura de la app, inventariada del árbol real (no escrita a mano).
             .route(
                 "/api/cerebro/arquitectura/generar",
@@ -3175,6 +3178,66 @@ fn mis_notas_del_cerebro(st: &AppState) -> Vec<String> {
     nombres
 }
 
+/// `POST /api/cerebro/curaduria` — el **curador del lienzo** (Fase 5.5): corre las reglas mecánicas y
+/// **propone** fusiones y podas, cada una con su motivo y su evidencia. No aplica nada: todo entra a la
+/// cola de propuestas y se aprueba (en bloque, si se quiere) en «Cambios del agente».
+/// Es idempotente: repetirla no duplica propuestas (el mismo resumen → ya propuesto).
+async fn cerebro_curaduria(
+    State(st): State<AppState>,
+    Json(_body): Json<Value>,
+) -> impl IntoResponse {
+    let Some(estado) = st.vault.read_state() else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "success": false, "error": "todavía no hay estado del lienzo en disco" })),
+        );
+    };
+    let nodos: Vec<Value> = estado["nodes"].as_array().cloned().unwrap_or_default();
+    let aristas: Vec<Value> = estado["edges"].as_array().cloned().unwrap_or_default();
+    let hallazgos = crate::curador::curar(&nodos, &aristas);
+    let mut creadas: Vec<Value> = Vec::new();
+    let mut declarados: Vec<Value> = Vec::new();
+    let mut errores: Vec<Value> = Vec::new();
+    for h in &hallazgos {
+        if h.propuesta["declarado"].as_bool().unwrap_or(false) {
+            declarados.push(json!({ "clase": h.clase, "titulo": h.titulo, "motivo": h.motivo }));
+            continue;
+        }
+        let tipo = h.propuesta["tipo"].as_str().unwrap_or("");
+        let mut payload = h.propuesta["payload"].clone();
+        // El motivo, la clase y la evidencia viajan con la propuesta: en la cola se lee *por qué*.
+        payload["motivo"] = json!(h.motivo);
+        payload["clase"] = json!(h.clase);
+        payload["evidencia"] = json!(h.evidencia);
+        payload["confianza"] = json!(h.confianza);
+        payload["origen"] = json!("curador");
+        match st.vault.propose(tipo, &payload) {
+            Ok(v) => creadas.push(json!({
+                "clase": h.clase,
+                "clase_legible": h.clase_legible(),
+                "titulo": h.titulo,
+                "motivo": h.motivo,
+                "confianza": h.confianza,
+                "id_pendiente": v["id_pendiente"],
+                "ya_estaba": v["accion"] == "ya_propuesto",
+            })),
+            Err(e) => errores.push(json!({ "titulo": h.titulo, "error": e })),
+        }
+    }
+    (
+        StatusCode::OK,
+        Json(json!({
+            "success": true,
+            "resumen": crate::curador::resumen(&hallazgos),
+            "propuestas": creadas,
+            "declarados": declarados,
+            "errores": errores,
+            "lienzo": { "nodos": nodos.len(), "aristas": aristas.len() },
+            "pendientes": st.vault.count_pending(),
+        })),
+    )
+}
+
 /// `POST /api/cerebro/arquitectura/generar` — inventaría el árbol real del proyecto y deja la nota
 /// `cerebro/arquitectura.md` en la bóveda. Desde ahí, el bloque *mapa* viaja en cada turno (Fase 5.4).
 ///
@@ -3783,6 +3846,16 @@ async fn graph_edge(State(st): State<AppState>, Json(p): Json<Value>) -> impl In
 }
 
 /// Borra un nodo y sus aristas (nunca el núcleo).
+/// `POST /api/graph/merge` — fusionar dos nodos: `origen` se absorbe en `destino` (Fase 5.5).
+/// Como el resto: propone, salvo `{"apply": true}`.
+async fn graph_merge(State(st): State<AppState>, Json(p): Json<Value>) -> impl IntoResponse {
+    if modo_apply(&p) {
+        responder(st.vault.merge_node(&p), "fusionado")
+    } else {
+        responder(st.vault.propose("fusionar", &p), "propuesta")
+    }
+}
+
 async fn graph_delete(State(st): State<AppState>, Json(p): Json<Value>) -> impl IntoResponse {
     if modo_apply(&p) {
         responder(st.vault.delete_node(&p), "borrado")

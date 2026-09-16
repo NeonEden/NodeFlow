@@ -26,10 +26,12 @@ export interface VistaPropuesta {
 
 export interface Propuesta {
   id: string;
-  tipo: 'nodo' | 'conectar' | 'borrar' | 'sanear';
+  tipo: 'nodo' | 'conectar' | 'borrar' | 'sanear' | 'reacomodar' | 'herramienta' | 'fusionar';
   creado_ms: number;
   origen: string;
   motivo: string;
+  /** Fase 5.5: lo que el curador deja pegado a su propuesta (clase, evidencia medida, confianza). */
+  payload?: { clase?: string; evidencia?: string; confianza?: string; [k: string]: unknown };
   vista: VistaPropuesta;
 }
 

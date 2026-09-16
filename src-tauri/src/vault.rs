@@ -1248,6 +1248,85 @@ impl Vault {
         Ok(res)
     }
 
+    /// Fase 5.5 — **fusionar**: `origen` se absorbe en `destino` (dos nodos del mismo tema que quedaron
+    /// separados). Qué hace, en orden: re-apunta al destino las aristas que tocaban el origen (sin
+    /// duplicar ni dejar lazos), anexa la descripción del origen a la del destino (para no perder texto)
+    /// y borra el origen. Es la acción que le faltaba al curador para poder proponer fusiones.
+    pub fn merge_node(&self, req: &Value) -> Result<Value, String> {
+        let needle_o = req["origen"]
+            .as_str()
+            .or_else(|| req["from"].as_str())
+            .ok_or("falta `origen`")?;
+        let needle_d = req["destino"]
+            .as_str()
+            .or_else(|| req["to"].as_str())
+            .ok_or("falta `destino`")?;
+        let (state, nodes, edges, map) = self.estado_base()?;
+        let appearance = state.get("appearance").cloned().unwrap_or(Value::Null);
+        let template_id = state.get("templateId").cloned().unwrap_or(Value::Null);
+        let origen = self
+            .resolve(&nodes, needle_o)
+            .ok_or_else(|| format!("no encontré el nodo origen: {needle_o}"))?;
+        let destino = self
+            .resolve(&nodes, needle_d)
+            .ok_or_else(|| format!("no encontré el nodo destino: {needle_d}"))?;
+        if origen == destino {
+            return Err("el origen y el destino son el mismo nodo".into());
+        }
+        let nodo = |id: &str| {
+            nodes
+                .iter()
+                .find(|n| n["id"].as_str() == Some(id))
+                .cloned()
+                .unwrap_or(Value::Null)
+        };
+        let (o_nodo, d_nodo) = (nodo(&origen), nodo(&destino));
+        if o_nodo["data"]["isRoot"].as_bool().unwrap_or(false) {
+            return Err("no fusiono el nodo núcleo (es la raíz del mapa)".into());
+        }
+        let (aristas, reapuntadas, descartadas) = fusionar_aristas(&edges, &origen, &destino);
+        let desc_o = o_nodo["data"]["description"]
+            .as_str()
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let desc_d = d_nodo["data"]["description"]
+            .as_str()
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let titulo_o = crate::curador::titulo_de(&o_nodo);
+        let anexo = descripcion_fundida(&desc_d, &desc_o, &titulo_o);
+        let nodos: Vec<Value> = nodes
+            .iter()
+            .filter(|n| n["id"].as_str() != Some(origen.as_str()))
+            .map(|n| {
+                if n["id"].as_str() != Some(destino.as_str()) {
+                    return n.clone();
+                }
+                let Some(ref texto) = anexo else {
+                    return n.clone();
+                };
+                let mut nuevo = n.clone();
+                if let Some(d) = nuevo.get_mut("data") {
+                    d["description"] = json!(texto);
+                }
+                nuevo
+            })
+            .collect();
+        let mut res = self.write_all(&nodos, &aristas, &appearance, &template_id, &map)?;
+        self.inner.lock().unwrap().agent_writes.remove(&origen);
+        res["accion"] = json!("fusionado");
+        res["origen"] = json!(origen);
+        res["destino"] = json!(destino);
+        res["titulo_origen"] = json!(titulo_o);
+        res["titulo_destino"] = json!(crate::curador::titulo_de(&d_nodo));
+        res["aristas_reapuntadas"] = json!(reapuntadas);
+        res["aristas_descartadas"] = json!(descartadas);
+        res["chars_absorbidos"] = json!(anexo.map(|a| a.chars().count()).unwrap_or(0));
+        Ok(res)
+    }
+
     /// Saca las aristas que apuntan a nodos inexistentes (integridad referencial del grafo).
     pub fn prune(&self, _req: &Value) -> Result<Value, String> {
         let (state, nodes, edges, map) = self.estado_base()?;
@@ -1667,6 +1746,7 @@ impl Vault {
             "reacomodar" => self.preview_reacomodar(req)?,
             // Fase 5.3 — una herramienta nueva del cerebro: entra a la cola como cualquier otra escritura.
             "herramienta" => self.preview_herramienta(req)?,
+            "fusionar" => self.preview_fusionar(req)?,
             otro => return Err(format!("tipo de propuesta desconocido: {otro}")),
         };
         let resumen = vista["resumen"].as_str().unwrap_or("").to_string();
@@ -1753,6 +1833,7 @@ impl Vault {
                 "sanear" => self.prune(payload),
                 "reacomodar" => self.aplicar_layout(payload),
                 "herramienta" => self.aplicar_herramienta(payload),
+                "fusionar" => self.merge_node(payload),
                 _ => Err(format!("tipo desconocido: {tipo}")),
             };
             match res {
@@ -2030,7 +2111,72 @@ impl Vault {
             "nodo_id": id,
             "aristas_afectadas": aristas,
             "peligro": "alto",
+            "motivo": req["motivo"].clone(),
             "antes": {"titulo": titulo, "descripcion": victima["data"]["description"]},
+        }))
+    }
+
+    fn preview_fusionar(&self, req: &Value) -> Result<Value, String> {
+        let needle_o = req["origen"]
+            .as_str()
+            .or_else(|| req["from"].as_str())
+            .ok_or("falta `origen`")?;
+        let needle_d = req["destino"]
+            .as_str()
+            .or_else(|| req["to"].as_str())
+            .ok_or("falta `destino`")?;
+        let (_state, nodes, edges, _map) = self.estado_base()?;
+        let origen = self
+            .resolve(&nodes, needle_o)
+            .ok_or_else(|| format!("no encontré el nodo origen: {needle_o}"))?;
+        let destino = self
+            .resolve(&nodes, needle_d)
+            .ok_or_else(|| format!("no encontré el nodo destino: {needle_d}"))?;
+        if origen == destino {
+            return Err("el origen y el destino son el mismo nodo".into());
+        }
+        let nodo = |id: &str| {
+            nodes
+                .iter()
+                .find(|n| n["id"].as_str() == Some(id))
+                .cloned()
+                .unwrap_or(Value::Null)
+        };
+        let (o_nodo, d_nodo) = (nodo(&origen), nodo(&destino));
+        if o_nodo["data"]["isRoot"].as_bool().unwrap_or(false) {
+            return Err("no fusiono el nodo núcleo (es la raíz del mapa)".into());
+        }
+        let (aristas, reapuntadas, descartadas) = fusionar_aristas(&edges, &origen, &destino);
+        let t_o = crate::curador::titulo_de(&o_nodo);
+        let t_d = crate::curador::titulo_de(&d_nodo);
+        let desc_o = o_nodo["data"]["description"]
+            .as_str()
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let desc_d = d_nodo["data"]["description"]
+            .as_str()
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let se_anexa = descripcion_fundida(&desc_d, &desc_o, &t_o).is_some();
+        Ok(json!({
+            "accion_legible": "Fusionar nodos",
+            "titulo": format!("{t_o} → {t_d}"),
+            "resumen": format!(
+                "Fusionar «{t_o}» en «{t_d}»: {} conexión(es) se re-apuntan{} y el nodo origen desaparece",
+                reapuntadas,
+                if descartadas > 0 { format!(" ({descartadas} descartadas por repetidas)") } else { String::new() }
+            ),
+            "origen": { "id": origen, "titulo": t_o, "chars": desc_o.chars().count() },
+            "destino": { "id": destino, "titulo": t_d, "chars": desc_d.chars().count() },
+            "aristas_reapuntadas": reapuntadas,
+            "aristas_descartadas": descartadas,
+            "aristas_despues": aristas.len(),
+            "anexa_descripcion": se_anexa,
+            "motivo": req["motivo"].clone(),
+            "peligro": "medio",
+            "antes": { "origen": t_o, "destino": { "titulo": t_d, "descripcion": desc_d } },
         }))
     }
 
@@ -2742,6 +2888,83 @@ pub fn start_watcher(vault: Arc<Vault>) {
     });
 }
 
+/// Re-apunta al `destino` las aristas que tocaban el `origen`. Devuelve `(aristas, reapuntadas,
+/// descartadas)`; se descartan las que quedarían repetidas (mismo par y misma etiqueta) y los lazos
+/// `destino → destino`. Es pura a propósito: es la parte riesgosa de la fusión.
+pub fn fusionar_aristas(
+    edges: &[Value],
+    origen: &str,
+    destino: &str,
+) -> (Vec<Value>, usize, usize) {
+    let clave = |e: &Value| {
+        (
+            e["source"].as_str().unwrap_or("").to_string(),
+            e["target"].as_str().unwrap_or("").to_string(),
+            e["label"].as_str().unwrap_or("").to_string(),
+        )
+    };
+    let mut out: Vec<Value> = Vec::new();
+    let mut vistas: std::collections::HashSet<(String, String, String)> = Default::default();
+    let mut reapuntadas = 0usize;
+    let mut descartadas = 0usize;
+    for e in edges {
+        let toca = e["source"].as_str() == Some(origen) || e["target"].as_str() == Some(origen);
+        if !toca {
+            let k = clave(e);
+            if !vistas.insert(k) {
+                descartadas += 1;
+                continue;
+            }
+            out.push(e.clone());
+            continue;
+        }
+        let mut nueva = e.clone();
+        if nueva["source"].as_str() == Some(origen) {
+            nueva["source"] = json!(destino);
+        }
+        if nueva["target"].as_str() == Some(origen) {
+            nueva["target"] = json!(destino);
+        }
+        if nueva["source"].as_str() == Some(destino) && nueva["target"].as_str() == Some(destino) {
+            descartadas += 1; // un lazo consigo mismo no dice nada
+            continue;
+        }
+        let k = clave(&nueva);
+        if !vistas.insert(k) {
+            descartadas += 1; // ya existe esa conexión
+            continue;
+        }
+        reapuntadas += 1;
+        out.push(nueva);
+    }
+    (out, reapuntadas, descartadas)
+}
+
+/// La descripción del destino con la del origen anexada, marcada con el título del origen. Devuelve
+/// `None` si no hay nada que anexar (origen sin texto, o texto ya contenido). No se pierde nada: lo que
+/// el origen decía queda dentro del destino.
+pub fn descripcion_fundida(destino: &str, origen: &str, titulo_origen: &str) -> Option<String> {
+    let o = origen.trim();
+    if o.is_empty() {
+        return None;
+    }
+    let d = destino.trim();
+    if !d.is_empty() && clave_plana(d).contains(&clave_plana(o)) {
+        return None;
+    }
+    if d.is_empty() {
+        return Some(o.to_string());
+    }
+    Some(format!(
+        "{d}\n\n---\n\n**Absorbido de «{titulo_origen}»**: {o}"
+    ))
+}
+
+/// Clave para comparar textos sin acentos, en minúsculas y con espacios simples.
+fn clave_plana(t: &str) -> String {
+    crate::curador::norm(t)
+}
+
 #[cfg(test)]
 mod tests_padre_pendiente {
     use super::*;
@@ -2821,6 +3044,75 @@ fn al_guardar_no_se_persisten_banderas_de_interfaz() {
     assert!(!d.contains_key("isSearchMatch"));
     assert_eq!(d["title"], "Idea", "lo del concepto se conserva");
     assert_eq!(d["maturity"], 2);
+}
+
+#[cfg(test)]
+mod tests_fusion {
+    use super::*;
+    use serde_json::json;
+
+    fn arista(id: &str, s: &str, t: &str, l: &str) -> Value {
+        json!({ "id": id, "source": s, "target": t, "label": l })
+    }
+
+    #[test]
+    fn reapunta_las_aristas_del_origen_al_destino() {
+        let e = vec![
+            arista("e1", "a", "o", "contiene"),
+            arista("e2", "o", "b", "alimenta"),
+            arista("e3", "x", "y", "otra"),
+        ];
+        let (out, re, desc) = fusionar_aristas(&e, "o", "d");
+        assert_eq!((re, desc), (2, 0), "las dos del origen se re-apuntan");
+        assert!(out.iter().any(|x| x["source"] == "a" && x["target"] == "d"));
+        assert!(out.iter().any(|x| x["source"] == "d" && x["target"] == "b"));
+        assert!(
+            out.iter().any(|x| x["id"] == "e3" && x["source"] == "x"),
+            "lo ajeno no se toca"
+        );
+        assert!(
+            !out.iter().any(|x| x["source"] == "o" || x["target"] == "o"),
+            "el origen no queda en ninguna arista"
+        );
+    }
+
+    #[test]
+    fn descarta_repetidas_y_lazos() {
+        let e = vec![
+            arista("e1", "a", "d", "x"),
+            arista("e2", "a", "o", "x"),
+            arista("e3", "o", "o", "y"),
+        ];
+        let (out, re, desc) = fusionar_aristas(&e, "o", "d");
+        assert_eq!(re, 0, "no hay conexión nueva que aportar");
+        assert_eq!(desc, 2, "la repetida y el lazo se descartan");
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0]["id"], "e1");
+    }
+
+    #[test]
+    fn la_descripcion_del_origen_no_se_pierde() {
+        assert_eq!(
+            descripcion_fundida("", "texto del origen", "Origen").unwrap(),
+            "texto del origen"
+        );
+        let f = descripcion_fundida("cuerpo del destino", "detalle del origen", "Origen").unwrap();
+        assert!(f.starts_with("cuerpo del destino"));
+        assert!(f.contains("Absorbido de «Origen»") && f.contains("detalle del origen"));
+        assert!(
+            descripcion_fundida(
+                "ya está el detalle del origen acá",
+                "detalle del origen",
+                "X"
+            )
+            .is_none(),
+            "si ya está, no se duplica"
+        );
+        assert!(
+            descripcion_fundida("cualquiera", "   ", "X").is_none(),
+            "origen vacío"
+        );
+    }
 }
 
 #[cfg(test)]
