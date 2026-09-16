@@ -452,7 +452,6 @@ pub fn guardar_seleccion(data_dir: &Path, id: Option<&str>) -> Result<(), String
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::Value;
 
     fn cat() -> Vec<Motor> {
         let mut v = motores_de_tags(

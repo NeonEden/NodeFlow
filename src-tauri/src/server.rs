@@ -291,6 +291,11 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
             // Fase 4 — el gateway propio del cerebro: el panel se conecta por WebSocket y ve el turno
             // en vivo. Se levanta a pedido y se baja a pedido (nada corriendo de más).
             .route("/api/cerebro/briefing", post(cerebro_briefing))
+            // Fase 5.4 — la arquitectura de la app, inventariada del árbol real (no escrita a mano).
+            .route(
+                "/api/cerebro/arquitectura/generar",
+                post(cerebro_arquitectura_generar),
+            )
             // Fase 5.2 — mi espacio: la bitácora y los planes del cerebro (notas de la bóveda, no nodos).
             .route("/api/cerebro/espacio", get(cerebro_espacio))
             .route("/api/cerebro/espacio/nota", post(cerebro_espacio_nota))
@@ -3120,7 +3125,22 @@ fn contexto_del_turno(st: &AppState, pedido: &str) -> crate::cerebro::Contexto {
         abiertos: titulos_de("PENDIENTE", 12),
         hitos,
         mis_notas: mis_notas_del_cerebro(&st),
+        arquitectura: arquitectura_para_el_turno(&st),
     }
+}
+
+/// El bloque **mapa** de la arquitectura generada (si existe): viaja en cada turno para que el cerebro
+/// hable del código sin grepear el repo. Es la nota que deja `POST /api/cerebro/arquitectura/generar`.
+fn arquitectura_para_el_turno(st: &AppState) -> String {
+    let ruta = st
+        .vault
+        .raiz()
+        .join(crate::cerebro::CARPETA)
+        .join(crate::cerebro_arquitectura::NOTA);
+    std::fs::read_to_string(ruta)
+        .ok()
+        .and_then(|t| crate::cerebro::mapa_de_la_nota(&t))
+        .unwrap_or_default()
 }
 
 /// Las notas propias del cerebro (bitácora y planes) que ya existen en la bóveda: lo que pensé antes
@@ -3153,6 +3173,83 @@ fn mis_notas_del_cerebro(st: &AppState) -> Vec<String> {
     nombres.sort();
     nombres.truncate(6);
     nombres
+}
+
+/// `POST /api/cerebro/arquitectura/generar` — inventaría el árbol real del proyecto y deja la nota
+/// `cerebro/arquitectura.md` en la bóveda. Desde ahí, el bloque *mapa* viaja en cada turno (Fase 5.4).
+///
+/// La raíz del repo se resuelve así: el body (`{"repo": "..."}`) → `cerebro.repo` de la config →
+/// `NODEFLOW_REPO` → la ubicación del ejecutable (subiendo por los ancestros hasta `src-tauri/src`).
+async fn cerebro_arquitectura_generar(
+    State(st): State<AppState>,
+    Json(body): Json<Value>,
+) -> impl IntoResponse {
+    let pista = body["repo"]
+        .as_str()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| st.cerebro.repo.clone());
+    let repo = if pista.is_empty() {
+        let exe = std::env::current_exe().unwrap_or_default();
+        match crate::cerebro_arquitectura::buscar_repo(&exe) {
+            Some(r) => r,
+            None => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({
+                        "success": false,
+                        "error": "no encuentro el repo de NodeFlow: poné \"cerebro\": {\"repo\": \"C:/ruta/al/repo\"} en nodeflow.config.json (o NODEFLOW_REPO)"
+                    })),
+                )
+            }
+        }
+    } else {
+        crate::cerebro_arquitectura::buscar_repo(std::path::Path::new(&pista))
+            .unwrap_or_else(|| std::path::PathBuf::from(&pista))
+    };
+    let inv = crate::cerebro_arquitectura::inventariar(&repo);
+    let sello = sello_local(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0),
+        st.cerebro.offset_h,
+    );
+    let boveda = st.vault.raiz().to_string_lossy().to_string();
+    let doc = crate::cerebro_arquitectura::redactar(
+        &inv,
+        &sello,
+        &boveda,
+        &repo.to_string_lossy(),
+        env!("CARGO_PKG_VERSION"),
+    );
+    let rel = format!(
+        "{}/{}",
+        crate::cerebro::CARPETA,
+        crate::cerebro_arquitectura::NOTA
+    );
+    match st.vault.escribir_nota(&rel, &doc) {
+        Ok(p) => (
+            StatusCode::OK,
+            Json(json!({
+                "success": true,
+                "ruta": p.to_string_lossy(),
+                "sello": sello,
+                "repo": repo.to_string_lossy(),
+                "modulos_rust": inv.rust.len(),
+                "lineas_rust": inv.lineas_rust(),
+                "archivos_front": inv.front.len(),
+                "rutas_http": inv.rutas.len(),
+                "tools_mcp": inv.tools_mcp.len(),
+                "chars": doc.chars().count(),
+                "faltantes": inv.faltantes,
+            })),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "success": false, "error": e })),
+        ),
+    }
 }
 
 /// `GET /api/cerebro/espacio` — mi espacio: la bitácora y los planes, más el contexto de la bóveda.
@@ -3193,8 +3290,26 @@ async fn cerebro_espacio(State(st): State<AppState>) -> impl IntoResponse {
             .as_u64()
             .cmp(&a["modificado_ms"].as_u64())
     });
+    // La arquitectura generada (Fase 5.4): el panel muestra cuándo se inventarió, sin abrir el archivo.
+    let arq =
+        std::fs::read_to_string(raiz.join(crate::cerebro_arquitectura::NOTA)).unwrap_or_default();
+    let sello_arq = arq
+        .lines()
+        .find(|l| l.starts_with("generado:"))
+        .map(|l| {
+            l.trim_start_matches("generado:")
+                .trim()
+                .trim_matches('"')
+                .to_string()
+        })
+        .unwrap_or_default();
     Json(json!({
         "success": true,
+        "arquitectura": {
+            "existe": !arq.is_empty(),
+            "chars": arq.chars().count(),
+            "sello": sello_arq,
+        },
         "bitacora": {
             "texto": bitacora,
             "chars": bitacora.chars().count(),

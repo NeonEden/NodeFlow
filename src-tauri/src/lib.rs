@@ -1,6 +1,7 @@
 mod artefactos;
 mod borrador;
 mod cerebro;
+mod cerebro_arquitectura;
 mod cerebro_gateway;
 mod cerebro_tools;
 mod claves;

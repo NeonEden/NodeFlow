@@ -36,6 +36,9 @@ pub struct Config {
     /// Fase 4 — puerto del gateway propio (`hermes serve`). 9119 es el del escritorio de Hermes: acá se
     /// usa 9121 para no pisarlo.
     pub gateway_puerto: u16,
+    /// Fase 5.4 — raíz del repo de NodeFlow: de ahí se inventaría la arquitectura. Si está vacío se busca
+    /// desde la ubicación del ejecutable (o desde `NODEFLOW_REPO`).
+    pub repo: String,
 }
 
 impl Default for Config {
@@ -46,6 +49,7 @@ impl Default for Config {
             run_budget_s: 900,
             tope_s: 1200,
             offset_h: -3,
+            repo: std::env::var("NODEFLOW_REPO").unwrap_or_default(),
             gateway_puerto: crate::cerebro_gateway::PUERTO_POR_DEFECTO,
         }
     }
@@ -77,10 +81,22 @@ impl Config {
             if let Some(v) = s.get("gateway_puerto").and_then(|v| v.as_u64()) {
                 c.gateway_puerto = (v as u16).clamp(1024, 65_535);
             }
+            if let Some(v) = s
+                .get("repo")
+                .and_then(|v| v.as_str())
+                .filter(|v| !v.trim().is_empty())
+            {
+                c.repo = v.trim().to_string();
+            }
         }
         if let Ok(v) = std::env::var("NODEFLOW_CEREBRO_SESION") {
             if !v.trim().is_empty() {
                 c.sesion = v.trim().to_string();
+            }
+        }
+        if let Ok(v) = std::env::var("NODEFLOW_REPO") {
+            if !v.trim().is_empty() {
+                c.repo = v.trim().to_string();
             }
         }
         if let Ok(v) = std::env::var("NODEFLOW_CEREBRO_OFFSET_H") {
@@ -171,6 +187,23 @@ pub struct Contexto {
     pub hitos: Vec<String>,
     /// Las notas propias del cerebro (planes, bitácora): lo que pensé antes, en la bóveda.
     pub mis_notas: Vec<String>,
+    /// Fase 5.4 — el bloque acotado de la arquitectura de la app (inventariado del árbol real). Va acá
+    /// para que el turno hable del código **sin** leer el repo: es contexto fijo, de una vez por turno.
+    pub arquitectura: String,
+}
+
+/// Extrae el bloque acotado de la arquitectura (`<!-- mapa --> … <!-- /mapa -->`) de la nota generada.
+/// Devuelve `None` si no está: el turno simplemente no lleva esa sección.
+pub fn mapa_de_la_nota(texto: &str) -> Option<String> {
+    let ini = texto.find(crate::cerebro_arquitectura::MAPA_INICIO)?;
+    let desde = ini + crate::cerebro_arquitectura::MAPA_INICIO.len();
+    let fin = texto[desde..].find(crate::cerebro_arquitectura::MAPA_FIN)? + desde;
+    let dentro = texto[desde..fin].trim();
+    if dentro.is_empty() {
+        None
+    } else {
+        Some(dentro.to_string())
+    }
 }
 
 /// Cuántas notas de turno hay en la carpeta del cerebro. El panel lo muestra como señal de que la
@@ -294,6 +327,11 @@ pub fn briefing_texto(c: &Contexto) -> String {
     linea(&mut p, "Abierto", &c.abiertos, 10);
     linea(&mut p, "Ya hecho", &c.hitos, 5);
     linea(&mut p, "Mis notas del cerebro", &c.mis_notas, 6);
+    if !c.arquitectura.trim().is_empty() {
+        p.push_str("\nArquitectura de la app (inventariada del árbol real: NO hace falta leer el repo para esto):\n");
+        p.push_str(c.arquitectura.trim());
+        p.push('\n');
+    }
     if !c.memoria.is_empty() {
         p.push_str(
             "\nRecuerdo dirigido (notas de la bóveda que la memoria consideró relevantes):\n",
@@ -488,6 +526,18 @@ mod tests {
     }
 
     #[test]
+    fn el_mapa_sale_del_bloque_marcado() {
+        let doc = "---\ntitulo: x\n---\n\n# Arquitectura\n\n<!-- mapa -->\n## Mapa\n- Rust: 22 módulos\n<!-- /mapa -->\n\n## Detalle\n";
+        let m = mapa_de_la_nota(doc).unwrap();
+        assert!(m.contains("Rust: 22 módulos"));
+        assert!(
+            !m.contains("## Detalle"),
+            "no se lleva el detalle: sólo el mapa"
+        );
+        assert!(mapa_de_la_nota("# sin marcas").is_none());
+    }
+
+    #[test]
     fn la_entrada_de_bitacora_lleva_fecha_y_quien() {
         let e = entrada_bitacora(
             "2026-09-16T11:20",
@@ -536,6 +586,7 @@ mod tests {
             aristas: 72,
             pendientes: 2,
             foco: vec!["Fase 4 [n-ag-fase-4]".into()],
+            arquitectura: "- **Rust**: 22 módulos · 21.000 líneas.".into(),
         };
         let b = briefing_texto(&c);
         assert!(b.contains("Visión del proyecto (Norte Estratégico): Norte Estratégico · NodeFlow"));
@@ -543,6 +594,10 @@ mod tests {
         assert!(b.contains("Abierto: Partir el skill"));
         assert!(b.contains("Ya hecho: v0.3.0 publicada"));
         assert!(b.contains("Mis notas del cerebro: plan-cerebro.md"));
+        assert!(
+            b.contains("Arquitectura de la app") && b.contains("22 módulos"),
+            "el mapa de la arquitectura viaja en el turno: {b}"
+        );
         assert!(b.contains("42 nodos · 72 aristas · 2 propuesta(s)"));
         assert!(b.contains("- Caché semántica (nodos/cache.md)"));
         assert!(b.contains("Foco del hilo de diálogo: Fase 4 [n-ag-fase-4]"));

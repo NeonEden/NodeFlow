@@ -611,6 +611,26 @@ def llamar_herramienta(nombre, args):
     return f"{d.get('salida')}\n\n({nombre} · {d.get('ms')} ms)", False
 
 
+def t_arquitectura(args):
+    """Inventaría el proyecto (módulos, tamaños, roles, rutas HTTP, tools) y actualiza la nota
+    `cerebro/arquitectura.md`. El bloque *mapa* de esa nota ya viaja en el briefing de cada turno: esta
+    tool es para **refrescarlo** después de cambiar código, no para leerlo."""
+    cuerpo = {}
+    if args.get("repo"):
+        cuerpo["repo"] = args["repo"]
+    ok, d = api("/api/cerebro/arquitectura/generar", cuerpo, "POST")
+    if not ok:
+        return f"No pude inventariar: {d.get('error') or d}"
+    falt = d.get("faltantes") or []
+    return (
+        f"Arquitectura actualizada ({d.get('sello')}) en {d.get('ruta')}\n"
+        f"- Rust: {d.get('modulos_rust')} módulos · {d.get('lineas_rust')} líneas\n"
+        f"- Frontend: {d.get('archivos_front')} archivos · API: {d.get('rutas_http')} rutas · MCP: {d.get('tools_mcp')} tools\n"
+        f"- {d.get('chars')} chars. El detalle se lee con `leer_nota` en `cerebro/arquitectura.md`."
+        + (f"\n- No pude ver: {' · '.join(falt)}" if falt else "")
+    )
+
+
 def t_mi_espacio(args):
     """Lee mi espacio: la bitácora (criterio acumulado) y mis planes. Es lo primero que conviene mirar
     antes de proponer algo grande: evita repetir una decisión ya tomada."""
@@ -680,6 +700,20 @@ def avisar_lista_cambiada():
 
 
 TOOLS = [
+    {
+        "name": "arquitectura",
+        "description": (
+            "Inventaría el árbol real del proyecto (módulos Rust con su rol y tamaño, frontend, rutas HTTP, "
+            "tools MCP) y refresca `cerebro/arquitectura.md`. El mapa ya viaja en el briefing de cada turno: "
+            "usala después de cambiar código, no para consultar."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "repo": {"type": "string", "description": "Raíz del repo (por defecto, la de la config)."},
+            },
+        },
+    },
     {
         "name": "mi_espacio",
         "description": (
@@ -1016,6 +1050,7 @@ TOOLS = [
 HANDLERS = {
     "crear_herramienta": t_crear_herramienta,
     "mi_espacio": t_mi_espacio,
+    "arquitectura": t_arquitectura,
     "anotar_bitacora": t_anotar_bitacora,
     "escribir_plan": t_escribir_plan,
     "canvas_summary": t_summary,

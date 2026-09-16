@@ -87,12 +87,14 @@ export const CerebroPanel: React.FC<Props> = ({ isOpen, onClose, showToast, suge
   const [espacio, setEspacio] = useState<{
     bitacora?: { texto?: string; chars?: number; existe?: boolean };
     planes?: Array<{ nombre: string; titulo: string; chars: number; texto?: string; modificado_ms?: number }>;
+    arquitectura?: { existe: boolean; chars: number; sello: string };
     turnos?: number;
   } | null>(null);
   const [verBitacora, setVerBitacora] = useState(false);
   const [planAbierto, setPlanAbierto] = useState('');
   const [notaHumana, setNotaHumana] = useState('');
   const [anotando, setAnotando] = useState(false);
+  const [inventariando, setInventariando] = useState(false);
 
   const traerEspacio = useCallback(async () => {
     try {
@@ -102,6 +104,32 @@ export const CerebroPanel: React.FC<Props> = ({ isOpen, onClose, showToast, suge
       /* el backend puede estar ocupado: se reintenta al abrir o a mano */
     }
   }, []);
+
+  /** Fase 5.4: inventaría el repo (módulos, rutas, tools) y refresca la nota de arquitectura. */
+  const inventariar = useCallback(async () => {
+    setInventariando(true);
+    try {
+      const r = await fetch(apiUrl('/api/cerebro/arquitectura/generar'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const d = await r.json();
+      if (d?.success) {
+        showToast(
+          `Arquitectura del árbol real: ${d.modulos_rust} módulos · ${d.rutas_http} rutas · ${d.tools_mcp} tools.`,
+          'success',
+        );
+        void traerEspacio();
+      } else {
+        showToast(String(d?.error || 'No pude inventariar el proyecto.'), 'error');
+      }
+    } catch {
+      showToast('No pude inventariar el proyecto (¿la app está corriendo?).', 'error');
+    } finally {
+      setInventariando(false);
+    }
+  }, [showToast, traerEspacio]);
 
   /** La nota del humano para el cerebro: va a la bitácora, la lee en el turno siguiente. */
   const anotarParaElCerebro = useCallback(async () => {
@@ -721,6 +749,25 @@ export const CerebroPanel: React.FC<Props> = ({ isOpen, onClose, showToast, suge
                 title="Volver a leer cerebro/ del disco"
               >
                 actualizar
+              </button>
+            </div>
+
+            {/* Fase 5.4: la arquitectura del árbol real — el mapa que el turno ya lleva en el briefing */}
+            <div className="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900/40 px-2 py-1.5">
+              <span className="text-[11px] text-slate-300">Arquitectura de la app</span>
+              <span className="text-[10px] text-slate-500 font-mono">
+                {espacio?.arquitectura?.existe
+                  ? `${espacio.arquitectura.chars} chars · ${espacio.arquitectura.sello || 'sin sello'}`
+                  : 'sin inventariar'}
+              </span>
+              <button
+                type="button"
+                onClick={() => void inventariar()}
+                disabled={inventariando}
+                className="ml-auto flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium bg-slate-900/70 text-slate-200 hover:bg-slate-800 border border-slate-700 disabled:opacity-40 cursor-pointer"
+                title="Inventaría el árbol real del proyecto y refresca cerebro/arquitectura.md (el mapa viaja en cada turno)"
+              >
+                {inventariando ? <Loader2 size={11} className="animate-spin" /> : 'Inventariar'}
               </button>
             </div>
 
