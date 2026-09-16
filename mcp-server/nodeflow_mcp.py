@@ -784,9 +784,22 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "repo": {"type": "string", "description": "Raíz del repo (por defecto, la de la config)."},
+                "repo": {"type": "string", "description": "Raíz del repo (por defecto, la de la config)."}
+            }
+        }
+    },
+    {
+        "name": "azure_foundry_agent",
+        "description": "Invoca un agente de Azure AI Projects (Foundry) mediante azure-ai-projects SDK. Necesita credenciales Azure (DefaultAzureCredential) y el endpoint del proyecto.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "endpoint": {"type": "string", "description": "URL del proyecto Azure AI Projects"},
+                "agent": {"type": "string", "description": "Nombre del agente"},
+                "version": {"type": "string", "description": "Versión del agente (p. ej. \"1\")"}
             },
-        },
+            "required": ["endpoint", "agent", "version"]
+        }
     },
     {
         "name": "mi_espacio",
