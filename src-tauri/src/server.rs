@@ -291,6 +291,9 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
             // Fase 4 — el gateway propio del cerebro: el panel se conecta por WebSocket y ve el turno
             // en vivo. Se levanta a pedido y se baja a pedido (nada corriendo de más).
             .route("/api/cerebro/briefing", post(cerebro_briefing))
+            // Fase 5.2 — mi espacio: la bitácora y los planes del cerebro (notas de la bóveda, no nodos).
+            .route("/api/cerebro/espacio", get(cerebro_espacio))
+            .route("/api/cerebro/espacio/nota", post(cerebro_espacio_nota))
             // Fase 5.3 — el registro de herramientas del cerebro: listar, proponer (entra a la cola) y usar.
             .route("/api/cerebro/herramientas", get(cerebro_herramientas))
             .route(
@@ -3120,22 +3123,179 @@ fn contexto_del_turno(st: &AppState, pedido: &str) -> crate::cerebro::Contexto {
     }
 }
 
-/// Las notas propias del cerebro (planes, bitácora) que ya existen en la bóveda: lo que pensé antes
-/// queda a mano en el turno siguiente sin que nadie lo arrastre a mano.
+/// Las notas propias del cerebro (bitácora y planes) que ya existen en la bóveda: lo que pensé antes
+/// queda a mano en el turno siguiente sin que nadie lo arrastre a mano. Los planes viven en
+/// `cerebro/planes/`, así que se listan aparte (con su prefijo) para que el briefing los vea.
 fn mis_notas_del_cerebro(st: &AppState) -> Vec<String> {
     let raiz = st.vault.raiz().join(crate::cerebro::CARPETA);
-    let mut nombres: Vec<String> = std::fs::read_dir(raiz)
+    let md = |p: &std::path::Path| p.extension().and_then(|x| x.to_str()) == Some("md");
+    let mut nombres: Vec<String> = std::fs::read_dir(&raiz)
         .map(|d| {
             d.filter_map(|e| e.ok())
-                .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("md"))
+                .filter(|e| md(&e.path()))
                 .filter_map(|e| e.file_name().to_str().map(String::from))
-                .filter(|n| n.starts_with("plan") || n.starts_with("bitacora"))
+                .filter(|n| n.starts_with("bitacora"))
                 .collect()
         })
         .unwrap_or_default();
+    let planes = raiz.join(crate::cerebro::PLANES);
+    let mut de_planes: Vec<String> = std::fs::read_dir(&planes)
+        .map(|d| {
+            d.filter_map(|e| e.ok())
+                .filter(|e| md(&e.path()))
+                .filter_map(|e| e.file_name().to_str().map(|n| format!("planes/{n}")))
+                .collect()
+        })
+        .unwrap_or_default();
+    de_planes.sort();
+    de_planes.truncate(4);
+    nombres.extend(de_planes);
     nombres.sort();
     nombres.truncate(6);
     nombres
+}
+
+/// `GET /api/cerebro/espacio` — mi espacio: la bitácora y los planes, más el contexto de la bóveda.
+/// Es lo que el panel muestra como «Mi espacio» (y lo que el agente lee antes de tocar un plan).
+async fn cerebro_espacio(State(st): State<AppState>) -> impl IntoResponse {
+    let raiz = st.vault.raiz().join(crate::cerebro::CARPETA);
+    let bitacora = std::fs::read_to_string(raiz.join(crate::cerebro::BITACORA)).unwrap_or_default();
+    let planes_dir = raiz.join(crate::cerebro::PLANES);
+    let mut planes: Vec<Value> = std::fs::read_dir(&planes_dir)
+        .map(|d| {
+            d.filter_map(|e| e.ok())
+                .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("md"))
+                .filter_map(|e| {
+                    let p = e.path();
+                    let nombre = p.file_name()?.to_str()?.to_string();
+                    let texto = std::fs::read_to_string(&p).ok()?;
+                    let modificado = e
+                        .metadata()
+                        .ok()
+                        .and_then(|m| m.modified().ok())
+                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map(|d| d.as_millis() as u64)
+                        .unwrap_or(0);
+                    Some(json!({
+                        "nombre": nombre,
+                        "titulo": texto.lines().find(|l| l.starts_with("# ")).map(|l| l[2..].to_string()).unwrap_or_else(|| nombre.clone()),
+                        "chars": texto.chars().count(),
+                        // El texto se manda acotado: el panel lo muestra desplegable y el turno no se infla.
+                        "texto": texto.chars().take(3000).collect::<String>(),
+                        "modificado_ms": modificado,
+                    }))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    planes.sort_by(|a, b| {
+        b["modificado_ms"]
+            .as_u64()
+            .cmp(&a["modificado_ms"].as_u64())
+    });
+    Json(json!({
+        "success": true,
+        "bitacora": {
+            "texto": bitacora,
+            "chars": bitacora.chars().count(),
+            "existe": !bitacora.is_empty(),
+        },
+        "planes": planes,
+        "turnos": crate::cerebro::contar_notas(&st.vault.raiz()),
+        "carpeta": raiz.to_string_lossy(),
+    }))
+}
+
+/// `POST /api/cerebro/espacio/nota` — escribe en mi espacio: una entrada de bitácora (append) o un plan
+/// (reemplaza). Son **notas de la bóveda**, no nodos: no pasan por la cola de propuestas (lo acordado:
+/// mis notas se escriben libres; el lienzo y las herramientas sí van a la cola).
+async fn cerebro_espacio_nota(
+    State(st): State<AppState>,
+    Json(body): Json<Value>,
+) -> impl IntoResponse {
+    let tipo = body["tipo"].as_str().unwrap_or("bitacora");
+    let texto = body["contenido"].as_str().unwrap_or("").trim().to_string();
+    if texto.chars().count() < 2 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "success": false, "error": "falta el contenido de la nota" })),
+        );
+    }
+    let quien = body["quien"]
+        .as_str()
+        .unwrap_or("cerebro")
+        .trim()
+        .to_string();
+    let sello = sello_local(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0),
+        st.cerebro.offset_h,
+    );
+    let raiz = st.vault.raiz();
+    match tipo {
+        "plan" => {
+            let nombre = body["nombre"].as_str().unwrap_or("").trim();
+            let slug = match crate::cerebro::slug_plan(nombre) {
+                Ok(s) => s,
+                Err(e) => {
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(json!({ "success": false, "error": e })),
+                    );
+                }
+            };
+            let estado = body["estado"].as_str().unwrap_or("borrador").trim();
+            let titulo = nombre.replace('"', "'");
+            let contenido = format!(
+                "---\ntitulo: \"{titulo}\"\ntipo: plan\nestado: {estado}\nactualizado: \"{sello}\"\n---\n\n# {nombre}\n\n{texto}\n"
+            );
+            let rel = format!(
+                "{}/{}/{}.md",
+                crate::cerebro::CARPETA,
+                crate::cerebro::PLANES,
+                slug
+            );
+            match st.vault.escribir_nota(&rel, &contenido) {
+                Ok(p) => (
+                    StatusCode::OK,
+                    Json(
+                        json!({ "success": true, "accion": "plan_escrito", "ruta": p.to_string_lossy(), "slug": slug }),
+                    ),
+                ),
+                Err(e) => (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({ "success": false, "error": e })),
+                ),
+            }
+        }
+        _ => {
+            let rel = format!("{}/{}", crate::cerebro::CARPETA, crate::cerebro::BITACORA);
+            let previo = std::fs::read_to_string(raiz.join(&rel)).unwrap_or_default();
+            let base = if previo.trim().is_empty() {
+                crate::cerebro::encabezado_bitacora()
+            } else {
+                previo
+            };
+            let nuevo = format!(
+                "{base}{}",
+                crate::cerebro::entrada_bitacora(&sello, &quien, &texto)
+            );
+            match st.vault.escribir_nota(&rel, &nuevo) {
+                Ok(p) => (
+                    StatusCode::OK,
+                    Json(
+                        json!({ "success": true, "accion": "bitacora_anotada", "ruta": p.to_string_lossy() }),
+                    ),
+                ),
+                Err(e) => (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({ "success": false, "error": e })),
+                ),
+            }
+        }
+    }
 }
 /// `POST /api/ai/delegar` — el **motor profundo** de NodeFlow.
 ///

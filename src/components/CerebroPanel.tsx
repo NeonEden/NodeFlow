@@ -83,6 +83,52 @@ export const CerebroPanel: React.FC<Props> = ({ isOpen, onClose, showToast, suge
   const [verBriefing, setVerBriefing] = useState(false);
   const cliente = useRef<GatewayCerebro | null>(null);
 
+  // ── Fase 5.2: mi espacio (la bitácora de decisiones y mis planes) ─────────────
+  const [espacio, setEspacio] = useState<{
+    bitacora?: { texto?: string; chars?: number; existe?: boolean };
+    planes?: Array<{ nombre: string; titulo: string; chars: number; texto?: string; modificado_ms?: number }>;
+    turnos?: number;
+  } | null>(null);
+  const [verBitacora, setVerBitacora] = useState(false);
+  const [planAbierto, setPlanAbierto] = useState('');
+  const [notaHumana, setNotaHumana] = useState('');
+  const [anotando, setAnotando] = useState(false);
+
+  const traerEspacio = useCallback(async () => {
+    try {
+      const d = await (await fetch(apiUrl('/api/cerebro/espacio'))).json();
+      if (d?.success) setEspacio(d);
+    } catch {
+      /* el backend puede estar ocupado: se reintenta al abrir o a mano */
+    }
+  }, []);
+
+  /** La nota del humano para el cerebro: va a la bitácora, la lee en el turno siguiente. */
+  const anotarParaElCerebro = useCallback(async () => {
+    const texto = notaHumana.trim();
+    if (texto.length < 2) return;
+    setAnotando(true);
+    try {
+      const r = await fetch(apiUrl('/api/cerebro/espacio/nota'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tipo: 'bitacora', quien: 'tomas', contenido: texto }),
+      });
+      const d = await r.json();
+      if (d?.success) {
+        setNotaHumana('');
+        showToast('Anotado en la bitácora: lo leo en el próximo turno.', 'success');
+        void traerEspacio();
+      } else {
+        showToast(String(d?.error || 'No se pudo anotar.'), 'error');
+      }
+    } catch {
+      showToast('No se pudo anotar (¿la app está corriendo?).', 'error');
+    } finally {
+      setAnotando(false);
+    }
+  }, [notaHumana, showToast, traerEspacio]);
+
   const traer = useCallback(async () => {
     try {
       const d = await (await fetch(apiUrl('/api/ai/delegar'))).json();
@@ -122,6 +168,7 @@ export const CerebroPanel: React.FC<Props> = ({ isOpen, onClose, showToast, suge
     let vivoTimer = true;
     void traer();
     void mirarGateway();
+    void traerEspacio();
     const t = setInterval(() => {
       if (vivoTimer) void traer();
     }, 3000);
@@ -655,6 +702,92 @@ export const CerebroPanel: React.FC<Props> = ({ isOpen, onClose, showToast, suge
               </div>
             </div>
           )}
+
+          {/* ── Mi espacio (Fase 5.2): la bitácora de decisiones y mis planes ── */}
+          <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-3 space-y-2">
+            <div className="flex items-center gap-2">
+              <Layers size={14} className="text-cyan-300" />
+              <span className="text-xs font-semibold text-slate-200">Mi espacio</span>
+              <span className="text-[10px] text-slate-500">
+                {espacio?.turnos ? `${espacio.turnos} turnos` : 'sin turnos todavía'}
+                {espacio?.planes?.length
+                  ? ` · ${espacio.planes.length} plan${espacio.planes.length === 1 ? '' : 'es'}`
+                  : ''}
+              </span>
+              <button
+                type="button"
+                onClick={() => void traerEspacio()}
+                className="ml-auto text-[10px] uppercase tracking-widest text-slate-500 hover:text-cyan-300 font-bold cursor-pointer"
+                title="Volver a leer cerebro/ del disco"
+              >
+                actualizar
+              </button>
+            </div>
+
+            {(espacio?.planes?.length ?? 0) > 0 && (
+              <div className="space-y-1">
+                {espacio!.planes!.map((p) => (
+                  <div key={p.nombre} className="rounded-xl border border-slate-800 bg-slate-900/40">
+                    <button
+                      type="button"
+                      onClick={() => setPlanAbierto(planAbierto === p.nombre ? '' : p.nombre)}
+                      className="w-full text-left px-2 py-1.5 cursor-pointer hover:bg-slate-900/70 rounded-xl"
+                      title="Ver el plan"
+                    >
+                      <span className="text-[11px] text-slate-200 font-medium">
+                        {planAbierto === p.nombre ? '▾' : '▸'} {p.titulo || p.nombre}
+                      </span>
+                      <span className="text-[10px] text-slate-500 font-mono ml-2">
+                        planes/{p.nombre} · {p.chars} chars
+                      </span>
+                    </button>
+                    {planAbierto === p.nombre && p.texto && (
+                      <p className="px-2 pb-2 text-[11px] text-slate-400 whitespace-pre-wrap break-words font-mono">
+                        {p.texto}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div>
+              <button
+                type="button"
+                onClick={() => setVerBitacora((v) => !v)}
+                className="text-[10px] uppercase tracking-widest text-slate-500 hover:text-cyan-300 font-bold cursor-pointer"
+                title="Mis decisiones, en orden"
+              >
+                {verBitacora ? '▾' : '▸'} bitácora ({espacio?.bitacora?.chars ?? 0} chars)
+              </button>
+              {verBitacora && (
+                <p className="mt-1 max-h-64 overflow-y-auto text-[11px] text-slate-400 whitespace-pre-wrap break-words font-mono">
+                  {espacio?.bitacora?.texto || '(todavía no escribí nada en la bitácora)'}
+                </p>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 pt-1">
+              <input
+                value={notaHumana}
+                onChange={(e) => setNotaHumana(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) void anotarParaElCerebro();
+                }}
+                placeholder="Dejarme una nota (la leo en el próximo turno)"
+                className="flex-1 bg-slate-900/70 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-200 placeholder:text-slate-600 outline-none focus:border-cyan-700"
+              />
+              <button
+                type="button"
+                onClick={() => void anotarParaElCerebro()}
+                disabled={anotando || notaHumana.trim().length < 2}
+                className="px-3 py-1.5 rounded-xl text-xs font-medium bg-slate-900/70 text-slate-200 hover:bg-slate-800 border border-slate-700 disabled:opacity-40 cursor-pointer"
+                title="Escribe en cerebro/bitacora.md"
+              >
+                {anotando ? <Loader2 size={13} className="animate-spin" /> : 'Anotar'}
+              </button>
+            </div>
+          </div>
 
           <p className="text-[11px] text-slate-500">
             Cada turno deja una nota con fecha en <span className="font-mono">cerebro/</span> — la memoria del

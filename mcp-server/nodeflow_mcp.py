@@ -573,7 +573,11 @@ def texto_error(data):
 # MCP de primera clase, así el modelo las ve y las usa como cualquier otra. La ejecución la hace el
 # backend de la app (jaula, tope de tiempo y auditoría viven ahí, no en este adaptador).
 PREFIJO_HERRAMIENTA = "cerebro_"
-_ultimas_herramientas = []
+# `None` = el cliente todavía no pidió la lista: en el primer listado no hay nada nuevo que avisar.
+_ultimas_herramientas = None
+# Bandera: el aviso «la lista cambió» se emite DESPUÉS de la respuesta, nunca antes. Una notificación
+# metida entre el request y su respuesta desalinea a los clientes simples (nos pasó midiendo).
+_avisar_lista = False
 
 
 def registro():
@@ -607,6 +611,54 @@ def llamar_herramienta(nombre, args):
     return f"{d.get('salida')}\n\n({nombre} · {d.get('ms')} ms)", False
 
 
+def t_mi_espacio(args):
+    """Lee mi espacio: la bitácora (criterio acumulado) y mis planes. Es lo primero que conviene mirar
+    antes de proponer algo grande: evita repetir una decisión ya tomada."""
+    ok, d = api("/api/cerebro/espacio")
+    if not ok:
+        return f"No pude leer mi espacio: {d.get('error') or d}"
+    bit = (d.get("bitacora") or {}).get("texto") or ""
+    lineas = [l for l in bit.splitlines() if l.strip()]
+    cola = "\n".join(lineas[-40:]) if lineas else "(la bitácora todavía está vacía)"
+    planes = d.get("planes") or []
+    lista = "\n".join(
+        f"- {p.get('nombre')} · {p.get('chars')} chars · {p.get('titulo')}" for p in planes
+    ) or "(todavía no hay planes míos)"
+    return (
+        f"# Mi espacio\n\nTurnos cumplidos: {d.get('turnos')} · carpeta: {d.get('carpeta')}\n\n"
+        f"## Planes\n{lista}\n\n## Bitácora (últimas entradas)\n{cola}"
+    )
+
+
+def t_anotar_bitacora(args):
+    """Escribe una entrada en mi bitácora: decisiones, criterios, por qué hice algo. Append-only."""
+    ok, d = api(
+        "/api/cerebro/espacio/nota",
+        {"tipo": "bitacora", "quien": "cerebro", "contenido": args.get("texto", "")},
+        "POST",
+    )
+    if not ok:
+        return f"No pude anotar: {d.get('error') or d}"
+    return f"Anotado en la bitácora ({d.get('ruta')})."
+
+
+def t_escribir_plan(args):
+    """Escribe (o reemplaza) uno de mis planes: `cerebro/planes/<nombre>.md`. Un plan por tema."""
+    ok, d = api(
+        "/api/cerebro/espacio/nota",
+        {
+            "tipo": "plan",
+            "nombre": args.get("nombre", ""),
+            "estado": args.get("estado", "borrador"),
+            "contenido": args.get("contenido", ""),
+        },
+        "POST",
+    )
+    if not ok:
+        return f"No pude escribir el plan: {d.get('error') or d}"
+    return f"Plan escrito en {d.get('ruta')} (nombre: {d.get('slug')})."
+
+
 def t_crear_herramienta(args):
     """Propone una herramienta nueva: entra a la cola de propuestas y el humano la aprueba."""
     ok, d = api("/api/cerebro/herramienta/proponer", args, "POST")
@@ -621,17 +673,51 @@ def t_crear_herramienta(args):
 
 
 def avisar_lista_cambiada():
-    """Avisa que la lista de tools cambió (una herramienta nueva aprobada): Hermes re-registra en caliente."""
-    try:
-        sys.stdout.write(
-            json.dumps({"jsonrpc": "2.0", "method": "notifications/tools/list_changed"}) + "\n"
-        )
-        sys.stdout.flush()
-    except Exception:
-        pass
+    """Marca que hay que avisar que el registro cambió (una herramienta nueva aprobada): Hermes
+    re-registra en caliente. No escribe acá: `main` lo emite después de la respuesta."""
+    global _avisar_lista
+    _avisar_lista = True
 
 
 TOOLS = [
+    {
+        "name": "mi_espacio",
+        "description": (
+            "Lee MI espacio (el del cerebro residente): la bitácora de decisiones y mis planes en la bóveda. "
+            "Conviene mirarlo antes de proponer algo grande, para no repetir una decisión ya tomada."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "anotar_bitacora",
+        "description": (
+            "Anota una entrada en mi bitácora de decisiones (bóveda: cerebro/bitacora.md). Usar para dejar "
+            "criterio durable: qué decidí, por qué, y qué queda pendiente."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "texto": {"type": "string", "description": "La entrada (markdown corto, 1-6 líneas)."},
+            },
+            "required": ["texto"],
+        },
+    },
+    {
+        "name": "escribir_plan",
+        "description": (
+            "Escribe o reemplaza uno de mis planes en la bóveda (cerebro/planes/<nombre>.md). Un plan por tema, "
+            "con estado. El briefing del turno siguiente lo lee."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "nombre": {"type": "string", "description": "Tema del plan (se convierte en slug)."},
+                "contenido": {"type": "string", "description": "El plan en markdown."},
+                "estado": {"type": "string", "description": "borrador | activo | hecho", "default": "borrador"},
+            },
+            "required": ["nombre", "contenido"],
+        },
+    },
     {
         "name": "crear_herramienta",
         "description": (
@@ -929,6 +1015,9 @@ TOOLS = [
 
 HANDLERS = {
     "crear_herramienta": t_crear_herramienta,
+    "mi_espacio": t_mi_espacio,
+    "anotar_bitacora": t_anotar_bitacora,
+    "escribir_plan": t_escribir_plan,
     "canvas_summary": t_summary,
     "canvas_stats": t_stats,
     "search_nodes": t_search,
@@ -990,9 +1079,10 @@ def manejar(msg):
         del_registro = tools_del_registro()
         todas = TOOLS + del_registro
         nombres = [t["name"] for t in todas]
-        if nombres != _ultimas_herramientas:
-            _ultimas_herramientas = nombres
+        # Sólo se avisa si la lista cambió después de que el cliente ya la conocía.
+        if _ultimas_herramientas is not None and nombres != _ultimas_herramientas:
             avisar_lista_cambiada()
+        _ultimas_herramientas = nombres
         return {"jsonrpc": "2.0", "id": rid, "result": {"tools": todas}}
     if metodo == "resources/list":
         return {"jsonrpc": "2.0", "id": rid, "result": {"resources": []}}
@@ -1021,6 +1111,21 @@ def manejar(msg):
     }
 
 
+def _emitir_aviso_si_hace_falta(out):
+    """Emite el `tools/list_changed` pendiente, siempre después de la respuesta del request."""
+    global _avisar_lista
+    if not _avisar_lista:
+        return
+    _avisar_lista = False
+    try:
+        out.write(
+            json.dumps({"jsonrpc": "2.0", "method": "notifications/tools/list_changed"}).encode("utf-8") + b"\n"
+        )
+        out.flush()
+    except Exception:
+        pass
+
+
 def main():
     out = sys.stdout.buffer
     for linea in sys.stdin.buffer:
@@ -1041,6 +1146,7 @@ def main():
         if respuesta is not None:
             out.write(json.dumps(respuesta, ensure_ascii=False).encode("utf-8") + b"\n")
             out.flush()
+        _emitir_aviso_si_hace_falta(out)
 
 
 if __name__ == "__main__":

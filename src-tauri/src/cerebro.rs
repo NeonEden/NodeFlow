@@ -13,6 +13,10 @@ use serde_json::Value;
 
 /// La carpeta del cerebro dentro de la bóveda: una nota por turno. La usan el que nombra y el que cuenta.
 pub const CARPETA: &str = "cerebro";
+/// Planes del cerebro: una nota por tema, dentro de `cerebro/planes/`.
+pub const PLANES: &str = "planes";
+/// La bitácora: el diario de decisiones del cerebro (append-only).
+pub const BITACORA: &str = "bitacora.md";
 
 /// Parámetros del cerebro residente. Prioridad: variable de entorno → `nodeflow.config.json`
 /// (`"cerebro": {...}`) → default.
@@ -185,6 +189,49 @@ pub fn contar_notas(raiz_boveda: &std::path::Path) -> usize {
                 .count()
         })
         .unwrap_or(0)
+}
+
+/// Una entrada de bitácora: encabezado con fecha y quién la escribió, y el texto. Append-only.
+pub fn entrada_bitacora(fecha_local: &str, quien: &str, texto: &str) -> String {
+    format!("\n## {fecha_local} · {quien}\n\n{}\n", texto.trim())
+}
+
+/// Encabezado de la bitácora cuando todavía no existe.
+pub fn encabezado_bitacora() -> String {
+    "---\ntitulo: \"Bitácora del cerebro\"\ntipo: nota\ngenerado_por: cerebro\n---\n\n\
+     # Bitácora del cerebro\n\n\
+     Decisiones y criterios del cerebro residente, en orden. Lo escribe el agente, y el humano cuando\n\
+     quiere dejarle algo. Cada entrada lleva fecha y quién la escribió.\n"
+        .to_string()
+}
+
+/// El nombre de un plan es un slug: es un nombre de archivo y viaja en rutas.
+pub fn slug_plan(nombre: &str) -> Result<String, String> {
+    let limpio: String = nombre
+        .trim()
+        .to_lowercase()
+        .chars()
+        .map(|c| match c {
+            'á' | 'à' | 'ä' | 'â' => 'a',
+            'é' | 'è' | 'ë' | 'ê' => 'e',
+            'í' | 'ì' | 'ï' | 'î' => 'i',
+            'ó' | 'ò' | 'ö' | 'ô' => 'o',
+            'ú' | 'ù' | 'ü' | 'û' => 'u',
+            'ñ' => 'n',
+            c if c.is_ascii_alphanumeric() => c,
+            c if c.is_whitespace() || c == '-' || c == '_' => '-',
+            _ => '-',
+        })
+        .collect();
+    let slug: String = limpio
+        .split('-')
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    if slug.chars().count() < 3 || slug.chars().count() > 60 {
+        return Err(format!("nombre de plan inválido: «{nombre}» (3-60 chars)"));
+    }
+    Ok(slug)
 }
 
 /// Prompt del turno del cerebro. El cambio de fondo respecto del viejo `prompt_delegar`: la app **no**
@@ -437,6 +484,42 @@ mod tests {
         assert!(
             p.contains("herramientas MCP del lienzo"),
             "el agente consulta, no recibe el mapa masticado"
+        );
+    }
+
+    #[test]
+    fn la_entrada_de_bitacora_lleva_fecha_y_quien() {
+        let e = entrada_bitacora(
+            "2026-09-16T11:20",
+            "cerebro",
+            "  Probé el registro de herramientas.  ",
+        );
+        assert!(
+            e.starts_with("\n## 2026-09-16T11:20 · cerebro\n"),
+            "encabezado con fecha y autor"
+        );
+        assert!(
+            e.trim_end().ends_with("Probé el registro de herramientas."),
+            "el texto va recortado"
+        );
+    }
+
+    #[test]
+    fn el_slug_del_plan_es_un_nombre_de_archivo_y_no_una_ruta() {
+        assert_eq!(
+            slug_plan("Cerebro local en NodeFlow").unwrap(),
+            "cerebro-local-en-nodeflow"
+        );
+        assert_eq!(
+            slug_plan("  Visión  2026  ").unwrap(),
+            "vision-2026",
+            "acentos y espacios de más"
+        );
+        assert!(slug_plan("a").is_err(), "muy corto para ser un nombre");
+        let s = slug_plan("../escape y ruta/C:\\x").unwrap();
+        assert!(
+            !s.contains('/') && !s.contains('.') && !s.contains('\\'),
+            "el slug no puede traer rutas: {s}"
         );
     }
 

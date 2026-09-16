@@ -79,7 +79,7 @@ El docx pide herramientas de estado: `get_app_architecture()`, `get_project_road
 |---|---|---|---|---|
 | **5.0** | Compilar los arreglos del panel (pipe del gateway + feedback) y verificar el turno en vivo | el panel escribe token por token | 1 h | ✅ **hecho** (16/09): gateway `listo` en 9 s, 112 `message.delta` + 312 `reasoning.delta` en un turno de 9,4 s |
 | **5.1** | **Briefing por turno** (`/api/cerebro/briefing`) + el panel lo antepone | turno con sesión nueva que sabe dónde está parado | 1 día | ✅ **hecho**: 1608 chars medidos (visión · lienzo · camino · abierto · hecho · recuerdo) y usado por la respuesta |
-| **5.2** | **Mi espacio**: `cerebro/bitacora.md`, `cerebro/planes/` + sección en el panel | puedo dejar un plan y leerlo en la app | 1 día | ⏳ (las notas ya alimentan el briefing: `mis_notas`) |
+| **5.2** | **Mi espacio**: `cerebro/bitacora.md`, `cerebro/planes/` + sección en el panel | puedo dejar un plan y leerlo en la app | 1 día | ✅ **hecho (16/09)** — `bitacora.md` (append con fecha y autor), `planes/<slug>.md` (frontmatter + estado, slug a prueba de rutas), `GET/POST /api/cerebro/espacio[/nota]`, bloque «Mi espacio» en el panel (bitácora desplegable, planes desplegables, **y tu nota para mí**), tools MCP `mi_espacio` / `anotar_bitacora` / `escribir_plan`; el briefing ya lista `Mis notas del cerebro: bitacora.md · planes/…`. Verificado en un turno real (36,8 s): leyó `mi_espacio`, leyó el plan, **anotó en la bitácora** y el archivo quedó en disco. **197/197** |
 | **5.3** | **Registro de herramientas** + exposición por el MCP propio + jaula + cola | creo una herramienta, la aprobás y **la uso en el turno siguiente** | 2-3 días | ✅ **hecho y verificado**: `resumen_lienzo` creada, aprobada, ejecutada en 257 ms y **usada desde un turno** (`mcp__nodeflow__cerebro_resumen_lienzo`) |
 | **5.4** | **Contexto de la app**: `ARQUITECTURA.md` generado + el camino desde el lienzo | mi turno cita la arquitectura sin leerla a mano | 1 día | ⏳ |
 | **5.5** | **Curador**: propongo fusionar/borrar nodos con motivo, aprobable en bloque | el lienzo se mantiene limpio sin que lo hagas vos | 1-2 días | ⏳ |
@@ -92,7 +92,9 @@ propuestas con la vista previa (riesgo, ruta, tamaño); el humano la aprueba; qu
 ejecución la hace el backend con jaula: nombre slug, carpeta dentro del registro, `cwd` en la bóveda,
 parámetros por stdin, tope de 30 s que mata el proceso y salida acotada a 8 KB.
 
-**Orden elegido**: 5.0 → 5.1 → 5.3 (es el corazón del pedido) → 5.2 → 5.4 → 5.5 → 6.
+**Orden elegido**: 5.0 → 5.1 → 5.3 (es el corazón del pedido) → 5.2 ✅ → 5.4 → 5.5 → 6.
+
+**Criterio de escritura (5.2)**: mis **notas** (bitácora y planes) se escriben libres porque son texto mío, reversible y fuera del lienzo; lo que ejecuta código o toca el grafo (herramientas, nodos, aristas) nace por la **cola de propuestas**. Sin esa distinción, «mi espacio» sería un agujero en el control del humano.
 
 ---
 
