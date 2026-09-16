@@ -35,3 +35,4 @@ latest.json
 
 # Demo: materias primas crudas (traen datos de la máquina del autor)
 demo/fixtures-crudas/
+.vercel

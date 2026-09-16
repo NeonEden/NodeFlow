@@ -1,7 +1,8 @@
 {
   "ajuste_entorno": {
-    "modelo": "enhanced",
-    "url": "wss://eu.rt.speechmatics.com/v2"
+    "modelo": "u3-rt-pro",
+    "por_entorno": false,
+    "url": "wss://streaming.assemblyai.com/v3/ws"
   },
   "aviso": null,
   "codec": "pcm_s16le 16000 Hz",
