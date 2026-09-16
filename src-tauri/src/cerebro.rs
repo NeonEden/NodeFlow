@@ -29,6 +29,9 @@ pub struct Config {
     /// Desfase horario del usuario en horas (±14) para nombrar y fechar la nota episódica en **hora
     /// local**. `0` = UTC.
     pub offset_h: i32,
+    /// Fase 4 — puerto del gateway propio (`hermes serve`). 9119 es el del escritorio de Hermes: acá se
+    /// usa 9121 para no pisarlo.
+    pub gateway_puerto: u16,
 }
 
 impl Default for Config {
@@ -39,6 +42,7 @@ impl Default for Config {
             run_budget_s: 900,
             tope_s: 1200,
             offset_h: -3,
+            gateway_puerto: crate::cerebro_gateway::PUERTO_POR_DEFECTO,
         }
     }
 }
@@ -47,7 +51,11 @@ impl Config {
     pub fn desde(cfg: Option<&Value>) -> Config {
         let mut c = Config::default();
         if let Some(s) = cfg {
-            if let Some(v) = s.get("sesion").and_then(|v| v.as_str()).filter(|v| !v.trim().is_empty()) {
+            if let Some(v) = s
+                .get("sesion")
+                .and_then(|v| v.as_str())
+                .filter(|v| !v.trim().is_empty())
+            {
                 c.sesion = v.trim().to_string();
             }
             if let Some(v) = s.get("notas").and_then(|v| v.as_bool()) {
@@ -61,6 +69,9 @@ impl Config {
             }
             if let Some(v) = s.get("offset_h").and_then(|v| v.as_i64()) {
                 c.offset_h = (v as i32).clamp(-14, 14);
+            }
+            if let Some(v) = s.get("gateway_puerto").and_then(|v| v.as_u64()) {
+                c.gateway_puerto = (v as u16).clamp(1024, 65_535);
             }
         }
         if let Ok(v) = std::env::var("NODEFLOW_CEREBRO_SESION") {
@@ -182,14 +193,19 @@ pub fn prompt_turno(pedido: &str, c: &Contexto) -> String {
         c.nodos, c.aristas, c.pendientes
     ));
     if !c.memoria.is_empty() {
-        p.push_str("\nRecuerdo dirigido (notas de la bóveda que la memoria consideró relevantes):\n");
+        p.push_str(
+            "\nRecuerdo dirigido (notas de la bóveda que la memoria consideró relevantes):\n",
+        );
         for (titulo, ruta) in c.memoria.iter().take(6) {
             p.push_str(&format!("- {titulo} ({ruta})\n"));
         }
     }
     if !c.foco.is_empty() {
         let foco: Vec<&str> = c.foco.iter().take(8).map(|s| s.as_str()).collect();
-        p.push_str(&format!("\nFoco del hilo de diálogo: {}\n", foco.join(" · ")));
+        p.push_str(&format!(
+            "\nFoco del hilo de diálogo: {}\n",
+            foco.join(" · ")
+        ));
     }
     p.push_str(
         "\nTenés las herramientas MCP del lienzo (canvas_summary, canvas_stats, search_nodes, search_vault,\n\
@@ -211,7 +227,11 @@ pub fn resumen_contexto(c: &Contexto) -> String {
         c.aristas,
         c.pendientes,
         c.norte.as_deref().unwrap_or("-"),
-        c.memoria.iter().map(|(t, _)| t.as_str()).collect::<Vec<_>>().join(", "),
+        c.memoria
+            .iter()
+            .map(|(t, _)| t.as_str())
+            .collect::<Vec<_>>()
+            .join(", "),
         c.foco.join(", ")
     )
 }
@@ -277,7 +297,13 @@ pub fn nota_markdown(
     // El **título es el pedido**, no «Turno del cerebro»: la memoria (BM25) saca el título del primer
     // `# ` del archivo, así que con un título genérico las cuatro notas de turno se pisaban en el
     // recuerdo y no decían de qué hablaban (medido: `memoria=[Turno del cerebro, Turno del cerebro, …]`).
-    let titulo: String = pedido.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(90).collect();
+    let titulo: String = pedido
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(90)
+        .collect();
     format!(
         "---\ntipo: turno\ntitulo: \"{}\"\nfecha: \"{}\"\nfecha_utc: \"{}\"\nsesion: \"{}\"\nestado: {}\nms: {}\npedido: \"{}\"\n---\n\n# Turno: {}\n\n## Pedido\n{}\n\n## Respuesta\n{}\n",
         esc(&titulo),
@@ -305,8 +331,16 @@ mod tests {
         std::fs::write(dir.join("2026-09-15T21-16-turno.md"), "—").unwrap();
         std::fs::write(dir.join("2026-09-15T21-30-turno.md"), "—").unwrap();
         std::fs::write(dir.join("borrame.txt"), "—").unwrap();
-        assert_eq!(super::contar_notas(&base), 2, "sólo las notas .md del cerebro");
-        assert_eq!(super::contar_notas(&base.join("no-existe")), 0, "sin carpeta no hay notas, no hay error");
+        assert_eq!(
+            super::contar_notas(&base),
+            2,
+            "sólo las notas .md del cerebro"
+        );
+        assert_eq!(
+            super::contar_notas(&base.join("no-existe")),
+            0,
+            "sin carpeta no hay notas, no hay error"
+        );
         let _ = std::fs::remove_dir_all(&base);
     }
 
@@ -342,11 +376,20 @@ mod tests {
         };
         let p = prompt_turno("¿por dónde sigo?", &c);
         assert!(p.contains("¿por dónde sigo?"));
-        assert!(p.contains("Norte Estratégico · NodeFlow"), "la visión viaja siempre");
+        assert!(
+            p.contains("Norte Estratégico · NodeFlow"),
+            "la visión viaja siempre"
+        );
         assert!(p.contains("89 nodos · 119 aristas · 2 propuesta(s)"));
-        assert!(p.contains("- Motor dual por tarea (nodos/motor-dual.md)"), "recuerdo con su ruta");
+        assert!(
+            p.contains("- Motor dual por tarea (nodos/motor-dual.md)"),
+            "recuerdo con su ruta"
+        );
         assert!(p.contains("Foco del hilo de diálogo: Motor dual"));
-        assert!(p.contains("herramientas MCP del lienzo"), "el agente consulta, no recibe el mapa masticado");
+        assert!(
+            p.contains("herramientas MCP del lienzo"),
+            "el agente consulta, no recibe el mapa masticado"
+        );
     }
 
     #[test]
@@ -381,9 +424,15 @@ mod tests {
         assert_eq!(a[1], "-q");
         assert_eq!(a[2], "hola");
         assert!(a.iter().any(|x| x == "-c"));
-        assert!(a.iter().any(|x| x == "--create-if-missing"), "sin esto arranca una mente nueva cada turno");
+        assert!(
+            a.iter().any(|x| x == "--create-if-missing"),
+            "sin esto arranca una mente nueva cada turno"
+        );
         assert!(a.iter().any(|x| x == "--oneshot"));
-        assert!(a.iter().any(|x| x == "-Q"), "salida limpia: la respuesta se muestra tal cual");
+        assert!(
+            a.iter().any(|x| x == "-Q"),
+            "salida limpia: la respuesta se muestra tal cual"
+        );
         let i = a.iter().position(|x| x == "--run-budget").unwrap();
         assert_eq!(a[i + 1], "900");
     }
@@ -415,7 +464,9 @@ mod tests {
             "2026-09-15T21:10",
             "2026-09-16T00:10:33.000Z",
         );
-        assert!(nota.starts_with("---\ntipo: turno\ntitulo: \"¿qué hacemos?\"\nfecha: \"2026-09-15T21:10\"\n"));
+        assert!(nota.starts_with(
+            "---\ntipo: turno\ntitulo: \"¿qué hacemos?\"\nfecha: \"2026-09-15T21:10\"\n"
+        ));
         assert!(
             nota.contains("\n# Turno: ¿qué hacemos?\n"),
             "el título de la nota es el pedido: es lo que hace útil el recuerdo"

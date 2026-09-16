@@ -29,10 +29,16 @@ pub struct Veredicto {
 }
 
 fn si(d: impl Into<String>) -> Veredicto {
-    Veredicto { ok: true, detalle: d.into() }
+    Veredicto {
+        ok: true,
+        detalle: d.into(),
+    }
 }
 fn no(d: impl Into<String>) -> Veredicto {
-    Veredicto { ok: false, detalle: d.into() }
+    Veredicto {
+        ok: false,
+        detalle: d.into(),
+    }
 }
 
 /// Las pruebas. Son cinco porque cinco alcanzan para ver el perfil de un motor, y porque cada corrida
@@ -55,7 +61,8 @@ pub fn pruebas() -> Vec<Prueba> {
             id: "voz-delegar",
             titulo: "Reconoce cuándo hace falta el motor profundo",
             accion: "voz",
-            entrada: "averiguá en la web si el sensor SHT31 sigue fabricándose y decime alternativas",
+            entrada:
+                "averiguá en la web si el sensor SHT31 sigue fabricándose y decime alternativas",
         },
         Prueba {
             id: "condensar",
@@ -67,7 +74,8 @@ pub fn pruebas() -> Vec<Prueba> {
             id: "braindump",
             titulo: "Descompone una idea en un mapa",
             accion: "braindump",
-            entrada: "Quiero un sistema de riego para la huerta que avise al celular cuando falte agua, \
+            entrada:
+                "Quiero un sistema de riego para la huerta que avise al celular cuando falte agua, \
                       mida la humedad del suelo y no dependa de internet.",
         },
     ]
@@ -99,7 +107,10 @@ pub fn evaluar(id: &str, s: &Value) -> Veredicto {
             if creados.is_empty() {
                 return no("no creó ningún nodo".to_string());
             }
-            if creados.iter().any(|c| c["titulo"].as_str().unwrap_or("").trim().len() < 3) {
+            if creados
+                .iter()
+                .any(|c| c["titulo"].as_str().unwrap_or("").trim().len() < 3)
+            {
                 return no("creó un nodo sin título usable".to_string());
             }
             si(format!("creó {} nodos con título", creados.len()))
@@ -107,14 +118,20 @@ pub fn evaluar(id: &str, s: &Value) -> Veredicto {
         "voz-delegar" => {
             let cs = s["comandos"].as_array().cloned().unwrap_or_default();
             if cs.len() != 1 {
-                return no(format!("devolvió {} comandos (se esperaba 1 delegación)", cs.len()));
+                return no(format!(
+                    "devolvió {} comandos (se esperaba 1 delegación)",
+                    cs.len()
+                ));
             }
             if cs[0]["accion"] != "delegar" {
                 return no(format!("no delegó: propuso «{}»", cs[0]["accion"]));
             }
             let pedido = cs[0]["pedido"].as_str().unwrap_or("").trim();
             if pedido.len() < 20 {
-                return no(format!("el pedido quedó corto ({} caracteres)", pedido.len()));
+                return no(format!(
+                    "el pedido quedó corto ({} caracteres)",
+                    pedido.len()
+                ));
             }
             si("delegó con el pedido completo")
         }
@@ -128,7 +145,9 @@ pub fn evaluar(id: &str, s: &Value) -> Veredicto {
                 return no("descripción demasiado corta".to_string());
             }
             match s["match"].as_f64() {
-                Some(m) if (0.0..=1.0).contains(&m) => si(format!("«{}» con match {m:.2}", recorta(titulo, 40))),
+                Some(m) if (0.0..=1.0).contains(&m) => {
+                    si(format!("«{}» con match {m:.2}", recorta(titulo, 40)))
+                }
                 Some(m) => no(format!("match fuera de 0 a 1: {m}")),
                 None => no("sin match numérico".to_string()),
             }
@@ -144,7 +163,9 @@ pub fn evaluar(id: &str, s: &Value) -> Veredicto {
                 .filter(|n| n["title"].as_str().unwrap_or("").trim().len() >= 3)
                 .count();
             if con_titulo < 3 {
-                return no(format!("sólo {con_titulo} nodos con título (se esperaban 3 o más)"));
+                return no(format!(
+                    "sólo {con_titulo} nodos con título (se esperaban 3 o más)"
+                ));
             }
             si(format!("«{}» + {con_titulo} nodos", recorta(raiz, 34)))
         }
@@ -202,17 +223,16 @@ pub async fn correr(st: &AppState, modelos: Vec<String>) -> Value {
     {
         let _ = crate::motores::guardar_seleccion(&st.data_dir, Some(&previa));
         let _ = std::fs::remove_file(&guardada);
-        log::info!("evaluación: restaurada la elección del usuario que quedó de una corrida cortada");
+        log::info!(
+            "evaluación: restaurada la elección del usuario que quedó de una corrida cortada"
+        );
     }
     let anterior = crate::motores::seleccionado(&st.data_dir);
     let _ = std::fs::write(
         &guardada,
         serde_json::to_string(&json!({ "seleccion": anterior })).unwrap_or_default(),
     );
-    let lienzo: Vec<Value> = st
-        .vault
-        .read_state()
-        .unwrap_or(json!({}))["nodes"]
+    let lienzo: Vec<Value> = st.vault.read_state().unwrap_or(json!({}))["nodes"]
         .as_array()
         .map(|ns| {
             ns.iter()
@@ -234,7 +254,8 @@ pub async fn correr(st: &AppState, modelos: Vec<String>) -> Value {
     for id in modelos {
         let _ = crate::motores::guardar_seleccion(&st.data_dir, Some(&id));
         let mut pruebas_json: Vec<Value> = Vec::new();
-        let (mut aciertos, mut ms_total, mut tokens_total, mut costo_total) = (0u64, 0u64, 0u64, 0.0f64);
+        let (mut aciertos, mut ms_total, mut tokens_total, mut costo_total) =
+            (0u64, 0u64, 0u64, 0.0f64);
 
         for p in pruebas() {
             let t0 = std::time::Instant::now();
@@ -267,9 +288,21 @@ pub async fn correr(st: &AppState, modelos: Vec<String>) -> Value {
                             uso["cache"].as_str().unwrap_or("?").to_string(),
                         )
                     }
-                    Err(e) => (no(format!("respuesta ilegible: {e}")), 0, 0.0, String::new(), "?".into()),
+                    Err(e) => (
+                        no(format!("respuesta ilegible: {e}")),
+                        0,
+                        0.0,
+                        String::new(),
+                        "?".into(),
+                    ),
                 },
-                Err(e) => (no(format!("sin respuesta: {e}")), 0, 0.0, String::new(), "?".into()),
+                Err(e) => (
+                    no(format!("sin respuesta: {e}")),
+                    0,
+                    0.0,
+                    String::new(),
+                    "?".into(),
+                ),
             };
             if veredicto.ok {
                 aciertos += 1;
@@ -407,7 +440,9 @@ pub fn leer(st: &AppState) -> Option<Value> {
 
 /// La planilla como tabla markdown, para el repo y la bóveda.
 pub fn a_markdown(tabla: &Value) -> String {
-    let mut out = String::from("| Motor | Aciertos | Tiempo medio | Tokens | Costo |\n|---|---|---|---|---|\n");
+    let mut out = String::from(
+        "| Motor | Aciertos | Tiempo medio | Tokens | Costo |\n|---|---|---|---|---|\n",
+    );
     for m in tabla["motores"].as_array().cloned().unwrap_or_default() {
         let costo = m["costo_usd"].as_f64().unwrap_or(0.0);
         out.push_str(&format!(
@@ -417,11 +452,19 @@ pub fn a_markdown(tabla: &Value) -> String {
             m["total"].as_u64().unwrap_or(0),
             m["ms_medio"].as_u64().unwrap_or(0) as f64 / 1000.0,
             m["tokens"].as_u64().unwrap_or(0),
-            if costo > 0.0 { format!("US${costo:.6}") } else { "US$0".to_string() },
+            if costo > 0.0 {
+                format!("US${costo:.6}")
+            } else {
+                "US$0".to_string()
+            },
         ));
     }
     out.push_str("\n### Ganador por prueba\n\n| Prueba | Motor | Tiempo |\n|---|---|---|\n");
-    for (k, v) in tabla["ganador_por_prueba"].as_object().cloned().unwrap_or_default() {
+    for (k, v) in tabla["ganador_por_prueba"]
+        .as_object()
+        .cloned()
+        .unwrap_or_default()
+    {
         out.push_str(&format!(
             "| `{}` | `{}` | {:.1} s |\n",
             k,
@@ -441,30 +484,63 @@ mod tests_planilla {
         let bien = json!({"comandos": [{"accion": "enfocar", "nodos": ["a", "b", "c"]}]});
         assert!(evaluar("voz-enfocar", &bien).ok);
         let dos = json!({"comandos": [{"accion": "enfocar", "nodos": []}, {"accion": "enfocar", "nodos": ["a"]}]});
-        assert!(!evaluar("voz-enfocar", &dos).ok, "dos comandos no es una orden de limpieza");
+        assert!(
+            !evaluar("voz-enfocar", &dos).ok,
+            "dos comandos no es una orden de limpieza"
+        );
         let condensar_todo = json!({"comandos": [{"accion": "condensar", "nodos": ["a", "b"]}]});
-        assert!(!evaluar("voz-enfocar", &condensar_todo).ok, "no enfocar es fallar la prueba");
+        assert!(
+            !evaluar("voz-enfocar", &condensar_todo).ok,
+            "no enfocar es fallar la prueba"
+        );
     }
 
     #[test]
     fn crear_no_debe_enfocar() {
-        assert!(evaluar("voz-crear", &json!({"comandos": [{"accion": "crear", "titulo": "Ruteo por tarea"}]})).ok);
+        assert!(
+            evaluar(
+                "voz-crear",
+                &json!({"comandos": [{"accion": "crear", "titulo": "Ruteo por tarea"}]})
+            )
+            .ok
+        );
         let se_paso_de_largo = json!({"comandos": [{"accion": "crear", "titulo": "X idea"}, {"accion": "enfocar", "nodos": ["a"]}]});
-        assert!(!evaluar("voz-crear", &se_paso_de_largo).ok, "si enfoca, destruyó el lienzo sin que se lo pidan");
+        assert!(
+            !evaluar("voz-crear", &se_paso_de_largo).ok,
+            "si enfoca, destruyó el lienzo sin que se lo pidan"
+        );
     }
 
     #[test]
     fn delegar_necesita_pedido_completo() {
         assert!(evaluar("voz-delegar", &json!({"comandos": [{"accion": "delegar", "pedido": "averiguá si el SHT31 sigue fabricándose"}]})).ok);
-        assert!(!evaluar("voz-delegar", &json!({"comandos": [{"accion": "delegar", "pedido": "buscá"}]})).ok);
-        assert!(!evaluar("voz-delegar", &json!({"comandos": [{"accion": "crear", "titulo": "Sensores"}]})).ok);
+        assert!(
+            !evaluar(
+                "voz-delegar",
+                &json!({"comandos": [{"accion": "delegar", "pedido": "buscá"}]})
+            )
+            .ok
+        );
+        assert!(
+            !evaluar(
+                "voz-delegar",
+                &json!({"comandos": [{"accion": "crear", "titulo": "Sensores"}]})
+            )
+            .ok
+        );
     }
 
     #[test]
     fn condensar_necesita_contrato_completo() {
         let ok = json!({"title": "Copiloto de voz local", "description": "Cierra el bucle hablado con Kokoro y Speechmatics sin salir de la máquina.", "match": 0.9});
         assert!(evaluar("condensar", &ok).ok);
-        assert!(!evaluar("condensar", &json!({"title": "X", "description": "corta", "match": 0.9})).ok);
+        assert!(
+            !evaluar(
+                "condensar",
+                &json!({"title": "X", "description": "corta", "match": 0.9})
+            )
+            .ok
+        );
         assert!(!evaluar("condensar", &json!({"title": "X", "description": "una descripción suficientemente larga para pasar", "match": 92})).ok, "match 92 no es 0..1");
     }
 
@@ -472,7 +548,13 @@ mod tests_planilla {
     fn braindump_necesita_raiz_y_ramas() {
         let ok = json!({"root": {"title": "Riego que avisa"}, "nodes": [{"title": "Humedad de suelo"}, {"title": "Aviso al celular"}, {"title": "Sin internet"}]});
         assert!(evaluar("braindump", &ok).ok);
-        assert!(!evaluar("braindump", &json!({"root": {"title": "Riego"}, "nodes": [{"title": "Una"}]})).ok);
+        assert!(
+            !evaluar(
+                "braindump",
+                &json!({"root": {"title": "Riego"}, "nodes": [{"title": "Una"}]})
+            )
+            .ok
+        );
     }
 
     /// El error que este test evita: comparar posiciones cruzadas elegía al más lento.
@@ -488,7 +570,9 @@ mod tests_planilla {
             let (ok, ms) = (f["ok"].as_bool().unwrap(), f["ms"].as_u64().unwrap());
             let gana = match &mejor {
                 None => true,
-                Some((_, ms_mejor, ok_mejor)) => (ok && !*ok_mejor) || (ok == *ok_mejor && ms < *ms_mejor),
+                Some((_, ms_mejor, ok_mejor)) => {
+                    (ok && !*ok_mejor) || (ok == *ok_mejor && ms < *ms_mejor)
+                }
             };
             if gana {
                 mejor = Some((m["id"].as_str().unwrap().to_string(), ms, ok));

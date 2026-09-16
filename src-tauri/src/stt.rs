@@ -319,12 +319,20 @@ pub async fn abrir_sesion(
                     .unwrap_or_default();
                 return Err(format!(
                     "AssemblyAI no devolvió token temporal (campos: {}).",
-                    if claves.is_empty() { "ninguno".to_string() } else { claves.join(", ") }
+                    if claves.is_empty() {
+                        "ninguno".to_string()
+                    } else {
+                        claves.join(", ")
+                    }
                 ));
             }
             (t, 600)
         }
-        otro => return Err(format!("El motor «{otro}» no tiene emisión de token implementada.")),
+        otro => {
+            return Err(format!(
+                "El motor «{otro}» no tiene emisión de token implementada."
+            ))
+        }
     };
 
     let modelo = if modelo_pedido.trim().is_empty() {
@@ -381,12 +389,19 @@ mod tests {
         unicos.dedup();
         assert_eq!(unicos.len(), ids.len(), "ids repetidos en el catálogo");
         for p in CATALOGO {
-            assert!(p.url.starts_with("wss://"), "{} no apunta a un WebSocket", p.id);
+            assert!(
+                p.url.starts_with("wss://"),
+                "{} no apunta a un WebSocket",
+                p.id
+            );
             assert!(!p.protocolo.is_empty(), "{} sin protocolo", p.id);
             assert!(por_id(p.id).is_some());
             assert!(!p.nota.is_empty(), "{} sin nota para el usuario", p.id);
         }
-        assert!(por_id("SPEECHMATICS").is_some(), "el id debe resolverse sin importar mayúsculas");
+        assert!(
+            por_id("SPEECHMATICS").is_some(),
+            "el id debe resolverse sin importar mayúsculas"
+        );
         assert!(por_id("no-existe").is_none());
     }
 
@@ -399,7 +414,11 @@ mod tests {
     #[test]
     fn un_id_invalido_en_config_cae_al_por_defecto() {
         let d = dir_de_prueba("invalido");
-        std::fs::write(d.join("nodeflow.config.json"), r#"{"stt_proveedor":"inventado"}"#).unwrap();
+        std::fs::write(
+            d.join("nodeflow.config.json"),
+            r#"{"stt_proveedor":"inventado"}"#,
+        )
+        .unwrap();
         assert_eq!(seleccionado(&d), POR_DEFECTO);
     }
 
@@ -416,7 +435,10 @@ mod tests {
         let v: Value =
             serde_json::from_str(&std::fs::read_to_string(d.join("nodeflow.config.json")).unwrap())
                 .unwrap();
-        assert_eq!(v["speechmatics_api_key"], "NO_TOCAR", "la clave ajena se preserva");
+        assert_eq!(
+            v["speechmatics_api_key"], "NO_TOCAR",
+            "la clave ajena se preserva"
+        );
         assert_eq!(v["vault_path"], "X");
         assert_eq!(v[CLAVE_CONFIG], "assemblyai");
     }
@@ -425,8 +447,15 @@ mod tests {
     fn guardar_rechaza_un_motor_desconocido() {
         let d = dir_de_prueba("rechaza");
         let e = guardar_seleccion(&d, "chatgpt").unwrap_err();
-        assert!(e.contains("desconocido"), "el error debe explicar el id: {e}");
-        assert_eq!(seleccionado(&d), POR_DEFECTO, "no debe quedar guardado nada");
+        assert!(
+            e.contains("desconocido"),
+            "el error debe explicar el id: {e}"
+        );
+        assert_eq!(
+            seleccionado(&d),
+            POR_DEFECTO,
+            "no debe quedar guardado nada"
+        );
     }
 
     #[test]
@@ -444,7 +473,10 @@ mod tests {
         let (idioma, aviso) = idioma_efectivo(p, "es");
         assert_eq!(idioma, "en", "debe degradar al idioma soportado");
         let aviso = aviso.expect("debe haber aviso: prometer castellano sería mentir");
-        assert!(aviso.contains("todavía no transcribe"), "aviso poco claro: {aviso}");
+        assert!(
+            aviso.contains("todavía no transcribe"),
+            "aviso poco claro: {aviso}"
+        );
         assert!(soporta(p, "en-GB"));
         assert!(!soporta(p, "es-AR"));
     }
@@ -471,6 +503,9 @@ mod tests {
             spee["clave_configurada"], true,
             "con la clave en el config, la lista tiene que decir que sí"
         );
-        assert_eq!(ass["clave_configurada"], false, "y para el otro motor, que no");
+        assert_eq!(
+            ass["clave_configurada"], false,
+            "y para el otro motor, que no"
+        );
     }
 }

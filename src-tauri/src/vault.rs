@@ -172,16 +172,29 @@ mod tests_tags {
 
     #[test]
     fn quita_repetidos_y_conserva_orden() {
-        let entrada: Vec<String> = ["Gemini", "Orquestador", "nucleo", "NUCLEO", "nucleo", " nucleo "]
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
-        assert_eq!(sin_repetidos(entrada), vec!["Gemini", "Orquestador", "nucleo"]);
+        let entrada: Vec<String> = [
+            "Gemini",
+            "Orquestador",
+            "nucleo",
+            "NUCLEO",
+            "nucleo",
+            " nucleo ",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        assert_eq!(
+            sin_repetidos(entrada),
+            vec!["Gemini", "Orquestador", "nucleo"]
+        );
     }
 
     #[test]
     fn saca_vacios_y_no_rompe_con_vacio() {
-        assert_eq!(sin_repetidos(vec!["  ".into(), "".into()]), Vec::<String>::new());
+        assert_eq!(
+            sin_repetidos(vec!["  ".into(), "".into()]),
+            Vec::<String>::new()
+        );
         assert_eq!(sin_repetidos(vec![]), Vec::<String>::new());
     }
 }
@@ -2069,7 +2082,9 @@ impl Vault {
                 s["revision"] = json!(self.inner.lock().unwrap().revision);
                 s
             }
-            Err(e) => json!({"ok": false, "error": e, "frenado": [], "requisitos": [], "jugadas": []}),
+            Err(e) => {
+                json!({"ok": false, "error": e, "frenado": [], "requisitos": [], "jugadas": []})
+            }
         }
     }
 
@@ -2094,9 +2109,15 @@ impl Vault {
         // 1b) curaduría (relleno de un lote, duplicados temáticos, nodos vacíos) → borrado, uno por nodo,
         //     con el motivo REAL que dio el diagnóstico (no un texto genérico).
         for p in problemas.iter().filter(|p| {
-            p["tipo"].as_str().map(|t| t.starts_with("curaduria_")).unwrap_or(false)
+            p["tipo"]
+                .as_str()
+                .map(|t| t.starts_with("curaduria_"))
+                .unwrap_or(false)
         }) {
-            let motivo = p["detalle"].as_str().unwrap_or("No aporta valor al mapa").to_string();
+            let motivo = p["detalle"]
+                .as_str()
+                .unwrap_or("No aporta valor al mapa")
+                .to_string();
             let tipo = p["tipo"].as_str().unwrap_or("curaduria").to_string();
             for id in p["ids"].as_array().cloned().unwrap_or_default() {
                 if let Some(id) = id.as_str() {
@@ -2750,7 +2771,10 @@ fn al_guardar_no_se_persisten_banderas_de_interfaz() {
     }});
     let limpio = sin_banderas_ui(&n);
     let d = limpio["data"].as_object().unwrap();
-    assert!(!d.contains_key("isEditing"), "un nodo no puede nacer editándose");
+    assert!(
+        !d.contains_key("isEditing"),
+        "un nodo no puede nacer editándose"
+    );
     assert!(!d.contains_key("selected"));
     assert!(!d.contains_key("isSearchMatch"));
     assert_eq!(d["title"], "Idea", "lo del concepto se conserva");
@@ -2763,17 +2787,25 @@ mod tests_nota_jaula {
 
     #[test]
     fn acepta_una_ruta_relativa_normal() {
-        assert_eq!(ruta_nota_valida("cerebro/2026-09-15T21-10-turno.md").unwrap(),
-                   "cerebro/2026-09-15T21-10-turno.md");
+        assert_eq!(
+            ruta_nota_valida("cerebro/2026-09-15T21-10-turno.md").unwrap(),
+            "cerebro/2026-09-15T21-10-turno.md"
+        );
         // las barras invertidas se normalizan
         assert_eq!(ruta_nota_valida("cerebro\\x.md").unwrap(), "cerebro/x.md");
     }
 
     #[test]
     fn rechaza_todo_lo_que_se_escape_de_la_boveda() {
-        for mala in ["/absoluta.md", "C:/windows/x.md", "sub/../../fuera.md", "", "sin-extension.txt", "a".repeat(190).as_str()] {
+        for mala in [
+            "/absoluta.md",
+            "C:/windows/x.md",
+            "sub/../../fuera.md",
+            "",
+            "sin-extension.txt",
+            "a".repeat(190).as_str(),
+        ] {
             assert!(ruta_nota_valida(mala).is_err(), "debía rechazar «{mala}»");
         }
     }
 }
-

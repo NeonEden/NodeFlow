@@ -109,7 +109,11 @@ fn clave_embeddings(st: &crate::server::AppState) -> Option<String> {
 /// Embeddings de Gemini. Los nombres de modelo cambian sin aviso: `text-embedding-004` respondía 404 y
 /// el vigente es `gemini-embedding-001` (3072 dimensiones). Se prueban en orden y se **recuerda** el que
 /// funcione en este proceso, así el próximo pedido no paga la prueba.
-const MODELOS: [&str; 3] = ["gemini-embedding-001", "text-embedding-005", "text-embedding-004"];
+const MODELOS: [&str; 3] = [
+    "gemini-embedding-001",
+    "text-embedding-005",
+    "text-embedding-004",
+];
 static MODELO_ACTIVO: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
 /// Un intento contra un modelo concreto. `None` = este modelo no sirve (nombre viejo, 404), probar el
@@ -139,20 +143,28 @@ async fn pedir_embedding(
         return None; // el modelo no existe con ese nombre
     }
     if !r.status().is_success() {
-        log::warn!("semántica: embeddings devolvió {}; se desactivan por esta corrida", r.status());
+        log::warn!(
+            "semántica: embeddings devolvió {}; se desactivan por esta corrida",
+            r.status()
+        );
         EMBEDDINGS_CAIDOS.store(true, Ordering::Relaxed);
         return None;
     }
     let v: Value = match r.json().await {
         Ok(v) => v,
         Err(e) => {
-            log::warn!("semántica: respuesta de embeddings ilegible ({e}); se desactivan por esta corrida");
+            log::warn!(
+                "semántica: respuesta de embeddings ilegible ({e}); se desactivan por esta corrida"
+            );
             EMBEDDINGS_CAIDOS.store(true, Ordering::Relaxed);
             return None;
         }
     };
     let vals = v["embedding"]["values"].as_array()?;
-    let out: Vec<f32> = vals.iter().filter_map(|x| x.as_f64().map(|f| f as f32)).collect();
+    let out: Vec<f32> = vals
+        .iter()
+        .filter_map(|x| x.as_f64().map(|f| f as f32))
+        .collect();
     if out.is_empty() {
         None
     } else {
@@ -176,7 +188,10 @@ pub async fn vector(st: &crate::server::AppState, texto: &str) -> Option<Vec<f32
         if let Some(v) = pedir_embedding(st, &clave, &modelo, texto).await {
             if let Ok(mut g) = MODELO_ACTIVO.lock() {
                 if g.as_deref() != Some(modelo.as_str()) {
-                    log::info!("semántica: embeddings con {modelo} ({} dimensiones)", v.len());
+                    log::info!(
+                        "semántica: embeddings con {modelo} ({} dimensiones)",
+                        v.len()
+                    );
                     *g = Some(modelo.clone());
                 }
             }
@@ -198,7 +213,10 @@ mod tests {
             normalizar("Investiga Sensores de Humedad"),
             normalizar("humedad de sensores investiga")
         );
-        assert_eq!(normalizar("riego automático"), normalizar("riego automatico"));
+        assert_eq!(
+            normalizar("riego automático"),
+            normalizar("riego automatico")
+        );
         assert_eq!(normalizar("¿Sondas, de suelo?"), "de sondas suelo");
     }
 
@@ -222,7 +240,10 @@ mod tests {
         // Y el guardián de largo: si el nuevo agrega otra consigna, no acredita.
         let d = normalizar(&a_antes_de_agregar_una_consigna());
         let (_, l) = contencion(&a, &d);
-        assert!(l > LARGO_MAX, "un pedido mucho más largo no debe reusar: {l}");
+        assert!(
+            l > LARGO_MAX,
+            "un pedido mucho más largo no debe reusar: {l}"
+        );
     }
 
     #[test]

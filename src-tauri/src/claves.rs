@@ -34,11 +34,31 @@ pub struct Campo {
 }
 
 pub const CAMPOS: &[Campo] = &[
-    Campo { config: "deepseek_api_key", etiqueta: "DeepSeek", env_extra: &[] },
-    Campo { config: "gemini_api_key", etiqueta: "Gemini", env_extra: &["GOOGLE_API_KEY"] },
-    Campo { config: "speechmatics_api_key", etiqueta: "Speechmatics", env_extra: &["SPEECHMATICS_KEY"] },
-    Campo { config: "assemblyai_api_key", etiqueta: "AssemblyAI", env_extra: &[] },
-    Campo { config: "tavily_api_key", etiqueta: "Tavily", env_extra: &[] },
+    Campo {
+        config: "deepseek_api_key",
+        etiqueta: "DeepSeek",
+        env_extra: &[],
+    },
+    Campo {
+        config: "gemini_api_key",
+        etiqueta: "Gemini",
+        env_extra: &["GOOGLE_API_KEY"],
+    },
+    Campo {
+        config: "speechmatics_api_key",
+        etiqueta: "Speechmatics",
+        env_extra: &["SPEECHMATICS_KEY"],
+    },
+    Campo {
+        config: "assemblyai_api_key",
+        etiqueta: "AssemblyAI",
+        env_extra: &[],
+    },
+    Campo {
+        config: "tavily_api_key",
+        etiqueta: "Tavily",
+        env_extra: &[],
+    },
 ];
 
 /// ¿Este nombre de campo del config guarda una clave? (`deepseek_api_key`, `groq_api_key`, …)
@@ -146,7 +166,10 @@ impl Store for Memoria {
         self.0.lock().unwrap().get(campo).cloned()
     }
     fn escribir(&self, campo: &str, valor: &str) -> Result<(), String> {
-        self.0.lock().unwrap().insert(campo.to_string(), valor.to_string());
+        self.0
+            .lock()
+            .unwrap()
+            .insert(campo.to_string(), valor.to_string());
         Ok(())
     }
     fn borrar(&self, campo: &str) -> Result<(), String> {
@@ -172,7 +195,11 @@ fn leer_env_file(txt: &str, nombre: &str) -> Option<String> {
     for linea in txt.lines() {
         let l = linea.trim();
         if let Some(resto) = l.strip_prefix(&prefijo) {
-            let v = resto.trim().trim_matches('"').trim_matches('\'').to_string();
+            let v = resto
+                .trim()
+                .trim_matches('"')
+                .trim_matches('\'')
+                .to_string();
             if !v.is_empty() {
                 return Some(v);
             }
@@ -208,7 +235,10 @@ pub fn obtener_con(campo: &str, data_dir: &Path, store: &dyn Store) -> Option<Re
         if let Ok(v) = std::env::var(&nombre) {
             let v = v.trim().to_string();
             if !v.is_empty() {
-                return Some(Resuelta { valor: v, origen: Origen::Entorno });
+                return Some(Resuelta {
+                    valor: v,
+                    origen: Origen::Entorno,
+                });
             }
         }
     }
@@ -216,7 +246,10 @@ pub fn obtener_con(campo: &str, data_dir: &Path, store: &dyn Store) -> Option<Re
         if let Ok(txt) = std::fs::read_to_string(candidato) {
             for nombre in env_names(campo) {
                 if let Some(v) = leer_env_file(&txt, &nombre) {
-                    return Some(Resuelta { valor: v, origen: Origen::EnvFile });
+                    return Some(Resuelta {
+                        valor: v,
+                        origen: Origen::EnvFile,
+                    });
                 }
             }
         }
@@ -224,10 +257,16 @@ pub fn obtener_con(campo: &str, data_dir: &Path, store: &dyn Store) -> Option<Re
     if let Some(v) = store.leer(campo) {
         let v = v.trim().to_string();
         if !v.is_empty() {
-            return Some(Resuelta { valor: v, origen: Origen::Llavero });
+            return Some(Resuelta {
+                valor: v,
+                origen: Origen::Llavero,
+            });
         }
     }
-    valor_config(data_dir, campo).map(|valor| Resuelta { valor, origen: Origen::ConfigTextoPlano })
+    valor_config(data_dir, campo).map(|valor| Resuelta {
+        valor,
+        origen: Origen::ConfigTextoPlano,
+    })
 }
 
 /// Resuelve una clave con el llavero real.
@@ -293,7 +332,9 @@ pub fn migrar(data_dir: &Path, store: &dyn Store) -> Result<Value, String> {
                             let detalle = match otro {
                                 None => "no devolvió nada".to_string(),
                                 Some(x) if x.is_empty() => "devolvió vacío".to_string(),
-                                Some(x) => format!("devolvió un valor distinto ({} caracteres)", x.len()),
+                                Some(x) => {
+                                    format!("devolvió un valor distinto ({} caracteres)", x.len())
+                                }
                             };
                             log::error!("claves: {nombre} NON se migró — el llavero {detalle}");
                             fallidas.push(json!({
@@ -351,9 +392,11 @@ pub fn estado(data_dir: &Path, store: &dyn Store) -> Value {
     let campos: Vec<Value> = CAMPOS
         .iter()
         .map(|c| {
-            let en_entorno = env_names(c.config)
-                .iter()
-                .any(|n| std::env::var(n).map(|v| !v.trim().is_empty()).unwrap_or(false));
+            let en_entorno = env_names(c.config).iter().any(|n| {
+                std::env::var(n)
+                    .map(|v| !v.trim().is_empty())
+                    .unwrap_or(false)
+            });
             let en_llave = store.leer(c.config).filter(|v| !v.trim().is_empty());
             let en_texto = valor_config(data_dir, c.config);
             let (origen, valor) = if en_entorno {
@@ -374,7 +417,10 @@ pub fn estado(data_dir: &Path, store: &dyn Store) -> Value {
             })
         })
         .collect();
-    let en_texto_plano = campos.iter().filter(|c| c["origen"] == "texto-plano").count();
+    let en_texto_plano = campos
+        .iter()
+        .filter(|c| c["origen"] == "texto-plano")
+        .count();
     let en_llavero = campos.iter().filter(|c| c["origen"] == "llavero").count();
     json!({
         "servicio": SERVICIO,
@@ -393,7 +439,10 @@ mod tests {
         let d = std::env::temp_dir().join(format!(
             "nf-claves-{}-{:?}",
             std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         ));
         std::fs::create_dir_all(&d).unwrap();
         d
@@ -425,7 +474,11 @@ mod tests {
     #[test]
     fn sin_llavero_cae_al_config_y_lo_reporta_como_legado() {
         let d = dir();
-        std::fs::write(d.join("nodeflow.config.json"), r#"{"probando_api_key":"LEGADO"}"#).unwrap();
+        std::fs::write(
+            d.join("nodeflow.config.json"),
+            r#"{"probando_api_key":"LEGADO"}"#,
+        )
+        .unwrap();
         let store = Memoria::default();
         let r = obtener_con("probando_api_key", &d, &store).unwrap();
         assert_eq!(r.valor, "LEGADO");
@@ -435,8 +488,15 @@ mod tests {
     #[test]
     fn la_variante_en_mayusculas_tambien_se_lee() {
         let d = dir();
-        std::fs::write(d.join("nodeflow.config.json"), r#"{"PROBANDO_API_KEY":"MAYUS"}"#).unwrap();
-        assert_eq!(valor_config(&d, "probando_api_key").as_deref(), Some("MAYUS"));
+        std::fs::write(
+            d.join("nodeflow.config.json"),
+            r#"{"PROBANDO_API_KEY":"MAYUS"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            valor_config(&d, "probando_api_key").as_deref(),
+            Some("MAYUS")
+        );
     }
 
     #[test]
@@ -451,20 +511,39 @@ mod tests {
         let res = migrar(&d, &store).unwrap();
         assert_eq!(store.leer("probando_api_key").as_deref(), Some("SECRETO"));
         let cfg = leer_config(&d);
-        assert!(cfg["probando_api_key"].is_null(), "la clave no puede quedar en texto plano");
+        assert!(
+            cfg["probando_api_key"].is_null(),
+            "la clave no puede quedar en texto plano"
+        );
         assert_eq!(cfg["vault_path"], "X", "el resto del config no se toca");
         assert!(cfg["_nota_claves"].is_string());
-        assert!(res["migradas"].as_array().unwrap().iter().any(|v| v == "probando_api_key"));
+        assert!(res["migradas"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v == "probando_api_key"));
     }
 
     #[test]
     fn migrar_es_idempotente_y_no_pisa_el_llavero() {
         let d = dir();
-        std::fs::write(d.join("nodeflow.config.json"), r#"{"probando_api_key":"VIEJA"}"#).unwrap();
+        std::fs::write(
+            d.join("nodeflow.config.json"),
+            r#"{"probando_api_key":"VIEJA"}"#,
+        )
+        .unwrap();
         let store = Memoria::nueva(&[("probando_api_key", "BUENA")]);
         let res = migrar(&d, &store).unwrap();
-        assert_eq!(store.leer("probando_api_key").as_deref(), Some("BUENA"), "no se pisa lo que ya está");
-        assert!(res["ya_en_llavero"].as_array().unwrap().iter().any(|v| v == "probando_api_key"));
+        assert_eq!(
+            store.leer("probando_api_key").as_deref(),
+            Some("BUENA"),
+            "no se pisa lo que ya está"
+        );
+        assert!(res["ya_en_llavero"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v == "probando_api_key"));
         assert!(leer_config(&d)["probando_api_key"].is_null());
     }
 
@@ -472,12 +551,22 @@ mod tests {
     fn si_el_llavero_falla_la_clave_no_se_pierde() {
         struct Roto;
         impl Store for Roto {
-            fn leer(&self, _c: &str) -> Option<String> { None }
-            fn escribir(&self, _c: &str, _v: &str) -> Result<(), String> { Err("acceso denegado".into()) }
-            fn borrar(&self, _c: &str) -> Result<(), String> { Ok(()) }
+            fn leer(&self, _c: &str) -> Option<String> {
+                None
+            }
+            fn escribir(&self, _c: &str, _v: &str) -> Result<(), String> {
+                Err("acceso denegado".into())
+            }
+            fn borrar(&self, _c: &str) -> Result<(), String> {
+                Ok(())
+            }
         }
         let d = dir();
-        std::fs::write(d.join("nodeflow.config.json"), r#"{"probando_api_key":"NO_SE_PIERDE"}"#).unwrap();
+        std::fs::write(
+            d.join("nodeflow.config.json"),
+            r#"{"probando_api_key":"NO_SE_PIERDE"}"#,
+        )
+        .unwrap();
         let res = migrar(&d, &Roto).unwrap();
         assert_eq!(leer_config(&d)["probando_api_key"], "NO_SE_PIERDE");
         assert_eq!(res["fallidas"].as_array().unwrap().len(), 1);
@@ -486,12 +575,24 @@ mod tests {
     #[test]
     fn el_estado_publica_huella_pero_nunca_el_valor() {
         let d = dir();
-        std::fs::write(d.join("nodeflow.config.json"), r#"{"tavily_api_key":"tvly-secreto-largo"}"#).unwrap();
+        std::fs::write(
+            d.join("nodeflow.config.json"),
+            r#"{"tavily_api_key":"tvly-secreto-largo"}"#,
+        )
+        .unwrap();
         let store = Memoria::default();
         let e = estado(&d, &store);
         let crudo = serde_json::to_string(&e).unwrap();
-        assert!(!crudo.contains("tvly-secreto-largo"), "el estado jamás publica el valor");
-        let tavily = e["campos"].as_array().unwrap().iter().find(|c| c["campo"] == "tavily_api_key").unwrap();
+        assert!(
+            !crudo.contains("tvly-secreto-largo"),
+            "el estado jamás publica el valor"
+        );
+        let tavily = e["campos"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["campo"] == "tavily_api_key")
+            .unwrap();
         assert_eq!(tavily["origen"], "texto-plano");
         assert_eq!(tavily["huella"].as_str().unwrap().len(), 8);
         assert_eq!(e["en_texto_plano"], 1);
@@ -523,8 +624,14 @@ mod tests {
         let leido = Llavero
             .leer(campo)
             .expect("el llavero tiene que devolver lo que se acaba de escribir");
-        assert_eq!(leido, valor, "el valor leído tiene que ser idéntico al escrito");
+        assert_eq!(
+            leido, valor,
+            "el valor leído tiene que ser idéntico al escrito"
+        );
         Llavero.borrar(campo).expect("borrar tiene que funcionar");
-        assert!(Llavero.leer(campo).is_none(), "después de borrar no puede quedar nada");
+        assert!(
+            Llavero.leer(campo).is_none(),
+            "después de borrar no puede quedar nada"
+        );
     }
 }

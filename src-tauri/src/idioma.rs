@@ -18,7 +18,9 @@ pub const POR_DEFECTO: &str = "es";
 
 /// ¿Es un idioma que sabemos hablar?
 pub fn es_valido(idioma: &str) -> bool {
-    IDIOMAS.iter().any(|i| i.eq_ignore_ascii_case(idioma.trim()))
+    IDIOMAS
+        .iter()
+        .any(|i| i.eq_ignore_ascii_case(idioma.trim()))
 }
 
 fn normalizar(idioma: &str) -> String {
@@ -109,7 +111,8 @@ mod tests {
         guardar(&d, "en").unwrap();
         assert_eq!(actual(&d), "en");
         let cfg: Value =
-            serde_json::from_str(&std::fs::read_to_string(d.join("nodeflow.config.json")).unwrap()).unwrap();
+            serde_json::from_str(&std::fs::read_to_string(d.join("nodeflow.config.json")).unwrap())
+                .unwrap();
         assert_eq!(cfg["vault_path"], "X", "el resto del config no se toca");
     }
 

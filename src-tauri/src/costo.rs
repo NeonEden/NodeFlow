@@ -117,14 +117,22 @@ pub fn consumo_gemini(v: &Value) -> Option<Consumo> {
         .get("candidatesTokenCount")
         .and_then(|x| x.as_u64())
         .unwrap_or(0);
-    Some(Consumo { prompt, completion, cache_hit: 0 })
+    Some(Consumo {
+        prompt,
+        completion,
+        cache_hit: 0,
+    })
 }
 
 /// Tokens de la API nativa de Ollama (`/api/chat`): `prompt_eval_count` + `eval_count`.
 pub fn consumo_ollama_nativo(v: &Value) -> Option<Consumo> {
     let prompt = v.get("prompt_eval_count").and_then(|x| x.as_u64())?;
     let completion = v.get("eval_count").and_then(|x| x.as_u64()).unwrap_or(0);
-    Some(Consumo { prompt, completion, cache_hit: 0 })
+    Some(Consumo {
+        prompt,
+        completion,
+        cache_hit: 0,
+    })
 }
 
 /// Tokens de una respuesta compatible con OpenAI (el daemon local de Ollama los reporta así).
@@ -145,7 +153,11 @@ pub fn consumo_openai(v: &Value) -> Option<Consumo> {
                 .and_then(|x| x.as_u64())
         })
         .unwrap_or(0);
-    Some(Consumo { prompt, completion, cache_hit })
+    Some(Consumo {
+        prompt,
+        completion,
+        cache_hit,
+    })
 }
 
 /// Estimación ≈4 caracteres por token, para cuando el proveedor no reporta `usage`.
@@ -154,7 +166,11 @@ pub fn aprox_tokens(texto: &str) -> u64 {
 }
 
 pub fn consumo_estimado(prompt: &str, salida: &str) -> Consumo {
-    Consumo { prompt: aprox_tokens(prompt), completion: aprox_tokens(salida), cache_hit: 0 }
+    Consumo {
+        prompt: aprox_tokens(prompt),
+        completion: aprox_tokens(salida),
+        cache_hit: 0,
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -172,7 +188,9 @@ pub struct Tarifas {
 impl Tarifas {
     /// `{"tarifas": {"modelo": [entrada, salida]}, "gratis": ["ollama"]}` desde el config del vault.
     pub fn desde_config(cfg: Option<&Value>) -> Tarifas {
-        let Some(cfg) = cfg else { return Tarifas::default() };
+        let Some(cfg) = cfg else {
+            return Tarifas::default();
+        };
         let mut modelos = HashMap::new();
         if let Some(obj) = cfg.get("tarifas").and_then(|t| t.as_object()) {
             for (modelo, par) in obj {
@@ -244,7 +262,8 @@ impl Tarifas {
             return Some(0.0);
         }
         let (entrada, salida) = self.tarifa_de(modelo)?;
-        let v = c.prompt as f64 * entrada / 1_000_000.0 + c.completion as f64 * salida / 1_000_000.0;
+        let v =
+            c.prompt as f64 * entrada / 1_000_000.0 + c.completion as f64 * salida / 1_000_000.0;
         Some((v * 1_000_000.0).round() / 1_000_000.0)
     }
 
@@ -275,7 +294,9 @@ pub fn texto_costo(
         None => "sin tarifa declarada".to_string(),
     });
     if cache_hits > 0 {
-        partes.push(format!("{cache_hits} caché HIT ({tokens_evitados} tokens evitados)"));
+        partes.push(format!(
+            "{cache_hits} caché HIT ({tokens_evitados} tokens evitados)"
+        ));
     }
     partes.join(" · ")
 }
@@ -371,7 +392,11 @@ impl Cache {
             .and_then(|t| serde_json::from_str::<Contenido>(&t).ok())
             .filter(|c| c.ver == CACHE_VER) // otra versión del contrato: se descarta entera
             .unwrap_or_default();
-        Cache { ruta, tope, c: Mutex::new(contenido) }
+        Cache {
+            ruta,
+            tope,
+            c: Mutex::new(contenido),
+        }
     }
 
     /// Un `hit` cuenta y acumula los tokens evitados; un `miss` solo cuenta.
@@ -426,7 +451,11 @@ impl Cache {
                     // Sin embeddings: contención de tokens + guardián de largo (no reusar cuando el
                     // pedido nuevo agrega otra consigna).
                     let (con, largo) = crate::semantica::contencion(&e.semilla, &busq);
-                    let sim = if largo <= crate::semantica::LARGO_MAX { con } else { 0.0 };
+                    let sim = if largo <= crate::semantica::LARGO_MAX {
+                        con
+                    } else {
+                        0.0
+                    };
                     (sim, "por texto")
                 }
             };
@@ -541,10 +570,24 @@ mod tests {
             "candidates": [{"content": {"parts": [{"text": "{}"}]}}],
             "usageMetadata": { "promptTokenCount": 812, "candidatesTokenCount": 430 }
         });
-        assert_eq!(consumo_gemini(&g), Some(Consumo { prompt: 812, completion: 430, cache_hit: 0 }));
+        assert_eq!(
+            consumo_gemini(&g),
+            Some(Consumo {
+                prompt: 812,
+                completion: 430,
+                cache_hit: 0
+            })
+        );
 
         let o = json!({ "usage": { "prompt_tokens": 120, "completion_tokens": 80, "total_tokens": 200 } });
-        assert_eq!(consumo_openai(&o), Some(Consumo { prompt: 120, completion: 80, cache_hit: 0 }));
+        assert_eq!(
+            consumo_openai(&o),
+            Some(Consumo {
+                prompt: 120,
+                completion: 80,
+                cache_hit: 0
+            })
+        );
 
         // Sin `usage` no se inventa: None, para que aguas arriba se estime y se declare.
         assert_eq!(consumo_gemini(&json!({ "candidates": [] })), None);
@@ -552,7 +595,11 @@ mod tests {
         // `completion_tokens` ausente no invalida el prompt medido.
         assert_eq!(
             consumo_openai(&json!({ "usage": { "prompt_tokens": 7 } })),
-            Some(Consumo { prompt: 7, completion: 0, cache_hit: 0 })
+            Some(Consumo {
+                prompt: 7,
+                completion: 0,
+                cache_hit: 0
+            })
         );
     }
 
@@ -562,7 +609,14 @@ mod tests {
         assert_eq!(aprox_tokens("abcd"), 1);
         assert_eq!(aprox_tokens("abcde"), 2);
         let c = consumo_estimado("abcd", "abcdefgh");
-        assert_eq!(c, Consumo { prompt: 1, completion: 2, cache_hit: 0 });
+        assert_eq!(
+            c,
+            Consumo {
+                prompt: 1,
+                completion: 2,
+                cache_hit: 0
+            }
+        );
         assert_eq!(c.total(), 3);
     }
 
@@ -609,9 +663,20 @@ mod tests {
         assert_eq!(t.tarifa_de("gemini-3.6-flash-001"), Some((0.30, 2.50)));
         assert_eq!(t.tarifa_de("modelo-desconocido"), None);
 
-        let un_millon = Consumo { prompt: 1_000_000, completion: 0, cache_hit: 0 };
-        assert_eq!(t.costo("gemini-3.6-flash", "gemini", &un_millon), Some(0.30));
-        let mixto = Consumo { prompt: 500_000, completion: 200_000, cache_hit: 0 };
+        let un_millon = Consumo {
+            prompt: 1_000_000,
+            completion: 0,
+            cache_hit: 0,
+        };
+        assert_eq!(
+            t.costo("gemini-3.6-flash", "gemini", &un_millon),
+            Some(0.30)
+        );
+        let mixto = Consumo {
+            prompt: 500_000,
+            completion: 200_000,
+            cache_hit: 0,
+        };
         assert_eq!(t.costo("gemini-3.6-flash", "gemini", &mixto), Some(0.65));
         // Gratis se declara, y se declara por proveedor: 0.0 es un dato, no una ausencia.
         assert_eq!(t.costo("cualquiera", "ollama", &mixto), Some(0.0));
@@ -622,7 +687,11 @@ mod tests {
 
     #[test]
     fn el_texto_del_costo_marca_estimado_y_cache() {
-        let c = Consumo { prompt: 100, completion: 20, cache_hit: 0 };
+        let c = Consumo {
+            prompt: 100,
+            completion: 20,
+            cache_hit: 0,
+        };
         let t = texto_costo(&c, Some(0.000123), false, 0, 0);
         assert!(t.contains("120 tokens (100 in / 20 out)"));
         assert!(t.contains("US$ 0.000123"));
@@ -637,7 +706,17 @@ mod tests {
         let c = Cache::cargar(ruta.clone());
         let k = "k1";
         assert!(c.get(k).is_none(), "miss en caché vacía");
-        c.put(k, entrada_nueva(json!({ "artefacto": 1 }), "gemini", "gemini-3.6-flash", 1234, "", None));
+        c.put(
+            k,
+            entrada_nueva(
+                json!({ "artefacto": 1 }),
+                "gemini",
+                "gemini-3.6-flash",
+                1234,
+                "",
+                None,
+            ),
+        );
         let e = c.get(k).expect("hit tras guardar");
         assert_eq!(e.valor["artefacto"], 1);
         assert_eq!(e.tokens, 1234);
@@ -657,8 +736,12 @@ mod tests {
     fn una_version_distinta_del_contrato_descarta_todo() {
         let ruta = tmp("ver");
         let c = Cache::cargar(ruta.clone());
-        c.put("k", entrada_nueva(json!({ "a": 1 }), "ollama", "m", 5, "", None));
-        let mut disco: Value = serde_json::from_str(&std::fs::read_to_string(&ruta).unwrap()).unwrap();
+        c.put(
+            "k",
+            entrada_nueva(json!({ "a": 1 }), "ollama", "m", 5, "", None),
+        );
+        let mut disco: Value =
+            serde_json::from_str(&std::fs::read_to_string(&ruta).unwrap()).unwrap();
         disco["ver"] = json!(CACHE_VER + 1);
         std::fs::write(&ruta, disco.to_string()).unwrap();
         let c2 = Cache::cargar(ruta.clone());
@@ -700,8 +783,15 @@ mod tests {
         assert!(tarifas.es_gratis("ollama@granite3.3:2b"));
         assert!(tarifas.es_gratis("OLLAMA@qwen2.5vl:7b"));
         assert!(!tarifas.es_gratis("gemini@gemini-3.6-flash"));
-        let c = Consumo { prompt: 1000, completion: 1000, cache_hit: 0 };
-        assert_eq!(tarifas.costo("granite3.3:2b", "ollama@granite3.3:2b", &c), Some(0.0));
+        let c = Consumo {
+            prompt: 1000,
+            completion: 1000,
+            cache_hit: 0,
+        };
+        assert_eq!(
+            tarifas.costo("granite3.3:2b", "ollama@granite3.3:2b", &c),
+            Some(0.0)
+        );
     }
 
     #[test]
@@ -710,7 +800,10 @@ mod tests {
         std::fs::write(&ruta, "{no es json").unwrap();
         let c = Cache::cargar(ruta.clone());
         assert_eq!(c.stats()["entradas"], 0);
-        c.put("k", entrada_nueva(json!({ "ok": true }), "ollama", "m", 1, "", None));
+        c.put(
+            "k",
+            entrada_nueva(json!({ "ok": true }), "ollama", "m", 1, "", None),
+        );
         assert!(c.get("k").is_some());
         let _ = std::fs::remove_file(&ruta);
     }

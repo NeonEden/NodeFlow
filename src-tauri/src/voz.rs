@@ -13,7 +13,15 @@
 use serde_json::{json, Value};
 
 /// Lo que la voz puede pedir. Todo lo demás se descarta.
-pub const ACCIONES: [&str; 7] = ["crear", "enlazar", "enfocar", "condensar", "criticar", "delegar", "actualizar"];
+pub const ACCIONES: [&str; 7] = [
+    "crear",
+    "enlazar",
+    "enfocar",
+    "condensar",
+    "criticar",
+    "delegar",
+    "actualizar",
+];
 
 /// Hermes como motor profundo de NodeFlow: cuando el pedido necesita lo que el modelo local no
 /// tiene (buscar en la web, leer un repo, razonar largo), el plan trae un `delegar` y el backend
@@ -92,10 +100,22 @@ mod tests_voz_selectiva {
         let ids = vec!["n-1".to_string()];
         // nodo inexistente
         let fuera = json!({"comandos": [{"accion": "actualizar", "nodo": "n-999", "titulo": "x"}]});
-        assert_eq!(super::validar(&fuera, &ids)["comandos"].as_array().unwrap().len(), 0);
+        assert_eq!(
+            super::validar(&fuera, &ids)["comandos"]
+                .as_array()
+                .unwrap()
+                .len(),
+            0
+        );
         // sin campos
         let vacio = json!({"comandos": [{"accion": "actualizar", "nodo": "n-1"}]});
-        assert_eq!(super::validar(&vacio, &ids)["comandos"].as_array().unwrap().len(), 0);
+        assert_eq!(
+            super::validar(&vacio, &ids)["comandos"]
+                .as_array()
+                .unwrap()
+                .len(),
+            0
+        );
         // maturity fuera de rango se acota, no se descarta
         let raro = json!({"comandos": [{"accion": "actualizar", "nodo": "n-1", "maturity": 99}]});
         assert_eq!(super::validar(&raro, &ids)["comandos"][0]["maturity"], 5);
@@ -108,15 +128,27 @@ mod tests_voz_selectiva {
             {"accion": "delegar", "pedido": "y también compará con otro proveedor"}
         ]});
         let limpio = super::validar(&plan, &[]);
-        assert_eq!(limpio["comandos"].as_array().unwrap().len(), 1, "el segundo delegar no debe pasar");
-        assert_eq!(limpio["descartados"].as_u64().unwrap(), 1, "debe quedar 1 descarte");
+        assert_eq!(
+            limpio["comandos"].as_array().unwrap().len(),
+            1,
+            "el segundo delegar no debe pasar"
+        );
+        assert_eq!(
+            limpio["descartados"].as_u64().unwrap(),
+            1,
+            "debe quedar 1 descarte"
+        );
         assert_eq!(limpio["motivo_descarte"].as_array().unwrap().len(), 1);
-        assert!(limpio["motivo_descarte"][0].as_str().unwrap().contains("delegar"));
+        assert!(limpio["motivo_descarte"][0]
+            .as_str()
+            .unwrap()
+            .contains("delegar"));
     }
 
     #[test]
     fn delegar_sin_pedido_se_descarta() {
-        let plan = json!({"intencion": "comando", "comandos": [{"accion": "delegar", "pedido": "ab"}]});
+        let plan =
+            json!({"intencion": "comando", "comandos": [{"accion": "delegar", "pedido": "ab"}]});
         let limpio = super::validar(&plan, &[]);
         assert_eq!(limpio["comandos"].as_array().unwrap().len(), 0);
     }
@@ -135,7 +167,8 @@ mod tests_voz_selectiva {
     #[test]
     fn crear_y_enlazar_son_silencio() {
         // Acción obvia: se ve en el lienzo, no hace falta narrarla.
-        let plan = json!({"comandos": [{"accion": "crear", "titulo": "Sensor"}, {"accion": "enlazar"}]});
+        let plan =
+            json!({"comandos": [{"accion": "crear", "titulo": "Sensor"}, {"accion": "enlazar"}]});
         assert!(!debe_hablar(&plan));
     }
 
@@ -234,7 +267,13 @@ fn recorta(v: &str, n: usize) -> String {
 /// Devuelve el plan limpio (con `descartados` y `motivo_descarte`) listo para mostrar y aplicar.
 pub fn validar(plan: &Value, ids_validos: &[String]) -> Value {
     let existe = |id: &str| ids_validos.iter().any(|x| x == id);
-    let intencion = match plan["intencion"].as_str().unwrap_or("").trim().to_lowercase().as_str() {
+    let intencion = match plan["intencion"]
+        .as_str()
+        .unwrap_or("")
+        .trim()
+        .to_lowercase()
+        .as_str()
+    {
         "capturar" => "capturar",
         "comando" => "comando",
         _ => "comando",
@@ -259,7 +298,9 @@ pub fn validar(plan: &Value, ids_validos: &[String]) -> Value {
             "delegar" => {
                 // Un `delegar` por plan: es la operación cara (una pasada completa del motor profundo).
                 if limpios.iter().any(|c| c["accion"] == "delegar") {
-                    descartados.push("un segundo «delegar» en el mismo plan (es la operación cara)".into());
+                    descartados.push(
+                        "un segundo «delegar» en el mismo plan (es la operación cara)".into(),
+                    );
                     continue;
                 }
                 let pedido = recorta(c["pedido"].as_str().unwrap_or(""), 600);
@@ -269,16 +310,22 @@ pub fn validar(plan: &Value, ids_validos: &[String]) -> Value {
                 }
                 limpio["pedido"] = json!(pedido);
             }
-        "actualizar" => {
+            "actualizar" => {
                 // Mutar un nodo que YA existe: es lo que hace posible la evolución por fases (el nodo
                 // de investigación cambia de estado sin crear otro con lo mismo).
                 let nodo = c["nodo"].as_str().unwrap_or("").trim().to_string();
                 if nodo.is_empty() || !existe(&nodo) {
-                    descartados.push("un «actualizar» que apunta a un nodo que no está en el lienzo".into());
+                    descartados.push(
+                        "un «actualizar» que apunta a un nodo que no está en el lienzo".into(),
+                    );
                     continue;
                 }
                 let mut campos = serde_json::Map::new();
-                for (clave, tope) in [("titulo", 140usize), ("descripcion", 700), ("categoria", 40)] {
+                for (clave, tope) in [
+                    ("titulo", 140usize),
+                    ("descripcion", 700),
+                    ("categoria", 40),
+                ] {
                     if let Some(v) = c[clave]
                         .as_str()
                         .map(|s| recorta(s, tope))
@@ -313,18 +360,22 @@ pub fn validar(plan: &Value, ids_validos: &[String]) -> Value {
                     }
                 }
             }
-        "crear" => {
+            "crear" => {
                 let titulo = recorta(c["titulo"].as_str().unwrap_or(""), 140);
                 if titulo.is_empty() {
                     descartados.push("un «crear» sin título".into());
                     continue;
                 }
                 limpio["titulo"] = json!(titulo);
-                limpio["descripcion"] = json!(recorta(c["descripcion"].as_str().unwrap_or(""), 700));
+                limpio["descripcion"] =
+                    json!(recorta(c["descripcion"].as_str().unwrap_or(""), 700));
                 limpio["categoria"] = json!(recorta(c["categoria"].as_str().unwrap_or("VOZ"), 40));
             }
             "enfocar" => {
-                let mut ids: Vec<String> = ids_del_comando(&c).into_iter().filter(|i| existe(i)).collect();
+                let mut ids: Vec<String> = ids_del_comando(&c)
+                    .into_iter()
+                    .filter(|i| existe(i))
+                    .collect();
                 ids.dedup();
                 if ids.is_empty() {
                     descartados.push("un «enfocar» sin ids válidos del lienzo".into());
@@ -335,7 +386,10 @@ pub fn validar(plan: &Value, ids_validos: &[String]) -> Value {
                 limpio["criterio"] = json!(recorta(c["criterio"].as_str().unwrap_or(""), 200));
             }
             "condensar" | "criticar" => {
-                let mut ids: Vec<String> = ids_del_comando(&c).into_iter().filter(|i| existe(i)).collect();
+                let mut ids: Vec<String> = ids_del_comando(&c)
+                    .into_iter()
+                    .filter(|i| existe(i))
+                    .collect();
                 ids.dedup();
                 if ids.len() < 2 {
                     descartados.push(format!("un «{accion}» con menos de 2 nodos válidos"));
@@ -358,8 +412,10 @@ pub fn validar(plan: &Value, ids_validos: &[String]) -> Value {
                     .map(|x| x["titulo"].as_str().unwrap_or("").to_lowercase())
                     .collect();
                 let es_nuevo = |s: &str| titulos_nuevos.iter().any(|t| t == &s.to_lowercase());
-                if (!existe(&desde) && !es_nuevo(&desde)) || (!existe(&hasta) && !es_nuevo(&hasta)) {
-                    descartados.push("un «enlazar» que apunta a algo que no está en el lienzo".into());
+                if (!existe(&desde) && !es_nuevo(&desde)) || (!existe(&hasta) && !es_nuevo(&hasta))
+                {
+                    descartados
+                        .push("un «enlazar» que apunta a algo que no está en el lienzo".into());
                     continue;
                 }
                 limpio["desde"] = json!(desde);
@@ -432,18 +488,38 @@ mod tests {
     fn enlazar_a_lo_inexistente_se_cae() {
         let plan = json!({"intencion": "comando", "respuesta": "x",
             "comandos": [{"accion": "enlazar", "desde": "n-1", "hasta": "fantasma"}]});
-        assert_eq!(validar(&plan, &lienzo())["comandos"].as_array().unwrap().len(), 0);
+        assert_eq!(
+            validar(&plan, &lienzo())["comandos"]
+                .as_array()
+                .unwrap()
+                .len(),
+            0
+        );
     }
 
     #[test]
     fn topes_de_comandos_y_nodos() {
-        let muchos: Vec<Value> = (0..20).map(|i| json!({"accion": "crear", "titulo": format!("n{i}")})).collect();
+        let muchos: Vec<Value> = (0..20)
+            .map(|i| json!({"accion": "crear", "titulo": format!("n{i}")}))
+            .collect();
         let plan = json!({"intencion": "capturar", "respuesta": "", "comandos": muchos});
-        assert_eq!(validar(&plan, &lienzo())["comandos"].as_array().unwrap().len(), MAX_COMANDOS);
+        assert_eq!(
+            validar(&plan, &lienzo())["comandos"]
+                .as_array()
+                .unwrap()
+                .len(),
+            MAX_COMANDOS
+        );
 
         let ids: Vec<String> = (0..50).map(|i| format!("n-{i}")).collect();
         let plan2 = json!({"intencion": "comando", "respuesta": "", "comandos": [{"accion": "condensar", "nodos": ids}]});
-        assert_eq!(validar(&plan2, &ids)["comandos"][0]["nodos"].as_array().unwrap().len(), MAX_NODOS);
+        assert_eq!(
+            validar(&plan2, &ids)["comandos"][0]["nodos"]
+                .as_array()
+                .unwrap()
+                .len(),
+            MAX_NODOS
+        );
     }
 
     #[test]

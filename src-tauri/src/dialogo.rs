@@ -211,7 +211,11 @@ mod tests_dialogo {
         assert_eq!(foco.len(), 2);
         assert!(foco[0].starts_with("n-1"));
         // Un plan que no enfoca no cambia el foco (lo conserva `registrar`).
-        assert!(foco_del_plan(&json!({"comandos": [{"accion": "crear", "titulo": "x"}]}), &titulos).is_empty());
+        assert!(foco_del_plan(
+            &json!({"comandos": [{"accion": "crear", "titulo": "x"}]}),
+            &titulos
+        )
+        .is_empty());
     }
 
     #[test]
@@ -238,9 +242,19 @@ mod tests_dialogo {
         assert_eq!(s1["turnos"].as_array().unwrap().len(), 1);
         assert_eq!(s1["foco"].as_array().unwrap().len(), 1);
         // Un turno que no enfoca conserva el foco anterior.
-        let s2 = registrar(&dir, "sumá una idea", &json!({"comandos": [{"accion": "crear"}], "respuesta": "Listo."}), &titulos).unwrap();
+        let s2 = registrar(
+            &dir,
+            "sumá una idea",
+            &json!({"comandos": [{"accion": "crear"}], "respuesta": "Listo."}),
+            &titulos,
+        )
+        .unwrap();
         assert_eq!(s2["turnos"].as_array().unwrap().len(), 2);
-        assert_eq!(s2["foco"].as_array().unwrap().len(), 1, "el foco no se pierde");
+        assert_eq!(
+            s2["foco"].as_array().unwrap().len(),
+            1,
+            "el foco no se pierde"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

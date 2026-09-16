@@ -71,7 +71,11 @@ pub fn en_curso(data_dir: &Path) -> bool {
 fn anotar(data_dir: &Path, fase: &str, que: &str, comandos: Vec<Value>) {
     let previo = leer(data_dir);
     let mut pasos = previo["pasos"].as_array().cloned().unwrap_or_default();
-    let (_, titulo, emoji) = FASES.iter().find(|(id, _, _)| *id == fase).copied().unwrap_or(("", "", ""));
+    let (_, titulo, emoji) = FASES
+        .iter()
+        .find(|(id, _, _)| *id == fase)
+        .copied()
+        .unwrap_or(("", "", ""));
     pasos.push(json!({
         "fase": fase,
         "titulo": titulo,
@@ -89,7 +93,10 @@ fn anotar(data_dir: &Path, fase: &str, que: &str, comandos: Vec<Value>) {
         "pasos": pasos,
         "terminado": false,
     });
-    let _ = std::fs::write(archivo(data_dir), serde_json::to_string_pretty(&estado).unwrap_or_default());
+    let _ = std::fs::write(
+        archivo(data_dir),
+        serde_json::to_string_pretty(&estado).unwrap_or_default(),
+    );
 }
 
 fn terminar(data_dir: &Path, resumen: &str, ok: bool) {
@@ -99,7 +106,10 @@ fn terminar(data_dir: &Path, resumen: &str, ok: bool) {
         obj.insert("ok".into(), json!(ok));
         obj.insert("salida".into(), json!(resumen));
     }
-    let _ = std::fs::write(archivo(data_dir), serde_json::to_string_pretty(&estado).unwrap_or_default());
+    let _ = std::fs::write(
+        archivo(data_dir),
+        serde_json::to_string_pretty(&estado).unwrap_or_default(),
+    );
     let _ = std::fs::remove_file(data_dir.join("investigacion.corriendo"));
 }
 
@@ -160,7 +170,12 @@ pub fn comandos_de_fuentes(pedido: &str, fuentes: &[Value]) -> Vec<Value> {
 }
 
 /// La mutación de la fase Cápsula: el nodo central queda con la síntesis y sube de fase.
-pub fn comandos_de_sintesis(titulo_nodo: &str, resumen: &str, principio: &str, descartar: &[String]) -> Vec<Value> {
+pub fn comandos_de_sintesis(
+    titulo_nodo: &str,
+    resumen: &str,
+    principio: &str,
+    descartar: &[String],
+) -> Vec<Value> {
     let mut comandos = vec![json!({
         "accion": "actualizar",
         "titulo": titulo_nodo,
@@ -218,15 +233,21 @@ async fn sintetizar(st: &AppState, prompt: &str) -> Result<(String, String, Vec<
             if !resumen.is_empty() {
                 return Ok((resumen, principio, descartar));
             }
-            log::warn!("investigación: DeepSeek respondió sin resumen usable; la síntesis pasa a Hermes");
+            log::warn!(
+                "investigación: DeepSeek respondió sin resumen usable; la síntesis pasa a Hermes"
+            );
         }
-        Err(e) => log::warn!("investigación: DeepSeek no respondió ({e}); la síntesis pasa a Hermes"),
+        Err(e) => {
+            log::warn!("investigación: DeepSeek no respondió ({e}); la síntesis pasa a Hermes")
+        }
     }
     match correr_hermes(st, prompt, 300).await {
         Ok(texto) => {
             let (resumen, principio, descartar) = leer_sintesis(&texto);
             if resumen.is_empty() {
-                return Err("los dos motores respondieron, pero ninguno devolvió un resumen usable".into());
+                return Err(
+                    "los dos motores respondieron, pero ninguno devolvió un resumen usable".into(),
+                );
             }
             Ok((resumen, principio, descartar))
         }
@@ -267,7 +288,9 @@ pub async fn correr(st: &AppState, pedido: String) {
         Err(motivo) => {
             log::info!("investigación: Tavily no está disponible ({motivo}); salgo con Hermes");
             match correr_hermes(st, &prompt_fuentes, 300).await {
-                Ok(texto) => primer_json(&texto).map(|v| fuentes_validas(&v)).unwrap_or_default(),
+                Ok(texto) => primer_json(&texto)
+                    .map(|v| fuentes_validas(&v))
+                    .unwrap_or_default(),
                 Err(e) => {
                     terminar(&dir, &format!("No pude salir a buscar: {e}"), false);
                     return;
@@ -276,7 +299,11 @@ pub async fn correr(st: &AppState, pedido: String) {
         }
     };
     if fuentes.is_empty() {
-        terminar(&dir, "La búsqueda no devolvió fuentes usables (títulos y URL válidas).", false);
+        terminar(
+            &dir,
+            "La búsqueda no devolvió fuentes usables (títulos y URL válidas).",
+            false,
+        );
         return;
     }
     anotar(
@@ -284,7 +311,10 @@ pub async fn correr(st: &AppState, pedido: String) {
         "friccion",
         // Las fuentes no se vuelven nodos: viajan como datos de la fase y la app las mete en la
         // nota del nodo central (ver `proponer` en App.tsx). El lienzo no se llena de bibliografía.
-        &format!("Encontró {} fuentes: van dentro de la nota del nodo.", fuentes.len()),
+        &format!(
+            "Encontró {} fuentes: van dentro de la nota del nodo.",
+            fuentes.len()
+        ),
         comandos_de_fuentes(&pedido, &fuentes),
     );
 
@@ -301,7 +331,10 @@ pub async fn correr(st: &AppState, pedido: String) {
                 f["por_que"].as_str().unwrap_or("")
             );
             match f["contenido"].as_str() {
-                Some(c) if !c.trim().is_empty() => format!("{cabeza}\nExtracto real: {}", c.chars().take(1200).collect::<String>()),
+                Some(c) if !c.trim().is_empty() => format!(
+                    "{cabeza}\nExtracto real: {}",
+                    c.chars().take(1200).collect::<String>()
+                ),
                 _ => cabeza,
             }
         })
@@ -318,14 +351,25 @@ pub async fn correr(st: &AppState, pedido: String) {
     let (resumen, principio, descartar) = match sintetizar(st, &prompt_sintesis).await {
         Ok(t) => t,
         Err(e) => {
-            terminar(&dir, &format!("Se hallaron las fuentes, pero la síntesis no salió: {e}"), false);
+            terminar(
+                &dir,
+                &format!("Se hallaron las fuentes, pero la síntesis no salió: {e}"),
+                false,
+            );
             return;
         }
     };
     anotar(
         &dir,
         "capsula",
-        &format!("Sintetizó el hallazgo{}", if descartar.len() > 1 { format!(" y descartó {} fuentes", descartar.len()) } else { String::new() }),
+        &format!(
+            "Sintetizó el hallazgo{}",
+            if descartar.len() > 1 {
+                format!(" y descartó {} fuentes", descartar.len())
+            } else {
+                String::new()
+            }
+        ),
         comandos_de_sintesis(&nodo_central, &resumen, &principio, &descartar),
     );
 
@@ -382,7 +426,10 @@ pub async fn buscar_con_tavily(st: &AppState, consulta: &str) -> Result<Vec<Valu
     if !r.status().is_success() {
         return Err(format!("Tavily respondió {}", r.status()));
     }
-    let v: Value = r.json().await.map_err(|e| format!("respuesta ilegible: {e}"))?;
+    let v: Value = r
+        .json()
+        .await
+        .map_err(|e| format!("respuesta ilegible: {e}"))?;
     let fuentes: Vec<Value> = v["results"]
         .as_array()
         .into_iter()
@@ -427,9 +474,17 @@ async fn correr_hermes(st: &AppState, prompt: &str, tope_s: u64) -> Result<Strin
 async fn correr_deepseek(st: &AppState, prompt: &str, tope_s: u64) -> Result<String, String> {
     // El motor de síntesis: el primer DeepSeek del catálogo de proveedores (el chat, no el razonador:
     // para sintetizar alcanza, es más rápido y más barato).
-    let motor = catalogo_deepseek(st).ok_or("no hay un motor DeepSeek configurado (falta la clave)")?;
+    let motor =
+        catalogo_deepseek(st).ok_or("no hay un motor DeepSeek configurado (falta la clave)")?;
     let clave = clave_del_motor(st, &motor).ok_or("falta la clave de DeepSeek")?;
-    let url = format!("{}/chat/completions", motor.base_url.clone().unwrap_or_default().trim_end_matches('/'));
+    let url = format!(
+        "{}/chat/completions",
+        motor
+            .base_url
+            .clone()
+            .unwrap_or_default()
+            .trim_end_matches('/')
+    );
     let cuerpo = json!({
         "model": motor.modelo,
         "messages": [{ "role": "user", "content": prompt }],
@@ -447,24 +502,40 @@ async fn correr_deepseek(st: &AppState, prompt: &str, tope_s: u64) -> Result<Str
     if !r.status().is_success() {
         return Err(format!("DeepSeek respondió {}", r.status()));
     }
-    let v: Value = r.json().await.map_err(|e| format!("respuesta ilegible: {e}"))?;
-    Ok(v["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string())
+    let v: Value = r
+        .json()
+        .await
+        .map_err(|e| format!("respuesta ilegible: {e}"))?;
+    Ok(v["choices"][0]["message"]["content"]
+        .as_str()
+        .unwrap_or("")
+        .to_string())
 }
 
 fn catalogo_deepseek(st: &AppState) -> Option<crate::motores::Motor> {
     let txt = std::fs::read_to_string(st.data_dir.join("nodeflow.config.json")).ok()?;
     let cfg: Value = serde_json::from_str(&txt).ok()?;
-    cfg["proveedores"].as_array().into_iter().flatten().find_map(|p| {
-        let modelo = p["modelo"].as_str()?;
-        if !modelo.contains("deepseek") || modelo.contains("reasoner") {
-            return None; // para sintetizar alcanza el chat: es más rápido y más barato
-        }
-        let base = p["base_url"].as_str()?;
-        let mut m = crate::motores::Motor::nuevo("openai", modelo, crate::motores::NUBE_PAGA, None, Some(base.to_string()));
-        m.id = format!("openai:{}", p["id"].as_str().unwrap_or("deepseek"));
-        m.clave_ref = p["clave_config"].as_str().map(String::from);
-        Some(m)
-    })
+    cfg["proveedores"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find_map(|p| {
+            let modelo = p["modelo"].as_str()?;
+            if !modelo.contains("deepseek") || modelo.contains("reasoner") {
+                return None; // para sintetizar alcanza el chat: es más rápido y más barato
+            }
+            let base = p["base_url"].as_str()?;
+            let mut m = crate::motores::Motor::nuevo(
+                "openai",
+                modelo,
+                crate::motores::NUBE_PAGA,
+                None,
+                Some(base.to_string()),
+            );
+            m.id = format!("openai:{}", p["id"].as_str().unwrap_or("deepseek"));
+            m.clave_ref = p["clave_config"].as_str().map(String::from);
+            Some(m)
+        })
 }
 
 fn clave_del_motor(st: &AppState, m: &crate::motores::Motor) -> Option<String> {
@@ -480,7 +551,9 @@ fn clave_del_motor(st: &AppState, m: &crate::motores::Motor) -> Option<String> {
         .as_str()
         .map(String::from)
         .filter(|s| !s.trim().is_empty())
-        .or_else(|| (nombre.len() > 20 && !nombre.contains(char::is_whitespace)).then(|| nombre.clone()))
+        .or_else(|| {
+            (nombre.len() > 20 && !nombre.contains(char::is_whitespace)).then(|| nombre.clone())
+        })
 }
 
 /// Arranca la investigación (endpoint `POST /api/ai/investigar`).
@@ -495,7 +568,10 @@ pub async fn iniciar(st: &AppState, pedido: String) -> Result<(), String> {
     )
     .map_err(|e| e.to_string())?;
     // El instante de arranque, no un "1": así la bandera puede vencer (ver `en_curso`).
-    let _ = std::fs::write(st.data_dir.join("investigacion.corriendo"), ahora_s().to_string());
+    let _ = std::fs::write(
+        st.data_dir.join("investigacion.corriendo"),
+        ahora_s().to_string(),
+    );
     let st2 = st.clone();
     tokio::spawn(async move { correr(&st2, pedido).await });
     Ok(())
@@ -522,7 +598,11 @@ mod tests_investigacion {
             {"titulo": "Otra buena", "url": "https://ejemplo.com/doc"}
         ]});
         let ok = fuentes_validas(&crudo);
-        assert_eq!(ok.len(), 2, "una sin url y una con título de 1 letra se descartan");
+        assert_eq!(
+            ok.len(),
+            2,
+            "una sin url y una con título de 1 letra se descartan"
+        );
         assert_eq!(ok[0]["titulo"], "Sensirion SHT31");
     }
 
@@ -535,16 +615,30 @@ mod tests_investigacion {
         assert_eq!(comandos[0]["accion"], "crear");
         assert_eq!(comandos[0]["categoria"], "FUENTE");
         assert_eq!(comandos[1]["accion"], "enlazar");
-        assert_eq!(comandos[1]["hasta"], "Fuente A", "el enlace apunta al título, que el ejecutor resuelve");
-        assert!(comandos[1]["desde"].as_str().unwrap().starts_with("Investigación: "));
+        assert_eq!(
+            comandos[1]["hasta"], "Fuente A",
+            "el enlace apunta al título, que el ejecutor resuelve"
+        );
+        assert!(comandos[1]["desde"]
+            .as_str()
+            .unwrap()
+            .starts_with("Investigación: "));
     }
 
     #[test]
     fn la_sintesis_muta_el_nodo_y_poda_si_sobra() {
-        let con_poda = comandos_de_sintesis("Investigación: x", "resumen largo del hallazgo", "el principio", &["A".into(), "B".into()]);
+        let con_poda = comandos_de_sintesis(
+            "Investigación: x",
+            "resumen largo del hallazgo",
+            "el principio",
+            &["A".into(), "B".into()],
+        );
         assert_eq!(con_poda[0]["accion"], "actualizar");
         assert_eq!(con_poda[0]["maturity"], 3, "Cápsula es la fase 3");
-        assert_eq!(con_poda[1]["accion"], "condensar", "con 2 o más sobrantes se poda");
+        assert_eq!(
+            con_poda[1]["accion"], "condensar",
+            "con 2 o más sobrantes se poda"
+        );
         let sin_poda = comandos_de_sintesis("Investigación: x", "resumen", "principio", &[]);
         assert_eq!(sin_poda.len(), 1, "sin sobrantes no se poda nada");
     }
@@ -560,7 +654,10 @@ mod tests_investigacion {
         // bandera vieja (proceso muerto a mitad): se descarta y se limpia sola
         std::fs::write(&bandera, (ahora_s() - TOPE_CORRIENDO_S - 5).to_string()).unwrap();
         assert!(!en_curso(&dir));
-        assert!(!bandera.exists(), "la bandera vencida tiene que quedar borrada");
+        assert!(
+            !bandera.exists(),
+            "la bandera vencida tiene que quedar borrada"
+        );
         // bandera ilegible (formato viejo "1"): también se descarta
         std::fs::write(&bandera, "1").unwrap();
         assert!(!en_curso(&dir));
@@ -587,16 +684,20 @@ mod tests_investigacion {
 
     #[test]
     fn lee_la_sintesis_envuelta_en_prosa() {
-        let (r, _, _) = super::leer_sintesis("Claro, acá va:\n```json\n{\"resumen\":\"ok\"}\n```\nSaludos.");
-        assert_eq!(r, "ok", "el motor a veces envuelve el JSON: hay que encontrarlo igual");
+        let (r, _, _) =
+            super::leer_sintesis("Claro, acá va:\n```json\n{\"resumen\":\"ok\"}\n```\nSaludos.");
+        assert_eq!(
+            r, "ok",
+            "el motor a veces envuelve el JSON: hay que encontrarlo igual"
+        );
     }
 
     #[test]
     fn sin_resumen_es_fallo_no_exito() {
         let (r, _, _) = super::leer_sintesis("no tengo idea");
-        assert!(r.is_empty(), "vacío = el llamador reintenta con el otro motor");
+        assert!(
+            r.is_empty(),
+            "vacío = el llamador reintenta con el otro motor"
+        );
     }
-
-
-
 }

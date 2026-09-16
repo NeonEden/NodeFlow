@@ -342,7 +342,10 @@ pub fn validar_con(
     };
 
     // Categoría
-    let categoria = match crudo.and_then(|c| c.get("categoria")).and_then(|v| v.as_str()) {
+    let categoria = match crudo
+        .and_then(|c| c.get("categoria"))
+        .and_then(|v| v.as_str())
+    {
         Some(c) => match categoria_valida(c, extra) {
             Some(c) => {
                 aportados += 1;
@@ -364,7 +367,10 @@ pub fn validar_con(
     };
 
     // Madurez (el pitfall medido: JSON válido con madurez 100)
-    let madurez = match crudo.and_then(|c| c.get("madurez")).and_then(|v| v.as_i64()) {
+    let madurez = match crudo
+        .and_then(|c| c.get("madurez"))
+        .and_then(|v| v.as_i64())
+    {
         Some(m) if (MADUREZ_MIN..=MADUREZ_MAX).contains(&m) => {
             aportados += 1;
             m
@@ -410,7 +416,14 @@ pub fn validar_con(
         _ => "mixto",
     };
 
-    Borrador { titulo, categoria, madurez, tags, problemas, fuente: fuente.to_string() }
+    Borrador {
+        titulo,
+        categoria,
+        madurez,
+        tags,
+        problemas,
+        fuente: fuente.to_string(),
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -427,7 +440,12 @@ mod tests {
 
     #[test]
     fn un_borrador_completo_y_valido_se_acepta() {
-        let crudo = completo("Puente OSC entre TouchDesigner y Ableton", "TECNOLOGÍA", 3, json!(["osc", "touchdesigner"]));
+        let crudo = completo(
+            "Puente OSC entre TouchDesigner y Ableton",
+            "TECNOLOGÍA",
+            3,
+            json!(["osc", "touchdesigner"]),
+        );
         let b = validar(Some(&crudo), "heurístico", "CONOCIMIENTO");
         assert_eq!(b.fuente, "local");
         assert!(b.problemas.is_empty(), "{:?}", b.problemas);
@@ -443,13 +461,22 @@ mod tests {
             let crudo = completo("Título razonable", "IDEA", m, json!(["uno", "dos"]));
             let b = validar(Some(&crudo), "heurístico", "CONOCIMIENTO");
             assert_eq!(b.madurez, 2, "madurez {m} debía rechazarse");
-            assert!(b.problemas.iter().any(|p| p.contains("madurez")), "{:?}", b.problemas);
+            assert!(
+                b.problemas.iter().any(|p| p.contains("madurez")),
+                "{:?}",
+                b.problemas
+            );
         }
     }
 
     #[test]
     fn una_categoria_inventada_se_rechaza_y_cae_al_valor_del_sistema() {
-        let crudo = completo("Título razonable", "MARKETING CUANTICO", 3, json!(["uno", "dos"]));
+        let crudo = completo(
+            "Título razonable",
+            "MARKETING CUANTICO",
+            3,
+            json!(["uno", "dos"]),
+        );
         let b = validar(Some(&crudo), "heurístico", "CONOCIMIENTO");
         assert_eq!(b.categoria, "CONOCIMIENTO");
         assert!(b.problemas.iter().any(|p| p.contains("fuera del catálogo")));
@@ -458,9 +485,20 @@ mod tests {
     #[test]
     fn la_categoria_se_normaliza_sin_acentos_ni_mayusculas() {
         let crudo = completo("Título razonable", "tecnologia", 2, json!(["uno", "dos"]));
-        assert_eq!(validar(Some(&crudo), "h", "CONOCIMIENTO").categoria, "TECNOLOGÍA");
-        let crudo = completo("Título razonable", "  investigación ", 2, json!(["uno", "dos"]));
-        assert_eq!(validar(Some(&crudo), "h", "CONOCIMIENTO").categoria, "INVESTIGACIÓN");
+        assert_eq!(
+            validar(Some(&crudo), "h", "CONOCIMIENTO").categoria,
+            "TECNOLOGÍA"
+        );
+        let crudo = completo(
+            "Título razonable",
+            "  investigación ",
+            2,
+            json!(["uno", "dos"]),
+        );
+        assert_eq!(
+            validar(Some(&crudo), "h", "CONOCIMIENTO").categoria,
+            "INVESTIGACIÓN"
+        );
     }
 
     #[test]
@@ -481,16 +519,36 @@ mod tests {
         // con comillas y markdown alrededor: se limpia, no se rechaza
         let b = caso("\"## Un título con markdown\"");
         assert_eq!(b.titulo, "Un título con markdown");
-        assert!(b.problemas.is_empty() || !b.problemas.iter().any(|p| p.contains("título")), "{:?}", b.problemas);
+        assert!(
+            b.problemas.is_empty() || !b.problemas.iter().any(|p| p.contains("título")),
+            "{:?}",
+            b.problemas
+        );
     }
 
     #[test]
     fn los_tags_basura_se_filtran_y_sin_minimo_se_usa_el_del_sistema() {
         // dos válidos y basura alrededor: se usan los válidos (y se declara el descarte)
-        let crudo = completo("Título razonable", "IDEA", 2, json!(["!!", "a", "rag", "MCP", "2026", "un-tag-demasiado-largo-para-el-limite"]));
+        let crudo = completo(
+            "Título razonable",
+            "IDEA",
+            2,
+            json!([
+                "!!",
+                "a",
+                "rag",
+                "MCP",
+                "2026",
+                "un-tag-demasiado-largo-para-el-limite"
+            ]),
+        );
         let b = validar(Some(&crudo), "h", "CONOCIMIENTO");
         assert_eq!(b.tags, vec!["rag", "mcp"]);
-        assert!(b.problemas.iter().any(|p| p.contains("descartados")), "{:?}", b.problemas);
+        assert!(
+            b.problemas.iter().any(|p| p.contains("descartados")),
+            "{:?}",
+            b.problemas
+        );
         // uno solo válido: no alcanza el mínimo ⇒ etiqueta del sistema
         let crudo = completo("Título razonable", "IDEA", 2, json!(["rag", "!!!"]));
         let b = validar(Some(&crudo), "h", "CONOCIMIENTO");
@@ -498,12 +556,20 @@ mod tests {
         assert!(b.problemas.iter().any(|p| p.contains("tag(s) válidos")));
         // tags que no son lista
         let crudo = completo("Título razonable", "IDEA", 2, json!("rag,mcp"));
-        assert_eq!(validar(Some(&crudo), "h", "CONOCIMIENTO").tags, vec!["conocimiento"]);
+        assert_eq!(
+            validar(Some(&crudo), "h", "CONOCIMIENTO").tags,
+            vec!["conocimiento"]
+        );
     }
 
     #[test]
     fn el_tope_de_tags_recorta_y_declara() {
-        let crudo = completo("Título razonable", "IDEA", 2, json!(["uno", "dos", "tres", "cuatro", "cinco", "seis", "siete"]));
+        let crudo = completo(
+            "Título razonable",
+            "IDEA",
+            2,
+            json!(["uno", "dos", "tres", "cuatro", "cinco", "seis", "siete"]),
+        );
         let b = validar(Some(&crudo), "h", "CONOCIMIENTO");
         assert_eq!(b.tags.len(), MAX_TAGS);
         assert!(b.problemas.iter().any(|p| p.contains("descartados")));
@@ -535,7 +601,13 @@ mod tests {
     #[test]
     fn el_esquema_y_el_prompt_dicen_lo_que_el_validador_exige() {
         let e = esquema();
-        assert_eq!(e["properties"]["categoria"]["enum"].as_array().unwrap().len(), CATEGORIAS.len());
+        assert_eq!(
+            e["properties"]["categoria"]["enum"]
+                .as_array()
+                .unwrap()
+                .len(),
+            CATEGORIAS.len()
+        );
         assert_eq!(e["properties"]["madurez"]["maximum"], MADUREZ_MAX);
         assert_eq!(e["properties"]["madurez"]["minimum"], MADUREZ_MIN);
         assert_eq!(e["properties"]["tags"]["maxItems"], MAX_TAGS);
@@ -544,14 +616,22 @@ mod tests {
             assert!(p.contains(c), "el prompt tiene que listar {c}");
         }
         assert!(p.contains(&MADUREZ_MAX.to_string()));
-        assert!(p.chars().count() < RECORTE_CUERPO + 900, "el prompt no se estira de más");
+        assert!(
+            p.chars().count() < RECORTE_CUERPO + 900,
+            "el prompt no se estira de más"
+        );
     }
 
     #[test]
     fn el_vocabulario_del_lienzo_manda_sobre_la_lista_fija() {
         // Una categoría nueva que el lienzo ya usa se acepta cuando se la pasa como vocabulario
         // medido; sin eso, el validador la rechaza (no se inventan etiquetas que ninguna vista conoce).
-        let crudo = completo("Título razonable", "CATEGORÍA NUEVA", 3, json!(["uno", "dos"]));
+        let crudo = completo(
+            "Título razonable",
+            "CATEGORÍA NUEVA",
+            3,
+            json!(["uno", "dos"]),
+        );
         assert_eq!(
             validar(Some(&crudo), "h", "CONOCIMIENTO").categoria,
             "CONOCIMIENTO"
@@ -563,8 +643,27 @@ mod tests {
         );
         // El vocabulario medido del lienzo (16 categorías reales) está en la lista base: si no,
         // el validador habría rechazado 15 de las 16 en la primera corrida real.
-        for real in ["ARQUITECTURA", "GOBERNANZA", "DATOS", "EJECUCIÓN", "UX", "SEGURIDAD", "SISTEMAS", "ALGORITMOS", "ECOSISTEMA", "VISUALES", "DISEÑO", "IA", "NEGOCIO", "CREATIVO", "REFERENCIA"] {
-            assert!(CATEGORIAS.contains(&real), "falta {real} del vocabulario del lienzo");
+        for real in [
+            "ARQUITECTURA",
+            "GOBERNANZA",
+            "DATOS",
+            "EJECUCIÓN",
+            "UX",
+            "SEGURIDAD",
+            "SISTEMAS",
+            "ALGORITMOS",
+            "ECOSISTEMA",
+            "VISUALES",
+            "DISEÑO",
+            "IA",
+            "NEGOCIO",
+            "CREATIVO",
+            "REFERENCIA",
+        ] {
+            assert!(
+                CATEGORIAS.contains(&real),
+                "falta {real} del vocabulario del lienzo"
+            );
         }
         // y las del catálogo base siguen entrando sin `extra`
         for c in CATEGORIAS {
@@ -583,7 +682,10 @@ mod tests {
         let c = Config::desde(Some(&cfg));
         assert_eq!(c.modelo, "otro:2b");
         assert_eq!(c.keep_alive, "0");
-        assert_eq!(c.tope_por_pedido, 15, "el tope se acota al máximo razonable");
+        assert_eq!(
+            c.tope_por_pedido, 15,
+            "el tope se acota al máximo razonable"
+        );
         // Los topes de generación se acotan: sin cota el modelo se explaya, cruza el contexto y el
         // pedido muere con 500 (medido 15/09).
         assert_eq!(c.num_predict, 8192, "el tope de salida no pasa de 8192");
@@ -595,6 +697,9 @@ mod tests {
         assert_eq!(d.num_ctx, 4096);
         assert_eq!(d.url, "http://localhost:11434");
         // el endpoint compatible con OpenAI se normaliza al nativo
-        assert_eq!(Config::desde(None).url.trim_end_matches("/v1"), "http://localhost:11434");
+        assert_eq!(
+            Config::desde(None).url.trim_end_matches("/v1"),
+            "http://localhost:11434"
+        );
     }
 }

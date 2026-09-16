@@ -384,10 +384,18 @@ pub fn validar(nodes: &[Value], edges: &[Value]) -> Vec<Problema> {
     //    ya presentes, y un nodo vacío. Se PROPONE borrar, nunca se borra solo: borrar es el único
     //    acto irreversible del mapa y pasa por el humano.
     let titulo_de_id = |id: &str| {
-        nodes.iter().find(|n| id_de(n) == id).map(titulo_de).unwrap_or_default()
+        nodes
+            .iter()
+            .find(|n| id_de(n) == id)
+            .map(titulo_de)
+            .unwrap_or_default()
     };
     let madurez = |id: &str| {
-        nodes.iter().find(|n| id_de(n) == id).map(madurez_de).unwrap_or(0)
+        nodes
+            .iter()
+            .find(|n| id_de(n) == id)
+            .map(madurez_de)
+            .unwrap_or(0)
     };
     let grado_de = |id: &str| grados.get(id).map(|(i, o)| i + o).unwrap_or(0);
 
@@ -464,14 +472,19 @@ pub fn validar(nodes: &[Value], edges: &[Value]) -> Vec<Problema> {
     // 9c) vacío: sin descripción y con una sola conexión
     let vacios: Vec<String> = nodes
         .iter()
-        .filter(|n| descripcion_de(n).trim().is_empty() && grado_de(&id_de(n)) <= 1 && !es_nucleo(n))
+        .filter(|n| {
+            descripcion_de(n).trim().is_empty() && grado_de(&id_de(n)) <= 1 && !es_nucleo(n)
+        })
         .map(id_de)
         .collect();
     if !vacios.is_empty() {
         out.push(Problema {
             tipo: "curaduria_vacio",
             gravedad: Gravedad::Baja,
-            detalle: format!("{} nodo(s) sin descripción y casi sin conexiones", vacios.len()),
+            detalle: format!(
+                "{} nodo(s) sin descripción y casi sin conexiones",
+                vacios.len()
+            ),
             ids: vacios,
             accion: "borrar",
         });
@@ -492,8 +505,8 @@ pub fn siguiente(nodes: &[Value], edges: &[Value]) -> Value {
     let titulo_de_id = |id: &str| buscar(id).map(titulo_de).unwrap_or_default();
     let madurez = |id: &str| buscar(id).map(madurez_de).unwrap_or(0);
 
-    let mut frena_a: HashMap<String, Vec<String>> = HashMap::new();   // capacidad → quiénes la frenan
-    let mut desbloqueos: HashMap<String, usize> = HashMap::new();     // bloqueante → a cuántas desbloquea
+    let mut frena_a: HashMap<String, Vec<String>> = HashMap::new(); // capacidad → quiénes la frenan
+    let mut desbloqueos: HashMap<String, usize> = HashMap::new(); // bloqueante → a cuántas desbloquea
     let mut sin_cumplir: HashMap<String, Vec<String>> = HashMap::new(); // capacidad → requisitos faltantes
     for e in edges {
         let (s, t) = (
@@ -520,8 +533,13 @@ pub fn siguiente(nodes: &[Value], edges: &[Value]) -> Value {
             json!({"id": id, "titulo": titulo_de_id(id), "frenan": quienes.iter().map(|q| titulo_de_id(q)).collect::<Vec<_>>()})
         })
         .collect();
-    frenado.sort_by(|a, b| b["frenan"].as_array().map(|v| v.len()).unwrap_or(0)
-        .cmp(&a["frenan"].as_array().map(|v| v.len()).unwrap_or(0)));
+    frenado.sort_by(|a, b| {
+        b["frenan"]
+            .as_array()
+            .map(|v| v.len())
+            .unwrap_or(0)
+            .cmp(&a["frenan"].as_array().map(|v| v.len()).unwrap_or(0))
+    });
 
     let mut jugadas: Vec<Value> = nodes
         .iter()
@@ -539,8 +557,16 @@ pub fn siguiente(nodes: &[Value], edges: &[Value]) -> Value {
         })
         .collect();
     jugadas.sort_by(|a, b| {
-        b["peso"].as_i64().unwrap_or(0).cmp(&a["peso"].as_i64().unwrap_or(0))
-            .then(a["titulo"].as_str().unwrap_or("").cmp(b["titulo"].as_str().unwrap_or("")))
+        b["peso"]
+            .as_i64()
+            .unwrap_or(0)
+            .cmp(&a["peso"].as_i64().unwrap_or(0))
+            .then(
+                a["titulo"]
+                    .as_str()
+                    .unwrap_or("")
+                    .cmp(b["titulo"].as_str().unwrap_or("")),
+            )
     });
 
     // Lo que le falta a cada capacidad: un `requiere` apuntando a algo que todavía no está probado.
@@ -553,8 +579,13 @@ pub fn siguiente(nodes: &[Value], edges: &[Value]) -> Value {
                    "faltan": faltan.iter().map(|q| titulo_de_id(q)).collect::<Vec<_>>()})
         })
         .collect();
-    requisitos.sort_by(|a, b| b["faltan"].as_array().map(|v| v.len()).unwrap_or(0)
-        .cmp(&a["faltan"].as_array().map(|v| v.len()).unwrap_or(0)));
+    requisitos.sort_by(|a, b| {
+        b["faltan"]
+            .as_array()
+            .map(|v| v.len())
+            .unwrap_or(0)
+            .cmp(&a["faltan"].as_array().map(|v| v.len()).unwrap_or(0))
+    });
 
     json!({
         "ok": true,
@@ -1218,18 +1249,29 @@ mod tests {
         // que decían lo mismo, y un "Nueva Idea" vacío. El mapa tiene que olerlos sin falsos positivos.
         let desc = "Una descripcion larga identica que un lote genero para todos sus nodos sin cambiar una \
                    coma, que es exactamente la firma del relleno automatico que hay que detectar.";
-        let n = |id: &str, t: &str, d: &str, m: u64| {
-            json!({"id": id, "data": {"title": t, "description": d, "maturity": m}})
-        };
+        let n = |id: &str, t: &str, d: &str, m: u64| json!({"id": id, "data": {"title": t, "description": d, "maturity": m}});
         let nodes = vec![
             n("a", "Uno", desc, 1),
             n("b", "Dos", desc, 1),
-            n("c", "Tres", desc, 1),                                     // relleno (3+ iguales)
-            n("d", "Cache semantica de respuestas", "reusa respuestas parecidas", 2),
-            n("e", "Cache semantica de respuestas", "reusa respuestas parecidas", 0), // duplicado debil
-            n("f", "Nueva Idea", "", 1),                                 // vacio, 0 conexiones
+            n("c", "Tres", desc, 1), // relleno (3+ iguales)
+            n(
+                "d",
+                "Cache semantica de respuestas",
+                "reusa respuestas parecidas",
+                2,
+            ),
+            n(
+                "e",
+                "Cache semantica de respuestas",
+                "reusa respuestas parecidas",
+                0,
+            ), // duplicado debil
+            n("f", "Nueva Idea", "", 1), // vacio, 0 conexiones
         ];
-        let edges = vec![json!({"source": "a", "target": "b"}), json!({"source": "d", "target": "e"})];
+        let edges = vec![
+            json!({"source": "a", "target": "b"}),
+            json!({"source": "d", "target": "e"}),
+        ];
         let v = validar(&nodes, &edges);
         let tipos: Vec<&str> = v.iter().map(|p| p.tipo).collect();
         assert!(tipos.contains(&"curaduria_relleno"), "{tipos:?}");
@@ -1247,16 +1289,17 @@ mod tests {
             n("y", "Beta", "otra descripcion, distinta de la anterior", 3),
         ];
         let vs = validar(&sanos, &[json!({"source": "x", "target": "y"})]);
-        assert!(!vs.iter().any(|p| p.tipo.starts_with("curaduria_")), "falso positivo en un grafo sano");
+        assert!(
+            !vs.iter().any(|p| p.tipo.starts_with("curaduria_")),
+            "falso positivo en un grafo sano"
+        );
     }
 
     #[test]
     fn el_camino_critico_ordena_por_lo_que_desbloquea() {
         // OJO: la forma REAL del estado (todo dentro de `data`, como lo guarda React Flow). Un test con
         // los campos en la raíz pasa aunque la app falle: eso fue exactamente el bug del 14/09.
-        let n = |id: &str, t: &str, c: &str, m: u64| {
-            json!({"id": id, "data": {"title": t, "category": c, "maturity": m, "description": "x"}})
-        };
+        let n = |id: &str, t: &str, c: &str, m: u64| json!({"id": id, "data": {"title": t, "category": c, "maturity": m, "description": "x"}});
         let nodes = vec![
             n("capacidad", "Motor dual", "ARQUITECTURA", 2),
             n("motor", "Modelo local", "SISTEMAS", 1),
@@ -1266,8 +1309,8 @@ mod tests {
         ];
         let edges = vec![
             json!({"source": "p1", "target": "capacidad", "label": "bloquea"}),
-            json!({"source": "p1", "target": "motor", "label": "bloquea"}),      // p1 desbloquea 2
-            json!({"source": "p2", "target": "capacidad", "label": "bloquea"}),  // p2 desbloquea 1
+            json!({"source": "p1", "target": "motor", "label": "bloquea"}), // p1 desbloquea 2
+            json!({"source": "p2", "target": "capacidad", "label": "bloquea"}), // p2 desbloquea 1
             json!({"source": "capacidad", "target": "motor", "label": "requiere"}),
         ];
         let s = siguiente(&nodes, &edges);
@@ -1289,8 +1332,7 @@ mod tests {
     fn un_grafo_sano_no_tiene_nada_que_limpiar() {
         let nodes = json!([{"id": "a"}, {"id": "b"}]);
         let edges = json!([{"id": "e1", "source": "a", "target": "b"}]);
-        let (limpias, c, d) =
-            aristas_limpias(nodes.as_array().unwrap(), edges.as_array().unwrap());
+        let (limpias, c, d) = aristas_limpias(nodes.as_array().unwrap(), edges.as_array().unwrap());
         assert_eq!((limpias.len(), c, d), (1, 0, 0));
     }
 }

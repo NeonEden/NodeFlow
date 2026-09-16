@@ -52,6 +52,9 @@ pub struct AppState {
     pub tarifas: crate::costo::Tarifas,
     /// Fase 10 — microservicio de borradores con el modelo local (modelo, keep_alive, tope).
     pub borrador: crate::borrador::Config,
+    /// Fase 4 — el gateway propio (`hermes serve` en loopback): es lo que hace que el panel vea el
+    /// turno en vivo y pueda resolver las aprobaciones sin salir de la app.
+    pub gateway: Arc<crate::cerebro_gateway::Gateway>,
     /// Fase 12 — motores que fallaron por créditos o clave (id → motivo). Se aprende en la primera
     /// corrida: el catálogo los declara y los automáticos los saltean, en vez de elegir un motor muerto.
     pub motores_caidos: Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,
@@ -75,7 +78,10 @@ impl AppState {
     }
 
     pub fn motivos_de_motores(&self) -> std::collections::HashMap<String, String> {
-        self.motores_caidos.lock().map(|m| m.clone()).unwrap_or_default()
+        self.motores_caidos
+            .lock()
+            .map(|m| m.clone())
+            .unwrap_or_default()
     }
 
     /// Toma el turno de generación para `claves`. `None` = ya hay una corrida con alguna de esas claves.
@@ -158,6 +164,11 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
         let borrador = crate::borrador::Config::desde(cfg.as_ref().and_then(|c| c.get("borrador")));
         // Fase 1: el cerebro residente (sesión nombrada de Hermes + notas episódicas en la bóveda).
         let cerebro = crate::cerebro::Config::desde(cfg.as_ref().and_then(|c| c.get("cerebro")));
+        // El gateway del cerebro se levanta **a pedido** (el panel lo pide): nada de un proceso de más
+        // corriendo siempre. Puerto propio, override por `cerebro.gateway_puerto`.
+        let gateway = std::sync::Arc::new(crate::cerebro_gateway::Gateway::nuevo(
+            cerebro.gateway_puerto,
+        ));
         let cache = Arc::new(crate::costo::Cache::cargar(
             vault.raiz().join(".nodeflow").join("ai-cache.json"),
         ));
@@ -174,10 +185,11 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
             cache,
             tarifas,
             borrador,
+            gateway,
             cerebro,
             motores_caidos: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
-        config_sello: Arc::new(std::sync::Mutex::new(0)),
-        ia_en_curso: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            config_sello: Arc::new(std::sync::Mutex::new(0)),
+            ia_en_curso: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         };
 
         // Aprendizaje automático: revisa cada 2 minutos si juntó suficientes decisiones nuevas como
@@ -236,7 +248,10 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
             .route("/api/voz/dialogo", get(voz_dialogo))
             .route("/api/ai/delegar", post(delegar).get(delegar_estado))
             .route("/api/ai/evaluar", post(ai_evaluar).get(ai_evaluar_leer))
-            .route("/api/ai/investigar", post(ai_investigar).get(ai_investigar_estado))
+            .route(
+                "/api/ai/investigar",
+                post(ai_investigar).get(ai_investigar_estado),
+            )
             .route("/api/ai/motores", get(ai_motores))
             .route("/api/ai/motor", post(ai_motor))
             .route("/api/ai/proveedor", post(ai_proveedor))
@@ -254,7 +269,7 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
             .route("/api/vault/note", get(vault_note))
             // Fase 4 — superficie para el agente (leer y escribir el lienzo)
             .route("/api/graph/summary", get(graph_summary))
-        .route("/api/graph/siguiente", get(graph_siguiente))
+            .route("/api/graph/siguiente", get(graph_siguiente))
             .route("/api/graph/node", post(graph_node))
             .route("/api/graph/edge", post(graph_edge))
             .route("/api/graph/node/delete", post(graph_delete))
@@ -273,6 +288,11 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
             .route("/api/export/json", get(export_json))
             // Fase 5a — el agente propone, el humano aprueba
             .route("/api/agent/pending", get(agent_pending))
+            // Fase 4 — el gateway propio del cerebro: el panel se conecta por WebSocket y ve el turno
+            // en vivo. Se levanta a pedido y se baja a pedido (nada corriendo de más).
+            .route("/api/cerebro/gateway", get(cerebro_gateway_estado))
+            .route("/api/cerebro/gateway/arrancar", post(cerebro_gateway_arrancar))
+            .route("/api/cerebro/gateway/parar", post(cerebro_gateway_parar))
             .route("/api/agent/approve", post(agent_approve))
             .route("/api/agent/reject", post(agent_reject))
             .with_state(state)
@@ -526,7 +546,9 @@ async fn hitl_preferences(State(st): State<AppState>) -> impl IntoResponse {
 async fn hitl_auto(State(st): State<AppState>, Json(body): Json<Value>) -> impl IntoResponse {
     let mut profile = get_profile(&st.data_dir);
     let auto = profile["autoAprendizaje"].clone();
-    let activo = body["activo"].as_bool().unwrap_or_else(|| auto["activo"].as_bool().unwrap_or(false));
+    let activo = body["activo"]
+        .as_bool()
+        .unwrap_or_else(|| auto["activo"].as_bool().unwrap_or(false));
     let cada = body["cada"]
         .as_i64()
         .or_else(|| auto["cada"].as_i64())
@@ -541,7 +563,10 @@ async fn hitl_auto(State(st): State<AppState>, Json(body): Json<Value>) -> impl 
     profile["autoAprendizaje"]["activo"] = json!(activo);
     profile["autoAprendizaje"]["cada"] = json!(cada);
     save_profile(&st.data_dir, &profile);
-    log::info!("aprendizaje automático: {} (cada {cada} decisiones)", if activo { "encendido" } else { "apagado" });
+    log::info!(
+        "aprendizaje automático: {} (cada {cada} decisiones)",
+        if activo { "encendido" } else { "apagado" }
+    );
     Json(json!({ "success": true, "profile": profile }))
 }
 
@@ -740,16 +765,10 @@ async fn recalibrar_perfil_con_ia(st: &AppState, key: &str) -> Option<Value> {
         "required": ["profile"]
     });
     let llamada = call_model(
-        st,
-        key,
-        &prompt,
-        &schema,
-        None,
-        "",
-        None,
+        st, key, &prompt, &schema, None, "", None,
         "borrador", // rápido y gratis: es el bucle del lienzo
         false,      // los borradores sí usan caché
-                None, // el perfil HITL no es un pedido del usuario
+        None,       // el perfil HITL no es un pedido del usuario
     )
     .await?;
     let aprendido = llamada.valor["profile"].as_str()?.trim().to_string();
@@ -763,7 +782,10 @@ async fn recalibrar_perfil_con_ia(st: &AppState, key: &str) -> Option<Value> {
     profile["autoAprendizaje"]["decisionesEnLaUltima"] = profile["totalDecisions"].clone();
     profile["autoAprendizaje"]["ultimaMs"] = json!(now_ms());
     save_profile(&st.data_dir, &profile);
-    log::info!("aprendizaje: perfil recalibrado con IA ({} decisiones acumuladas)", profile["totalDecisions"]);
+    log::info!(
+        "aprendizaje: perfil recalibrado con IA ({} decisiones acumuladas)",
+        profile["totalDecisions"]
+    );
     Some(profile)
 }
 
@@ -940,27 +962,29 @@ async fn ai_action(
             // Voz: el plan se valida contra el lienzo REAL (sólo ids que existen, sólo acciones
             // permitidas, topes). Lo que no pasa, se descarta y se informa; nunca se ejecuta a ciegas.
             if action_type == "voz" {
-                let (ids, titulos): (Vec<String>, Vec<String>) = st
-                    .vault
-                    .read_state()
-                    .unwrap_or(serde_json::json!({}))["nodes"]
-                    .as_array()
-                    .map(|ns| {
-                        ns.iter()
-                            .map(|n| {
-                                let id = n["id"].as_str().unwrap_or("").to_string();
-                                let titulo = n["data"]["title"].as_str().unwrap_or("");
-                                (id.clone(), format!("{id} · {titulo}"))
-                            })
-                            .unzip()
-                    })
-                    .unwrap_or_default();
+                let (ids, titulos): (Vec<String>, Vec<String>) =
+                    st.vault.read_state().unwrap_or(serde_json::json!({}))["nodes"]
+                        .as_array()
+                        .map(|ns| {
+                            ns.iter()
+                                .map(|n| {
+                                    let id = n["id"].as_str().unwrap_or("").to_string();
+                                    let titulo = n["data"]["title"].as_str().unwrap_or("");
+                                    (id.clone(), format!("{id} · {titulo}"))
+                                })
+                                .unzip()
+                        })
+                        .unwrap_or_default();
                 let mut limpio = crate::voz::validar(&value, &ids);
                 // Escalada medida: la planilla mostró que hay pedidos que el motor local no resuelve
                 // (devolvió 0 comandos). Antes de devolver un plan vacío, se le pide una vez al motor
                 // de nube, en la misma corrida y sin que el usuario repita nada. Sólo se adopta si
                 // trae algo: si tampoco, se respeta el resultado local y se informa.
-                if limpio["comandos"].as_array().map(|c| c.is_empty()).unwrap_or(true) {
+                if limpio["comandos"]
+                    .as_array()
+                    .map(|c| c.is_empty())
+                    .unwrap_or(true)
+                {
                     let clave_escalada = resolve_key(&st, &headers).unwrap_or_default();
                     let escalada = call_model(
                         &st,
@@ -972,7 +996,7 @@ async fn ai_action(
                         Some("nube"),
                         "voz",
                         false,
-                None, // reintento/escalada: no hay un pedido nuevo del usuario
+                        None, // reintento/escalada: no hay un pedido nuevo del usuario
                     )
                     .await;
                     if escalada.is_none() {
@@ -987,7 +1011,10 @@ async fn ai_action(
                             None => llamada.valor.clone(),
                         };
                         let alt = crate::voz::validar(&alterno, &ids);
-                        let trajo = alt["comandos"].as_array().map(|c| !c.is_empty()).unwrap_or(false);
+                        let trajo = alt["comandos"]
+                            .as_array()
+                            .map(|c| !c.is_empty())
+                            .unwrap_or(false);
                         if trajo {
                             log::info!(
                                 "voz: el local no propuso nada → escaló a {} y trajo {} comandos",
@@ -997,7 +1024,9 @@ async fn ai_action(
                             uso = llamada.uso_json(&st.tarifas);
                             limpio = alt;
                         } else {
-                            log::info!("voz: tampoco la nube propuso nada; se devuelve el plan local");
+                            log::info!(
+                                "voz: tampoco la nube propuso nada; se devuelve el plan local"
+                            );
                         }
                     }
                 }
@@ -1245,7 +1274,11 @@ fn build_context(
         .iter()
         .enumerate()
         .map(|(i, n)| {
-            let d = if n["data"].is_object() { n["data"].clone() } else { n.clone() };
+            let d = if n["data"].is_object() {
+                n["data"].clone()
+            } else {
+                n.clone()
+            };
             format!("{}. {} — {}", i + 1, s(&d, "title"), s(&d, "description"))
         })
         .collect::<Vec<_>>()
@@ -1254,24 +1287,26 @@ fn build_context(
     ctx.insert("cantidad".into(), selected.len().to_string());
     ctx.insert(
         "objetivo".into(),
-        body["objetivo"]
-            .as_str()
-            .unwrap_or("")
-            .trim()
-            .to_string(),
+        body["objetivo"].as_str().unwrap_or("").trim().to_string(),
     );
 
     // Voz (Fase B): lo que dijo el usuario + el lienzo REAL con ids, para que el plan sólo pueda
     // referirse a nodos que existen. Se acota a 120 nodos para no inflar el prompt.
     if action == "voz" {
-        ctx.insert("texto".into(), body["texto"].as_str().unwrap_or("").trim().to_string());
+        ctx.insert(
+            "texto".into(),
+            body["texto"].as_str().unwrap_or("").trim().to_string(),
+        );
         // Hilo de diálogo: sin esto cada frase es un plan aislado y "¿y si lo damos vuelta?" no tiene
         // referente. Se le pasan los últimos intercambios y en qué quedó enfocada la conversación.
         // El hilo vive en la bóveda (`.nodeflow/dialogo.json`), junto a la caché: es del usuario.
         let sesion_previa = ctx_memoria
             .map(|(v, _)| crate::dialogo::leer(&v.raiz().join(".nodeflow")))
             .unwrap_or_else(|| serde_json::json!({ "turnos": [], "foco": [] }));
-        let turnos = sesion_previa["turnos"].as_array().cloned().unwrap_or_default();
+        let turnos = sesion_previa["turnos"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
         ctx.insert("dialogo".into(), crate::dialogo::como_texto(&turnos));
         let foco = sesion_previa["foco"]
             .as_array()
@@ -1282,7 +1317,9 @@ fn build_context(
                     .join(" · ")
             })
             .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "(todavía no hay un foco: se define con el primer pedido de dirección)".to_string());
+            .unwrap_or_else(|| {
+                "(todavía no hay un foco: se define con el primer pedido de dirección)".to_string()
+            });
         ctx.insert("foco".into(), foco);
         if let Some((vault, _)) = ctx_memoria {
             let estado = vault.read_state().unwrap_or(serde_json::json!({}));
@@ -1428,7 +1465,11 @@ fn normalizar_condensado(v: &mut serde_json::Value) {
     fn toma(v: &serde_json::Value, nombres: &[&str]) -> Option<String> {
         nombres
             .iter()
-            .find_map(|n| v.get(n).and_then(|x| x.as_str()).map(|s| s.trim().to_string()))
+            .find_map(|n| {
+                v.get(n)
+                    .and_then(|x| x.as_str())
+                    .map(|s| s.trim().to_string())
+            })
             .filter(|s| !s.is_empty())
     }
     let texto_largo = toma(v, &["macro_concept", "macro", "sintesis", "summary"]);
@@ -1703,7 +1744,7 @@ async fn call_provider_cached(
     let clave = crate::costo::clave_cache(nodo, prompt, provider, schema);
     if !sin_cache {
         if let Some(e) = st.cache.get(&clave) {
-        log::info!(
+            log::info!(
             "ia: caché HIT para «{nodo}» con {provider} · {} tokens evitados (modelo {}) · clave {}",
             e.tokens,
             e.modelo,
@@ -1731,7 +1772,8 @@ async fn call_provider_cached(
         if let Some(seed) = semilla.map(str::trim).filter(|s| !s.is_empty()) {
             vector_pedido = crate::semantica::vector(st, seed).await;
             if let Some((clave_vieja, e, sim, como)) =
-                st.cache.buscar_parecido(nodo, provider, seed, vector_pedido.as_deref())
+                st.cache
+                    .buscar_parecido(nodo, provider, seed, vector_pedido.as_deref())
             {
                 st.cache.registrar_semantico(e.tokens);
                 log::info!(
@@ -1793,7 +1835,11 @@ async fn call_provider_cached(
         "ia: {provider} «{}» · {} tokens ({}) · {} ms · nodo «{nodo}» · clave {}",
         llamada.modelo,
         llamada.consumo.total(),
-        if llamada.estimado { "estimado" } else { "medido" },
+        if llamada.estimado {
+            "estimado"
+        } else {
+            "medido"
+        },
         llamada.ms,
         &clave[..12]
     );
@@ -1811,17 +1857,32 @@ async fn call_motor(
 ) -> Option<crate::costo::Respuesta> {
     match m.proveedor.as_str() {
         "ollama" => {
-            let base = m.base_url.clone().unwrap_or_else(|| "http://localhost:11434/v1".to_string());
-            let raiz_url = base.trim_end_matches("/v1").trim_end_matches('/').to_string();
-            if let Some(r) = call_ollama_nativo(st, &raiz_url, &m.modelo, prompt, system, schema).await {
+            let base = m
+                .base_url
+                .clone()
+                .unwrap_or_else(|| "http://localhost:11434/v1".to_string());
+            let raiz_url = base
+                .trim_end_matches("/v1")
+                .trim_end_matches('/')
+                .to_string();
+            if let Some(r) =
+                call_ollama_nativo(st, &raiz_url, &m.modelo, prompt, system, schema).await
+            {
                 return Some(r);
             }
-            log::warn!("{}: sin respuesta por la API nativa; pruebo el camino compatible con OpenAI", m.id);
+            log::warn!(
+                "{}: sin respuesta por la API nativa; pruebo el camino compatible con OpenAI",
+                m.id
+            );
             call_ollama(st, Some((base, m.modelo.clone())), prompt, system).await
         }
         "gemini" => {
             // La clave del WebView (BYOK) tiene prioridad sobre la del entorno.
-            let clave = if !key.trim().is_empty() { key.to_string() } else { clave_del_motor(st, m).unwrap_or_default() };
+            let clave = if !key.trim().is_empty() {
+                key.to_string()
+            } else {
+                clave_del_motor(st, m).unwrap_or_default()
+            };
             if clave.trim().is_empty() {
                 log::warn!("motor «{}» sin clave de API", m.id);
                 return None;
@@ -1851,7 +1912,10 @@ async fn catalogo(st: &AppState) -> Vec<crate::motores::Motor> {
     use crate::motores::Motor;
     let ollama_url = std::env::var("NODEFLOW_OLLAMA_URL")
         .unwrap_or_else(|_| "http://localhost:11434/v1".to_string());
-    let raiz_ollama = ollama_url.trim_end_matches("/v1").trim_end_matches('/').to_string();
+    let raiz_ollama = ollama_url
+        .trim_end_matches("/v1")
+        .trim_end_matches('/')
+        .to_string();
 
     let mut v: Vec<Motor> = Vec::new();
     match st.http.get(format!("{raiz_ollama}/api/tags")).send().await {
@@ -1860,7 +1924,13 @@ async fn catalogo(st: &AppState) -> Vec<crate::motores::Motor> {
                 .json::<Value>()
                 .await
                 .ok()
-                .and_then(|j| j["models"].as_array().map(|a| a.iter().filter_map(|m| m["name"].as_str().map(String::from)).collect()))
+                .and_then(|j| {
+                    j["models"].as_array().map(|a| {
+                        a.iter()
+                            .filter_map(|m| m["name"].as_str().map(String::from))
+                            .collect()
+                    })
+                })
                 .unwrap_or_default();
             v.extend(crate::motores::motores_de_tags(&tags, &ollama_url));
         }
@@ -1885,14 +1955,23 @@ async fn catalogo(st: &AppState) -> Vec<crate::motores::Motor> {
     v.push(Motor {
         disponible: con_clave,
         nota: (!con_clave).then(|| "falta la clave (config o .env)".to_string()),
-        ..Motor::nuevo("gemini", CANDIDATE_MODELS[0], crate::motores::NUBE_PAGA, None, None)
+        ..Motor::nuevo(
+            "gemini",
+            CANDIDATE_MODELS[0],
+            crate::motores::NUBE_PAGA,
+            None,
+            None,
+        )
     });
 
     // Proveedores compatibles con OpenAI declarados en el config (`proveedores`).
     if let Ok(txt) = std::fs::read_to_string(st.data_dir.join("nodeflow.config.json")) {
         if let Ok(cfg) = serde_json::from_str::<Value>(&txt) {
             for p in cfg["proveedores"].as_array().into_iter().flatten() {
-                let (Some(modelo), Some(base)) = (p["modelo"].as_str(), p["base_url"].as_str()) else { continue };
+                let (Some(modelo), Some(base)) = (p["modelo"].as_str(), p["base_url"].as_str())
+                else {
+                    continue;
+                };
                 let clave_ref = p["clave_env"].as_str().map(String::from);
                 // La clave puede estar en el entorno, en el llavero o (legado) en el config: se pregunta
                 // a la resolución central en vez de mirar el archivo a mano.
@@ -1902,18 +1981,27 @@ async fn catalogo(st: &AppState) -> Vec<crate::motores::Motor> {
                     .unwrap_or(false);
                 let pegada = p["clave_config"]
                     .as_str()
-                    .filter(|k| !en_llave_o_config && k.len() > 20 && !k.contains(char::is_whitespace))
+                    .filter(|k| {
+                        !en_llave_o_config && k.len() > 20 && !k.contains(char::is_whitespace)
+                    })
                     .is_some();
-                let propia = clave_ref.clone().map(|n| std::env::var(&n).is_ok()).unwrap_or(false)
+                let propia = clave_ref
+                    .clone()
+                    .map(|n| std::env::var(&n).is_ok())
+                    .unwrap_or(false)
                     || en_llave_o_config
                     || pegada;
                 v.push(Motor {
                     id: format!("openai:{}", p["id"].as_str().unwrap_or(modelo)),
-                    etiqueta: p["etiqueta"].as_str().map(String::from)
-                        .unwrap_or_else(|| format!("{modelo} · {}", p["id"].as_str().unwrap_or("api"))),
+                    etiqueta: p["etiqueta"].as_str().map(String::from).unwrap_or_else(|| {
+                        format!("{modelo} · {}", p["id"].as_str().unwrap_or("api"))
+                    }),
                     proveedor: "openai".into(),
                     modelo: modelo.to_string(),
-                    donde: p["donde"].as_str().unwrap_or(crate::motores::NUBE_PAGA).to_string(),
+                    donde: p["donde"]
+                        .as_str()
+                        .unwrap_or(crate::motores::NUBE_PAGA)
+                        .to_string(),
                     base_url: Some(base.to_string()),
                     disponible: propia,
                     nota: (!propia).then(|| "falta la clave".to_string()),
@@ -1984,7 +2072,8 @@ async fn plan_de_motores(
     // nadie, lo profundo usa el local más grande, lo que necesita herramientas sube a la nube) y
     // **según lo que la planilla de evaluación ya midió**: el ganador de esa acción va primero.
     let planilla = crate::eval::leer(st);
-    let plan = crate::motores::plan_tarea(&cat, sel.as_deref(), modo, tarea, accion, planilla.as_ref());
+    let plan =
+        crate::motores::plan_tarea(&cat, sel.as_deref(), modo, tarea, accion, planilla.as_ref());
     if plan.is_empty() {
         log::warn!("no hay ningún motor disponible (Ollama apagado y sin clave de nube)");
     }
@@ -2036,8 +2125,10 @@ async fn call_model(
             // Estamos en la red de seguridad: quedó registrado para poder medirlo después.
             log::info!("ruteo: {} no alcanzó, sigo con {}", tarea.etiqueta(), m.id);
         }
-        if let Some(llamada) =
-            call_provider_cached(st, key, &m, prompt, schema, system, nodo, sin_cache, semilla).await
+        if let Some(llamada) = call_provider_cached(
+            st, key, &m, prompt, schema, system, nodo, sin_cache, semilla,
+        )
+        .await
         {
             return Some(llamada);
         }
@@ -2078,7 +2169,10 @@ async fn ai_proveedor(State(st): State<AppState>, Json(body): Json<Value>) -> im
     let modelo = body["modelo"].as_str().unwrap_or("").trim().to_string();
     let etiqueta = body["etiqueta"].as_str().unwrap_or("").trim().to_string();
     let clave = body["api_key"].as_str().unwrap_or("").trim().to_string();
-    let donde = body["donde"].as_str().unwrap_or(crate::motores::NUBE_PAGA).to_string();
+    let donde = body["donde"]
+        .as_str()
+        .unwrap_or(crate::motores::NUBE_PAGA)
+        .to_string();
     if id.is_empty() || base.is_empty() || modelo.is_empty() {
         return (
             StatusCode::BAD_REQUEST,
@@ -2098,7 +2192,10 @@ async fn ai_proveedor(State(st): State<AppState>, Json(body): Json<Value>) -> im
         .and_then(|t| serde_json::from_str(&t).ok())
         .unwrap_or_else(|| json!({}));
     let Some(obj) = cfg.as_object_mut() else {
-        return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "ok": false, "error": "config inválido" })));
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "ok": false, "error": "config inválido" })),
+        );
     };
 
     let mut provs: Vec<Value> = obj
@@ -2118,11 +2215,15 @@ async fn ai_proveedor(State(st): State<AppState>, Json(body): Json<Value>) -> im
     if !clave.is_empty() {
         // La clave va al **llavero del sistema**, no al config: el archivo deja de tener secretos.
         // Nunca viaja al frontend.
-        if let Err(e) = crate::claves::Store::escribir(&crate::claves::Llavero, &clave_config, &clave) {
+        if let Err(e) =
+            crate::claves::Store::escribir(&crate::claves::Llavero, &clave_config, &clave)
+        {
             log::warn!("claves: no pude guardar {clave_config} en el llavero: {e}");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "ok": false, "error": format!("no pude guardar la clave en el llavero: {e}") })),
+                Json(
+                    json!({ "ok": false, "error": format!("no pude guardar la clave en el llavero: {e}") }),
+                ),
             );
         }
         // Cualquier copia previa en texto plano del mismo campo se limpia.
@@ -2133,17 +2234,34 @@ async fn ai_proveedor(State(st): State<AppState>, Json(body): Json<Value>) -> im
     obj.insert("proveedores".into(), Value::Array(provs));
     let txt = match serde_json::to_string_pretty(&cfg) {
         Ok(t) => t,
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "ok": false, "error": e.to_string() }))),
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "ok": false, "error": e.to_string() })),
+            )
+        }
     };
     if let Err(e) = std::fs::write(&ruta, txt) {
-        return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "ok": false, "error": e.to_string() })));
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "ok": false, "error": e.to_string() })),
+        );
     }
-    log::info!("proveedor agregado: {id} ({modelo}){}", if clave.is_empty() { " sin clave" } else { " con clave" });
+    log::info!(
+        "proveedor agregado: {id} ({modelo}){}",
+        if clave.is_empty() {
+            " sin clave"
+        } else {
+            " con clave"
+        }
+    );
 
     let cat = catalogo(&st).await;
     (
         StatusCode::OK,
-        Json(json!({ "ok": true, "motores": cat, "seleccionado": crate::motores::seleccionado(&st.data_dir) })),
+        Json(
+            json!({ "ok": true, "motores": cat, "seleccionado": crate::motores::seleccionado(&st.data_dir) }),
+        ),
     )
 }
 
@@ -2161,20 +2279,34 @@ async fn ai_motor(State(st): State<AppState>, Json(body): Json<Value>) -> impl I
             for a in ["auto:local", "auto:nube", "auto:tarea"] {
                 disponibles.push(a.into());
             }
-            log::warn!("motor rechazado: {id} no está en el catálogo ({} disponibles)", ids.len());
+            log::warn!(
+                "motor rechazado: {id} no está en el catálogo ({} disponibles)",
+                ids.len()
+            );
             return (
                 StatusCode::BAD_REQUEST,
-                Json(json!({"ok": false, "error": format!("motor desconocido: {id}"), "disponibles": disponibles})),
+                Json(
+                    json!({"ok": false, "error": format!("motor desconocido: {id}"), "disponibles": disponibles}),
+                ),
             );
         }
     }
     match crate::motores::guardar_seleccion(&st.data_dir, id) {
         Ok(_) => {
             let elegido = crate::motores::seleccionado(&st.data_dir);
-            log::info!("motor de la app: {:?}", elegido.as_deref().unwrap_or("auto (cadena configurada)"));
-            (StatusCode::OK, Json(json!({ "ok": true, "seleccionado": elegido })))
+            log::info!(
+                "motor de la app: {:?}",
+                elegido.as_deref().unwrap_or("auto (cadena configurada)")
+            );
+            (
+                StatusCode::OK,
+                Json(json!({ "ok": true, "seleccionado": elegido })),
+            )
         }
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "ok": false, "error": e }))),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "ok": false, "error": e })),
+        ),
     }
 }
 
@@ -2266,13 +2398,13 @@ async fn call_ollama(
         .as_ref()
         .map(|(b, _)| b.clone())
         .unwrap_or_else(|| {
-            std::env::var("NODEFLOW_OLLAMA_URL").unwrap_or_else(|_| "http://localhost:11434/v1".to_string())
+            std::env::var("NODEFLOW_OLLAMA_URL")
+                .unwrap_or_else(|_| "http://localhost:11434/v1".to_string())
         });
-    let model = base_y_modelo
-        .map(|(_, m)| m)
-        .unwrap_or_else(|| {
-            std::env::var("NODEFLOW_OLLAMA_MODEL").unwrap_or_else(|_| "nemotron-3-nano:30b-cloud".to_string())
-        });
+    let model = base_y_modelo.map(|(_, m)| m).unwrap_or_else(|| {
+        std::env::var("NODEFLOW_OLLAMA_MODEL")
+            .unwrap_or_else(|_| "nemotron-3-nano:30b-cloud".to_string())
+    });
     let mut messages = Vec::new();
     if let Some(s) = system {
         messages.push(json!({ "role": "system", "content": s }));
@@ -2310,7 +2442,11 @@ async fn call_ollama(
             if codigo == 402 || codigo == 401 {
                 st.marcar_motor_caido(
                     &format!("ollama:{model}"),
-                    if codigo == 402 { "requiere créditos (HTTP 402)" } else { "clave rechazada (HTTP 401)" },
+                    if codigo == 402 {
+                        "requiere créditos (HTTP 402)"
+                    } else {
+                        "clave rechazada (HTTP 401)"
+                    },
                 );
             }
             None
@@ -2380,7 +2516,11 @@ async fn call_ollama_nativo(
             if codigo == 402 || codigo == 401 {
                 st.marcar_motor_caido(
                     &format!("ollama:{modelo}"),
-                    if codigo == 402 { "requiere créditos (HTTP 402)" } else { "clave rechazada (HTTP 401)" },
+                    if codigo == 402 {
+                        "requiere créditos (HTTP 402)"
+                    } else {
+                        "clave rechazada (HTTP 401)"
+                    },
                 );
             }
             None
@@ -2414,7 +2554,14 @@ async fn call_openai(
         "temperature": 0.7
     });
     let url = format!("{}/chat/completions", base.trim_end_matches('/'));
-    match st.http.post(&url).bearer_auth(clave).json(&body).send().await {
+    match st
+        .http
+        .post(&url)
+        .bearer_auth(clave)
+        .json(&body)
+        .send()
+        .await
+    {
         Ok(resp) if resp.status().is_success() => {
             let v: Value = resp.json().await.ok()?;
             let text = v["choices"][0]["message"]["content"].as_str().unwrap_or("");
@@ -2490,7 +2637,11 @@ pub(crate) fn sello_local(epoch_s: i64, offset_h: i32) -> String {
     let days = s.div_euclid(86_400);
     let rem = s.rem_euclid(86_400);
     let (y, mo, d) = civil_from_days(days);
-    format!("{y:04}-{mo:02}-{d:02}T{:02}:{:02}", rem / 3600, (rem % 3600) / 60)
+    format!(
+        "{y:04}-{mo:02}-{d:02}T{:02}:{:02}",
+        rem / 3600,
+        (rem % 3600) / 60
+    )
 }
 
 /// Días desde epoch → (año, mes, día). Algoritmo de Howard Hinnant.
@@ -2540,7 +2691,10 @@ async fn idioma_guardar(State(st): State<AppState>, Json(body): Json<Value>) -> 
     let pedido = body["idioma"].as_str().unwrap_or("");
     match crate::idioma::guardar(&st.data_dir, pedido) {
         Ok(v) => (StatusCode::OK, Json(v)),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "ok": false, "error": e }))),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "ok": false, "error": e })),
+        ),
     }
 }
 
@@ -2563,7 +2717,10 @@ async fn claves_estado(State(st): State<AppState>) -> impl IntoResponse {
 async fn claves_migrar(State(st): State<AppState>) -> impl IntoResponse {
     match crate::claves::migrar(&st.data_dir, &crate::claves::Llavero) {
         Ok(v) => (StatusCode::OK, Json(v)),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "ok": false, "error": e }))),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "ok": false, "error": e })),
+        ),
     }
 }
 
@@ -2635,7 +2792,9 @@ async fn voz_proveedor(State(st): State<AppState>, Json(body): Json<Value>) -> i
     if id.is_empty() {
         return (
             StatusCode::BAD_REQUEST,
-            Json(json!({ "success": false, "error": "Falta `id`. Disponibles: ".to_string() + &crate::stt::ids().join(", ") })),
+            Json(
+                json!({ "success": false, "error": "Falta `id`. Disponibles: ".to_string() + &crate::stt::ids().join(", ") }),
+            ),
         );
     }
     match crate::stt::guardar_seleccion(&st.data_dir, &id) {
@@ -2667,7 +2826,11 @@ async fn voz_proveedor(State(st): State<AppState>, Json(body): Json<Value>) -> i
 async fn ai_evaluar(State(st): State<AppState>, Json(body): Json<Value>) -> impl IntoResponse {
     let pedidos: Vec<String> = body["motores"]
         .as_array()
-        .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default();
     let modelos = if pedidos.is_empty() {
         catalogo(&st)
@@ -2718,6 +2881,51 @@ async fn ai_evaluar_leer(State(st): State<AppState>) -> impl IntoResponse {
     }))
 }
 
+/// `GET /api/cerebro/gateway` — estado del gateway propio. El panel usa `url` (ya trae el token) para
+/// abrir el WebSocket.
+async fn cerebro_gateway_estado(State(st): State<AppState>) -> impl IntoResponse {
+    let g = st.gateway.estado();
+    Json(json!({ "success": true, "gateway": g.clone(), "url": g["url"] }))
+}
+
+/// `POST /api/cerebro/gateway/arrancar` — levanta el `hermes serve` de la app. La espera del arranque va
+/// en un hilo aparte: importa el agente, sus MCP y la config, y eso tarda. El panel consulta el estado
+/// hasta ver `listo: true`.
+async fn cerebro_gateway_arrancar(State(st): State<AppState>) -> impl IntoResponse {
+    let exe = crate::voz::hermes_exe();
+    // El directorio de trabajo del gateway es la bóveda: es donde vive el conocimiento del proyecto.
+    let cwd = st.vault.raiz();
+    match st.gateway.arrancar(&exe, &cwd) {
+        Ok(()) => {
+            let g = st.gateway.clone();
+            std::thread::spawn(move || g.esperar_listo());
+            log::info!(
+                "cerebro: gateway propio levantándose en el puerto {}",
+                st.gateway.puerto()
+            );
+            (
+                StatusCode::OK,
+                Json(json!({ "success": true, "gateway": st.gateway.estado(), "url": st.gateway.url_ws() })),
+            )
+        }
+        Err(e) => {
+            log::warn!("cerebro: no pude levantar el gateway: {e}");
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "success": false, "error": e, "gateway": st.gateway.estado() })),
+            )
+        }
+    }
+}
+
+/// `POST /api/cerebro/gateway/parar` — lo baja. El panel lo pide al cerrarse; el `Drop` del `Gateway`
+/// cubre el caso de que la app muera antes.
+async fn cerebro_gateway_parar(State(st): State<AppState>) -> impl IntoResponse {
+    st.gateway.parar();
+    log::info!("cerebro: gateway propio detenido");
+    Json(json!({ "success": true, "gateway": st.gateway.estado() }))
+}
+
 /// Arma el contexto del turno **desde la bóveda**: la visión (nodo del Norte), el recuerdo dirigido
 /// (BM25 sobre el pedido) y el foco del hilo. Todo acotado: **no crece con el tamaño del lienzo**.
 fn contexto_del_turno(st: &AppState, pedido: &str) -> crate::cerebro::Contexto {
@@ -2732,7 +2940,10 @@ fn contexto_del_turno(st: &AppState, pedido: &str) -> crate::cerebro::Contexto {
         .and_then(|ns| {
             ns.iter()
                 .find(|n| n["data"]["category"].as_str() == Some("NORTE"))
-                .or_else(|| ns.iter().find(|n| n["data"]["es_nucleo"].as_bool() == Some(true)))
+                .or_else(|| {
+                    ns.iter()
+                        .find(|n| n["data"]["es_nucleo"].as_bool() == Some(true))
+                })
         })
         .and_then(|n| n["data"]["title"].as_str().map(String::from));
     let memoria = st
@@ -2742,7 +2953,12 @@ fn contexto_del_turno(st: &AppState, pedido: &str) -> crate::cerebro::Contexto {
         .and_then(|v| v.as_array())
         .map(|arr| {
             arr.iter()
-                .filter_map(|r| Some((r["titulo"].as_str()?.to_string(), r["ruta"].as_str()?.to_string())))
+                .filter_map(|r| {
+                    Some((
+                        r["titulo"].as_str()?.to_string(),
+                        r["ruta"].as_str()?.to_string(),
+                    ))
+                })
                 .collect::<Vec<(String, String)>>()
         })
         .unwrap_or_default();
@@ -2808,7 +3024,8 @@ async fn delegar(State(st): State<AppState>, Json(body): Json<Value>) -> impl In
                 let ctx = contexto_del_turno(&st3, &pedido3);
                 let prompt = crate::cerebro::prompt_turno(&pedido3, &ctx);
                 let args = crate::cerebro::argv(&prompt, &cfg);
-                let r = crate::cerebro::correr(&exe, &args, std::time::Duration::from_secs(cfg.tope_s));
+                let r =
+                    crate::cerebro::correr(&exe, &args, std::time::Duration::from_secs(cfg.tope_s));
                 (r, crate::cerebro::resumen_contexto(&ctx))
             }
         })
@@ -2830,7 +3047,14 @@ async fn delegar(State(st): State<AppState>, Json(body): Json<Value>) -> impl In
             Err(e) => (false, e, None),
         };
         let ms = t0.elapsed().as_millis() as u64;
-        let _ = crate::voz::guardar_delegacion(&st2.data_dir, &pedido2, ok, &texto, ms, &contexto_usado);
+        let _ = crate::voz::guardar_delegacion(
+            &st2.data_dir,
+            &pedido2,
+            ok,
+            &texto,
+            ms,
+            &contexto_usado,
+        );
         if st2.cerebro.notas {
             let utc = now_iso();
             let local = sello_local((now_ms() / 1000) as i64, st2.cerebro.offset_h);
@@ -2843,7 +3067,10 @@ async fn delegar(State(st): State<AppState>, Json(body): Json<Value>) -> impl In
                 &local,
                 &utc,
             );
-            match st2.vault.escribir_nota(&crate::cerebro::nombre_nota(&local), &nota) {
+            match st2
+                .vault
+                .escribir_nota(&crate::cerebro::nombre_nota(&local), &nota)
+            {
                 Ok(p) => log::info!("cerebro: turno guardado en {}", p.display()),
                 Err(e) => log::warn!("cerebro: no pude escribir la nota del turno: {e}"),
             }
@@ -2852,7 +3079,9 @@ async fn delegar(State(st): State<AppState>, Json(body): Json<Value>) -> impl In
             "motor profundo: {} · {} caracteres · sesión {}",
             if ok { "listo" } else { "falló" },
             texto.chars().count(),
-            sesion_vista.as_deref().unwrap_or(st2.cerebro.sesion.as_str())
+            sesion_vista
+                .as_deref()
+                .unwrap_or(st2.cerebro.sesion.as_str())
         );
     });
     (
@@ -2873,8 +3102,16 @@ async fn ai_investigar(State(st): State<AppState>, Json(body): Json<Value>) -> i
             .into_response();
     }
     match crate::investigacion::iniciar(&st, pedido).await {
-        Ok(_) => (StatusCode::OK, Json(json!({ "success": true, "corriendo": true }))).into_response(),
-        Err(e) => (StatusCode::CONFLICT, Json(json!({ "success": false, "error": e }))).into_response(),
+        Ok(_) => (
+            StatusCode::OK,
+            Json(json!({ "success": true, "corriendo": true })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::CONFLICT,
+            Json(json!({ "success": false, "error": e })),
+        )
+            .into_response(),
     }
 }
 
@@ -2906,7 +3143,6 @@ async fn delegar_estado(State(st): State<AppState>) -> impl IntoResponse {
     }))
 }
 
-
 /// `GET /api/voz/dialogo` — el hilo de la conversación en curso (turnos y foco).
 async fn voz_dialogo(State(st): State<AppState>) -> impl IntoResponse {
     let sesion = crate::dialogo::leer(&st.vault.raiz().join(".nodeflow"));
@@ -2922,7 +3158,10 @@ async fn voz_dialogo(State(st): State<AppState>) -> impl IntoResponse {
 ///
 /// La voz vive en la máquina del usuario (`tools/tts/servidor.py`, puerto 8125): sin cuotas, sin
 /// mandar el texto a ningún servicio. Si no está corriendo, la app sigue andando y lo dice claro.
-async fn voz_decir(State(st): State<AppState>, Json(body): Json<Value>) -> axum::response::Response {
+async fn voz_decir(
+    State(st): State<AppState>,
+    Json(body): Json<Value>,
+) -> axum::response::Response {
     use axum::body::Body;
     use axum::response::Response;
 
@@ -2930,7 +3169,9 @@ async fn voz_decir(State(st): State<AppState>, Json(body): Json<Value>) -> axum:
         Response::builder()
             .status(codigo)
             .header("Content-Type", "application/json")
-            .body(Body::from(json!({ "success": false, "error": mensaje }).to_string()))
+            .body(Body::from(
+                json!({ "success": false, "error": mensaje }).to_string(),
+            ))
             .unwrap()
     };
 
@@ -2956,14 +3197,21 @@ async fn voz_decir(State(st): State<AppState>, Json(body): Json<Value>) -> axum:
     {
         Ok(r) if r.status().is_success() => match r.bytes().await {
             Ok(audio) => {
-                log::info!("voz: {} caracteres sintetizados ({} KB)", texto.chars().count(), audio.len() / 1024);
+                log::info!(
+                    "voz: {} caracteres sintetizados ({} KB)",
+                    texto.chars().count(),
+                    audio.len() / 1024
+                );
                 Response::builder()
                     .status(StatusCode::OK)
                     .header("Content-Type", "audio/wav")
                     .body(Body::from(audio))
                     .unwrap()
             }
-            Err(e) => responder_json(StatusCode::BAD_GATEWAY, format!("Respuesta de voz inválida: {e}")),
+            Err(e) => responder_json(
+                StatusCode::BAD_GATEWAY,
+                format!("Respuesta de voz inválida: {e}"),
+            ),
         },
         Ok(r) => responder_json(
             StatusCode::BAD_GATEWAY,
@@ -2984,7 +3232,9 @@ async fn voz_jwt(State(st): State<AppState>) -> impl IntoResponse {
     let Some(prov) = crate::stt::por_id(&id) else {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "success": false, "error": format!("Motor de voz «{id}» no está en el catálogo.") })),
+            Json(
+                json!({ "success": false, "error": format!("Motor de voz «{id}» no está en el catálogo.") }),
+            ),
         );
     };
     let Some(clave) = clave_voz(&st, prov) else {
@@ -3008,7 +3258,9 @@ async fn voz_jwt(State(st): State<AppState>) -> impl IntoResponse {
         Ok(sesion) => {
             log::info!(
                 "voz: sesión de {} emitida ({} s, idioma {})",
-                sesion.proveedor, sesion.expira_en_s, sesion.idioma
+                sesion.proveedor,
+                sesion.expira_en_s,
+                sesion.idioma
             );
             (StatusCode::OK, Json(sesion.a_json()))
         }
@@ -3275,7 +3527,9 @@ async fn knowledge_draft(State(st): State<AppState>, Json(body): Json<Value>) ->
     if nodos.is_empty() {
         return (
             StatusCode::BAD_REQUEST,
-            Json(json!({ "ok": false, "error": "el texto no produjo candidatos (cada bloque necesita densidad mínima)" })),
+            Json(
+                json!({ "ok": false, "error": "el texto no produjo candidatos (cada bloque necesita densidad mínima)" }),
+            ),
         );
     }
     let categoria_fallback = body["categoria"]
@@ -3312,7 +3566,11 @@ async fn knowledge_draft(State(st): State<AppState>, Json(body): Json<Value>) ->
             .unwrap_or("")
             .to_string();
         let (crudo, autor_del_crudo, ms) = match &simulado {
-            Some(v) => (Some(v.clone()), "simulado (hook de verificación)".to_string(), 0u128),
+            Some(v) => (
+                Some(v.clone()),
+                "simulado (hook de verificación)".to_string(),
+                0u128,
+            ),
             None => match call_borrador_local(&st, &titulo_h, &cuerpo).await {
                 Some((v, modelo, ms)) => (Some(v), modelo, ms),
                 None => (None, "sin respuesta del daemon local".to_string(), 0u128),
@@ -3381,7 +3639,11 @@ async fn knowledge_draft(State(st): State<AppState>, Json(body): Json<Value>) ->
 /// gramática y `keep_alive` **por request** (una variable global en 0 s recarga el modelo cada vez y
 /// convierte 12 ms en 13 s). No confundir con `call_ollama`, que usa la ruta `/v1` compatible con
 /// OpenAI de los modelos de la cuota gratuita.
-async fn call_borrador_local(st: &AppState, titulo: &str, cuerpo: &str) -> Option<(Value, String, u128)> {
+async fn call_borrador_local(
+    st: &AppState,
+    titulo: &str,
+    cuerpo: &str,
+) -> Option<(Value, String, u128)> {
     let cfg = &st.borrador;
     let url = format!("{}/api/chat", cfg.url.trim_end_matches('/'));
     let body = json!({
@@ -3607,7 +3869,10 @@ async fn experto_run(
     // Cabecera: fecha del día + huella del contenido medido. Dos corridas con el mismo estado
     // producen el mismo prompt (y la caché acierta); si algo cambió, la huella cambia sola.
     let huella = crate::costo::hash_estable(&hechos);
-    hechos = format!("- fecha: {}\n- huella del estado medido: {huella}\n{hechos}", hoy());
+    hechos = format!(
+        "- fecha: {}\n- huella del estado medido: {huella}\n{hechos}",
+        hoy()
+    );
 
     let extra = body["extra"].as_str().unwrap_or("").trim().to_string();
     let mut prompt = format!("CONCEPTO (nodo del lienzo)\nTítulo: {titulo}\nDescripción: {desc}\n");
@@ -3669,9 +3934,17 @@ Todo artefacto tiene que distinguir lo establecido de lo propuesto, y lo medido 
     // 3 intentos: cada escalada cuesta tokens y segundos.
     let cat = catalogo(&st).await;
     let mut plan: Vec<crate::motores::Motor> = Vec::new();
-    let preferido = exp["proveedor"].as_str().unwrap_or("").trim().to_lowercase();
+    let preferido = exp["proveedor"]
+        .as_str()
+        .unwrap_or("")
+        .trim()
+        .to_lowercase();
     if !preferido.is_empty() {
-        plan.extend(cat.iter().filter(|m| m.disponible && m.proveedor == preferido).cloned());
+        plan.extend(
+            cat.iter()
+                .filter(|m| m.disponible && m.proveedor == preferido)
+                .cloned(),
+        );
     }
     if let Some(sel) = seleccion_efectiva(&st, &cat) {
         if let Some(m) = cat.iter().find(|m| m.id == sel && m.disponible) {
@@ -3686,9 +3959,18 @@ Todo artefacto tiene que distinguir lo establecido de lo propuesto, y lo medido 
     plan.truncate(3);
     for m in plan {
         let t = std::time::Instant::now();
-        let Some(llamada) =
-            call_provider_cached(&st, &key, &m, &prompt, &schema, Some(&system), &id, false,
-                body["texto"].as_str().or_else(|| body["prompt"].as_str())).await
+        let Some(llamada) = call_provider_cached(
+            &st,
+            &key,
+            &m,
+            &prompt,
+            &schema,
+            Some(&system),
+            &id,
+            false,
+            body["texto"].as_str().or_else(|| body["prompt"].as_str()),
+        )
+        .await
         else {
             traza.push(json!({"motor": m.id, "proveedor": m.proveedor, "resultado": "sin respuesta", "ms": t.elapsed().as_millis()}));
             continue;
@@ -3709,8 +3991,18 @@ Todo artefacto tiene que distinguir lo establecido de lo propuesto, y lo medido 
                 "{prompt}\n\nTU RESPUESTA ANTERIOR FUE RECHAZADA POR EL VALIDADOR:\n{}\n\nCorregí exactamente eso y devolvé el JSON completo con TODOS los campos.",
                 p.join("\n")
             );
-            if let Some(segunda) =
-                call_provider_cached(&st, &key, &m, &reintento, &schema, Some(&system), &id, false, None).await
+            if let Some(segunda) = call_provider_cached(
+                &st,
+                &key,
+                &m,
+                &reintento,
+                &schema,
+                Some(&system),
+                &id,
+                false,
+                None,
+            )
+            .await
             {
                 let p2 = crate::artefactos::validar(&tipo, &segunda.valor);
                 intentos += 1;
@@ -3816,14 +4108,22 @@ mod tests_sello_local {
         // 21:11 de Buenos Aires (UTC-3) es 00:11 del día siguiente en UTC: la nota tiene que decir 15.
         let epoch_utc = 1789517482; // 2026-09-16T00:11:22Z
         assert_eq!(sello_local(epoch_utc, -3), "2026-09-15T21:11");
-        assert_eq!(sello_local(epoch_utc, 0), "2026-09-16T00:11", "con 0 el sello es UTC");
+        assert_eq!(
+            sello_local(epoch_utc, 0),
+            "2026-09-16T00:11",
+            "con 0 el sello es UTC"
+        );
         assert_eq!(sello_local(epoch_utc, 2), "2026-09-16T02:11");
     }
 
     #[test]
     fn el_sello_cruza_bien_el_cambio_de_mes() {
         let epoch_utc = 1788220800; // 2026-09-01T00:00:00Z
-        assert_eq!(sello_local(epoch_utc, -3), "2026-08-31T21:00", "un turno de las 21 cae el mes anterior");
+        assert_eq!(
+            sello_local(epoch_utc, -3),
+            "2026-08-31T21:00",
+            "un turno de las 21 cae el mes anterior"
+        );
     }
 }
 
@@ -3837,12 +4137,18 @@ mod tests_modo {
 
     #[test]
     fn el_modo_local_fuerza_el_modelo_local() {
-        assert_eq!(cadena_por_modo(Some("local"), v(&["gemini"])), v(&["ollama"]));
+        assert_eq!(
+            cadena_por_modo(Some("local"), v(&["gemini"])),
+            v(&["ollama"])
+        );
     }
 
     #[test]
     fn el_modo_nube_fuerza_el_proveedor_en_la_nube() {
-        assert_eq!(cadena_por_modo(Some("nube"), v(&["ollama"])), v(&["gemini"]));
+        assert_eq!(
+            cadena_por_modo(Some("nube"), v(&["ollama"])),
+            v(&["gemini"])
+        );
     }
 
     #[test]
@@ -3927,7 +4233,11 @@ mod tests_turno_ia {
     #[test]
     fn la_clave_de_placa_es_exclusiva() {
         let m = mapa();
-        assert!(ia_tomar_en(&m, &claves(&["ia:placa", "ia:n1:explore"]), 10.0));
+        assert!(ia_tomar_en(
+            &m,
+            &claves(&["ia:placa", "ia:n1:explore"]),
+            10.0
+        ));
         assert!(
             !ia_tomar_en(&m, &claves(&["ia:placa", "ia:n2:critique"]), 11.0),
             "con la placa ocupada, ningún otro pedido local entra"
@@ -3938,7 +4248,11 @@ mod tests_turno_ia {
     fn un_turno_vencido_no_bloquea_para_siempre() {
         let m = mapa();
         assert!(ia_tomar_en(&m, &claves(&["ia:placa"]), 1000.0));
-        assert!(!ia_tomar_en(&m, &claves(&["ia:placa"]), 1000.0 + IA_TURNO_TTL_S - 1.0));
+        assert!(!ia_tomar_en(
+            &m,
+            &claves(&["ia:placa"]),
+            1000.0 + IA_TURNO_TTL_S - 1.0
+        ));
         assert!(
             ia_tomar_en(&m, &claves(&["ia:placa"]), 1000.0 + IA_TURNO_TTL_S + 1.0),
             "una corrida muerta (kill, crash) no puede dejar la IA bloqueada"
@@ -3950,9 +4264,15 @@ mod tests_turno_ia {
         // El `Drop` es lo que hace que un `return` temprano o un error no deje el turno tomado:
         // se toma el turno de verdad (inserta la clave) y se suelta al salir del bloque.
         let m = mapa();
-        assert!(ia_tomar_en(&m, &claves(&["ia:placa"]), 200.0), "el turno se toma");
+        assert!(
+            ia_tomar_en(&m, &claves(&["ia:placa"]), 200.0),
+            "el turno se toma"
+        );
         {
-            let turno = IaTurno { mapa: m.clone(), claves: claves(&["ia:placa"]) };
+            let turno = IaTurno {
+                mapa: m.clone(),
+                claves: claves(&["ia:placa"]),
+            };
             drop(turno);
         }
         assert!(

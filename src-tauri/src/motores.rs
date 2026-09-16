@@ -45,7 +45,13 @@ pub struct Motor {
 }
 
 impl Motor {
-    pub fn nuevo(proveedor: &str, modelo: &str, donde: &str, etiqueta: Option<String>, base_url: Option<String>) -> Motor {
+    pub fn nuevo(
+        proveedor: &str,
+        modelo: &str,
+        donde: &str,
+        etiqueta: Option<String>,
+        base_url: Option<String>,
+    ) -> Motor {
         Motor {
             id: format!("{proveedor}:{modelo}"),
             etiqueta: etiqueta.unwrap_or_else(|| match donde {
@@ -90,7 +96,15 @@ pub fn motores_de_tags(tags: &[String], base_url: &str) -> Vec<Motor> {
     let mut v: Vec<Motor> = tags
         .iter()
         .filter(|t| !t.trim().is_empty())
-        .map(|t| Motor::nuevo("ollama", t.trim(), donde_corre(t), None, Some(base_url.to_string())))
+        .map(|t| {
+            Motor::nuevo(
+                "ollama",
+                t.trim(),
+                donde_corre(t),
+                None,
+                Some(base_url.to_string()),
+            )
+        })
         .collect();
     v.sort_by(|a, b| (rango(&a.donde), a.modelo.clone()).cmp(&(rango(&b.donde), b.modelo.clone())));
     v
@@ -145,8 +159,8 @@ pub enum Tarea {
 impl Tarea {
     pub fn de_accion(accion: &str) -> Tarea {
         match accion.trim().to_lowercase().as_str() {
-            "condensar" | "criticar" | "critique" | "socratic" | "hybrid" | "hybridize" | "sintesis"
-            | "synthesize" | "resonar" => Tarea::Sintesis,
+            "condensar" | "criticar" | "critique" | "socratic" | "hybrid" | "hybridize"
+            | "sintesis" | "synthesize" | "resonar" => Tarea::Sintesis,
             "delegar" | "investigar" | "herramientas" | "buscar" => Tarea::Herramientas,
             "chat" | "conversar" | "dialogo" => Tarea::Dialogo,
             // voz, braindump, borradores, expansión: el bucle de todos los días.
@@ -174,7 +188,9 @@ pub fn tamano_b(modelo: &str) -> Option<f32> {
         .filter_map(|p| p.strip_suffix('b'))
         .filter_map(|n| n.parse::<f32>().ok())
         .filter(|n| (0.1..=2000.0).contains(n))
-        .fold(None, |acc: Option<f32>, n| Some(acc.map_or(n, |a| a.max(n))))
+        .fold(None, |acc: Option<f32>, n| {
+            Some(acc.map_or(n, |a| a.max(n)))
+        })
 }
 
 /// ¿Es un modelo de razonamiento, según su propio nombre? Entre locales del mismo tamaño, el que
@@ -182,7 +198,17 @@ pub fn tamano_b(modelo: &str) -> Option<f32> {
 /// su cadena de pensamiento es justamente lo que lo hace lento (medido: 31 s contra 3,8 s).
 pub fn es_razonador(modelo: &str) -> bool {
     let n = modelo.to_lowercase();
-    ["deepseek-r1", "r1:", "-r1", "qwq", "reason", "think", "magistral"].iter().any(|m| n.contains(m))
+    [
+        "deepseek-r1",
+        "r1:",
+        "-r1",
+        "qwq",
+        "reason",
+        "think",
+        "magistral",
+    ]
+    .iter()
+    .any(|m| n.contains(m))
 }
 
 fn gracias_y_pagas(gratis: Vec<Motor>, paga: Vec<Motor>) -> Vec<Motor> {
@@ -281,7 +307,8 @@ pub fn ganador_medido(accion: &str, planilla: Option<&Value>) -> Option<String> 
         return None;
     }
     let g = planilla?["ganador_por_prueba"].as_object()?;
-    let mut puntos: std::collections::HashMap<String, (u32, u64)> = std::collections::HashMap::new();
+    let mut puntos: std::collections::HashMap<String, (u32, u64)> =
+        std::collections::HashMap::new();
     for p in pruebas {
         if let Some(fila) = g.get(p) {
             if fila["ok"].as_bool().unwrap_or(false) {
@@ -335,18 +362,25 @@ pub fn plan_tarea(
 /// `nube` → nube gratuita o paga. Dentro del grupo manda el motor seleccionado si pertenece a él.
 pub fn plan(catalogo: &[Motor], seleccionado: Option<&str>, modo: Option<&str>) -> Vec<Motor> {
     // `auto:local` / `auto:nube` son elecciones guardadas que eligen dentro de un grupo.
-    let (modo, salto_de_id): (Option<&str>, bool) = match seleccionado.map(|s| s.trim().to_lowercase()).as_deref() {
-        Some(AUTO_LOCAL) => (Some("local"), true),
-        Some(AUTO_NUBE) => (Some("nube"), true),
-        _ => (modo, false),
-    };
+    let (modo, salto_de_id): (Option<&str>, bool) =
+        match seleccionado.map(|s| s.trim().to_lowercase()).as_deref() {
+            Some(AUTO_LOCAL) => (Some("local"), true),
+            Some(AUTO_NUBE) => (Some("nube"), true),
+            _ => (modo, false),
+        };
     let grupo: Option<Vec<&str>> = match modo.map(|m| m.trim().to_lowercase()).as_deref() {
         Some("local") | Some("edge") => Some(vec![EN_TU_PLACA]),
         Some("nube") | Some("cloud") => Some(vec![NUBE_GRATIS, NUBE_PAGA]),
         _ => None,
     };
     let seleccionado = if salto_de_id { None } else { seleccionado };
-    let disponible = |m: &&Motor| m.disponible && grupo.as_ref().map(|g| g.contains(&m.donde.as_str())).unwrap_or(true);
+    let disponible = |m: &&Motor| {
+        m.disponible
+            && grupo
+                .as_ref()
+                .map(|g| g.contains(&m.donde.as_str()))
+                .unwrap_or(true)
+    };
 
     // Automáticos: devuelven **todo el grupo** en orden (placa → gratis → pago). Así, si un motor
     // falla —típicamente 402 por créditos— la misma corrida sigue con el siguiente en vez de
@@ -361,14 +395,22 @@ pub fn plan(catalogo: &[Motor], seleccionado: Option<&str>, modo: Option<&str>) 
         }
     }
     // 2) el primero disponible del grupo (determinista por orden del catálogo)
-    catalogo.iter().find(disponible).cloned().into_iter().collect()
+    catalogo
+        .iter()
+        .find(disponible)
+        .cloned()
+        .into_iter()
+        .collect()
 }
 
 /// Lee la selección guardada (`motor_activo`) del config de la app.
 pub fn seleccionado(data_dir: &Path) -> Option<String> {
     let txt = std::fs::read_to_string(data_dir.join("nodeflow.config.json")).ok()?;
     let v: Value = serde_json::from_str(&txt).ok()?;
-    v["motor_activo"].as_str().map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+    v["motor_activo"]
+        .as_str()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 /// Guarda la selección **conservando el resto del config** (la clave de API incluida).
@@ -389,8 +431,13 @@ pub fn guardar_seleccion(data_dir: &Path, id: Option<&str>) -> Result<(), String
         .ok()
         .and_then(|t| serde_json::from_str(&t).ok())
         .unwrap_or_else(|| serde_json::json!({}));
-    let obj = cfg.as_object_mut().ok_or_else(|| "el config no es un objeto JSON".to_string())?;
-    match id.map(|s| s.trim()).filter(|s| !s.is_empty() && *s != "auto") {
+    let obj = cfg
+        .as_object_mut()
+        .ok_or_else(|| "el config no es un objeto JSON".to_string())?;
+    match id
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty() && *s != "auto")
+    {
         Some(id) => {
             obj.insert("motor_activo".into(), Value::String(id.to_string()));
         }
@@ -409,10 +456,20 @@ mod tests {
 
     fn cat() -> Vec<Motor> {
         let mut v = motores_de_tags(
-            &["granite3.3:2b".into(), "qwen2.5vl:7b".into(), "nemotron-3-nano:30b-cloud".into()],
+            &[
+                "granite3.3:2b".into(),
+                "qwen2.5vl:7b".into(),
+                "nemotron-3-nano:30b-cloud".into(),
+            ],
             "http://localhost:11434/v1",
         );
-        v.push(Motor::nuevo("gemini", "gemini-3.6-flash", NUBE_PAGA, None, None));
+        v.push(Motor::nuevo(
+            "gemini",
+            "gemini-3.6-flash",
+            NUBE_PAGA,
+            None,
+            None,
+        ));
         v
     }
 
@@ -430,8 +487,20 @@ mod tests {
         let ids: Vec<&str> = c.iter().map(|m| m.id.as_str()).collect();
         assert!(ids.contains(&"ollama:granite3.3:2b"));
         assert!(ids.contains(&"ollama:nemotron-3-nano:30b-cloud"));
-        assert_eq!(c.iter().find(|m| m.modelo == "granite3.3:2b").unwrap().donde, EN_TU_PLACA);
-        assert_eq!(c.iter().find(|m| m.modelo == "nemotron-3-nano:30b-cloud").unwrap().donde, NUBE_GRATIS);
+        assert_eq!(
+            c.iter()
+                .find(|m| m.modelo == "granite3.3:2b")
+                .unwrap()
+                .donde,
+            EN_TU_PLACA
+        );
+        assert_eq!(
+            c.iter()
+                .find(|m| m.modelo == "nemotron-3-nano:30b-cloud")
+                .unwrap()
+                .donde,
+            NUBE_GRATIS
+        );
     }
 
     #[test]
@@ -463,9 +532,15 @@ mod tests {
     #[test]
     fn un_motor_no_disponible_no_se_elige() {
         let mut c = cat();
-        c.push(Motor { disponible: false, ..Motor::nuevo("ollama", "fantasma:7b", EN_TU_PLACA, None, None) });
+        c.push(Motor {
+            disponible: false,
+            ..Motor::nuevo("ollama", "fantasma:7b", EN_TU_PLACA, None, None)
+        });
         let p = plan(&c, Some("ollama:fantasma:7b"), Some("local"));
-        assert_ne!(p[0].modelo, "fantasma:7b", "no debe elegir un motor marcado como no disponible");
+        assert_ne!(
+            p[0].modelo, "fantasma:7b",
+            "no debe elegir un motor marcado como no disponible"
+        );
     }
 
     #[test]
@@ -482,7 +557,10 @@ mod tests {
         assert_eq!(o["type"], "object");
         assert_eq!(o["properties"]["variations"]["type"], "array");
         assert_eq!(o["properties"]["variations"]["items"]["type"], "object");
-        assert_eq!(o["properties"]["variations"]["items"]["properties"]["title"]["type"], "string");
+        assert_eq!(
+            o["properties"]["variations"]["items"]["properties"]["title"]["type"],
+            "string"
+        );
         assert_eq!(o["required"][0], "variations");
     }
 
@@ -491,9 +569,15 @@ mod tests {
         let c = cat();
         let l = plan(&c, Some(AUTO_LOCAL), None);
         assert!(!l.is_empty());
-        assert!(l.iter().all(|m| m.donde == EN_TU_PLACA), "local no debe incluir nube");
+        assert!(
+            l.iter().all(|m| m.donde == EN_TU_PLACA),
+            "local no debe incluir nube"
+        );
         let n = plan(&c, Some("auto:nube"), None);
-        assert!(n.iter().all(|m| m.donde != EN_TU_PLACA), "nube no debe incluir la placa");
+        assert!(
+            n.iter().all(|m| m.donde != EN_TU_PLACA),
+            "nube no debe incluir la placa"
+        );
     }
 
     #[test]
@@ -508,7 +592,10 @@ mod tests {
     fn auto_nube_prefiere_lo_gratuito_sobre_lo_pago() {
         let c = cat();
         let n = plan(&c, Some(AUTO_NUBE), None);
-        assert_eq!(n[0].donde, NUBE_GRATIS, "con nube gratis disponible no gasta en la paga");
+        assert_eq!(
+            n[0].donde, NUBE_GRATIS,
+            "con nube gratis disponible no gasta en la paga"
+        );
     }
 
     #[test]
@@ -530,7 +617,6 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 }
-
 
 #[cfg(test)]
 mod tests_ruteo_por_tarea {
@@ -557,7 +643,11 @@ mod tests_ruteo_por_tarea {
         assert_eq!(Tarea::de_accion("condensar"), Tarea::Sintesis);
         assert_eq!(Tarea::de_accion("criticar"), Tarea::Sintesis);
         assert_eq!(Tarea::de_accion("delegar"), Tarea::Herramientas);
-        assert_eq!(Tarea::de_accion("  VOZ "), Tarea::Lienzo, "no distingue mayúsculas ni espacios");
+        assert_eq!(
+            Tarea::de_accion("  VOZ "),
+            Tarea::Lienzo,
+            "no distingue mayúsculas ni espacios"
+        );
     }
 
     #[test]
@@ -566,15 +656,30 @@ mod tests_ruteo_por_tarea {
         assert_eq!(tamano_b("deepseek-r1:7b"), Some(7.0));
         assert_eq!(tamano_b("nemotron-3-nano:30b-cloud"), Some(30.0));
         assert_eq!(tamano_b("qwen2.5vl:7b"), Some(7.0));
-        assert_eq!(tamano_b("glm-5.3-flash:cloud"), None, "sin tamaño declarado");
+        assert_eq!(
+            tamano_b("glm-5.3-flash:cloud"),
+            None,
+            "sin tamaño declarado"
+        );
     }
 
     #[test]
     fn el_bucle_del_lienzo_prefiere_el_local_mas_chico() {
         let orden = orden_para(Tarea::Lienzo, &cat());
-        assert_eq!(ids(&orden)[0], "ollama:granite3.3:2b", "rápido y gratis primero");
-        assert_eq!(ids(&orden)[1], "ollama:deepseek-r1:7b", "después el local grande");
-        assert!(ids(&orden)[2].contains("cloud"), "la nube es la red de seguridad");
+        assert_eq!(
+            ids(&orden)[0],
+            "ollama:granite3.3:2b",
+            "rápido y gratis primero"
+        );
+        assert_eq!(
+            ids(&orden)[1],
+            "ollama:deepseek-r1:7b",
+            "después el local grande"
+        );
+        assert!(
+            ids(&orden)[2].contains("cloud"),
+            "la nube es la red de seguridad"
+        );
     }
 
     #[test]
@@ -591,24 +696,44 @@ mod tests_ruteo_por_tarea {
             Motor::nuevo("ollama", "deepseek-r1:7b", EN_TU_PLACA, None, None),
         ];
         let orden = orden_para(Tarea::Sintesis, &c);
-        assert_eq!(ids(&orden)[0], "ollama:deepseek-r1:7b", "piensa antes de responder");
+        assert_eq!(
+            ids(&orden)[0],
+            "ollama:deepseek-r1:7b",
+            "piensa antes de responder"
+        );
         // Pero en el bucle del lienzo el razonador NO va primero: la cadena de pensamiento es lenta.
         let rapido = orden_para(Tarea::Lienzo, &c);
-        assert!(rapido.iter().any(|m| m.modelo == "qwen2.5vl:7b" || m.modelo == "deepseek-r1:7b"));
+        assert!(rapido
+            .iter()
+            .any(|m| m.modelo == "qwen2.5vl:7b" || m.modelo == "deepseek-r1:7b"));
         assert!(super::es_razonador("deepseek-r1:7b") && !super::es_razonador("granite3.3:2b"));
     }
 
     #[test]
     fn la_conversacion_prioriza_la_nube() {
         let orden = orden_para(Tarea::Dialogo, &cat());
-        assert!(orden[0].donde != EN_TU_PLACA, "el hilo lo lee un modelo a la altura");
-        assert_eq!(ids(&orden)[0], "ollama:gpt-oss:120b-cloud", "nube gratuita primero");
-        assert_eq!(ids(&orden).last().map(|s| *s), Some("ollama:granite3.3:2b"), "el local queda de último recurso");
+        assert!(
+            orden[0].donde != EN_TU_PLACA,
+            "el hilo lo lee un modelo a la altura"
+        );
+        assert_eq!(
+            ids(&orden)[0],
+            "ollama:gpt-oss:120b-cloud",
+            "nube gratuita primero"
+        );
+        assert_eq!(
+            ids(&orden).last().map(|s| *s),
+            Some("ollama:granite3.3:2b"),
+            "el local queda de último recurso"
+        );
     }
 
     #[test]
     fn sin_local_el_lienzo_igual_tiene_red() {
-        let solo_nube: Vec<Motor> = cat().into_iter().filter(|m| m.donde != EN_TU_PLACA).collect();
+        let solo_nube: Vec<Motor> = cat()
+            .into_iter()
+            .filter(|m| m.donde != EN_TU_PLACA)
+            .collect();
         let orden = orden_para(Tarea::Lienzo, &solo_nube);
         assert!(!orden.is_empty(), "nunca se queda sin motor");
         assert!(orden.iter().all(|m| m.donde != EN_TU_PLACA));
@@ -617,7 +742,10 @@ mod tests_ruteo_por_tarea {
     #[test]
     fn las_herramientas_no_usan_el_local() {
         let orden = orden_para(Tarea::Herramientas, &cat());
-        assert!(orden.iter().all(|m| m.donde != EN_TU_PLACA), "el local no puede tocar el mundo");
+        assert!(
+            orden.iter().all(|m| m.donde != EN_TU_PLACA),
+            "el local no puede tocar el mundo"
+        );
         assert_eq!(ids(&orden)[0], "ollama:gpt-oss:120b-cloud");
     }
 
@@ -648,25 +776,56 @@ mod tests_ruteo_por_tarea {
         let p = planilla_de_prueba();
         // El ganador medido de condensar es el chico: la planilla corrige a la heurística, que
         // mandaba el más grande por ser "pensar despacio".
-        assert_eq!(ganador_medido("condensar", Some(&p)).unwrap(), "ollama:granite3.3:2b");
-        assert_eq!(ganador_medido("braindump", Some(&p)).unwrap(), "ollama:granite3.3:2b");
+        assert_eq!(
+            ganador_medido("condensar", Some(&p)).unwrap(),
+            "ollama:granite3.3:2b"
+        );
+        assert_eq!(
+            ganador_medido("braindump", Some(&p)).unwrap(),
+            "ollama:granite3.3:2b"
+        );
         // En voz, empatan enfocar (chico) y crear (grande): gana el más rápido de los dos.
-        assert_eq!(ganador_medido("voz", Some(&p)).unwrap(), "ollama:granite3.3:2b");
+        assert_eq!(
+            ganador_medido("voz", Some(&p)).unwrap(),
+            "ollama:granite3.3:2b"
+        );
         // Delegar no lo acertó nadie: no recomienda a nadie.
         assert_eq!(ganador_medido("delegar", Some(&p)), None);
-        assert_eq!(ganador_medido("voz", None), None, "sin planilla manda la heurística");
+        assert_eq!(
+            ganador_medido("voz", None),
+            None,
+            "sin planilla manda la heurística"
+        );
     }
 
     #[test]
     fn el_ganador_medido_va_primero_y_el_resto_queda_de_respaldo() {
         let p = planilla_de_prueba();
         // Sin planilla, condensar arranca por el local más grande (heurística).
-        let sin = plan_tarea(&cat(), Some(AUTO_TAREA), None, Tarea::Sintesis, "condensar", None);
+        let sin = plan_tarea(
+            &cat(),
+            Some(AUTO_TAREA),
+            None,
+            Tarea::Sintesis,
+            "condensar",
+            None,
+        );
         assert_eq!(ids(&sin)[0], "ollama:deepseek-r1:7b");
         // Con planilla, arranca por el que ganó midiendo… y el resto sigue ahí por si falla.
-        let con = plan_tarea(&cat(), Some(AUTO_TAREA), None, Tarea::Sintesis, "condensar", Some(&p));
+        let con = plan_tarea(
+            &cat(),
+            Some(AUTO_TAREA),
+            None,
+            Tarea::Sintesis,
+            "condensar",
+            Some(&p),
+        );
         assert_eq!(ids(&con)[0], "ollama:granite3.3:2b");
-        assert_eq!(ids(&con).len(), ids(&sin).len(), "cambia el orden, no la red de seguridad");
+        assert_eq!(
+            ids(&con).len(),
+            ids(&sin).len(),
+            "cambia el orden, no la red de seguridad"
+        );
         assert!(ids(&con).contains(&"ollama:deepseek-r1:7b"));
     }
 
@@ -675,7 +834,14 @@ mod tests_ruteo_por_tarea {
         let elegido = plan_tarea(&cat(), Some(AUTO_TAREA), None, Tarea::Lienzo, "voz", None);
         assert_eq!(ids(&elegido)[0], "ollama:granite3.3:2b");
         // Si el usuario eligió uno a mano, su elección gana: el ruteo no lo pisa.
-        let manual = plan_tarea(&cat(), Some("deepseek:deepseek-flash"), None, Tarea::Lienzo, "voz", None);
+        let manual = plan_tarea(
+            &cat(),
+            Some("deepseek:deepseek-flash"),
+            None,
+            Tarea::Lienzo,
+            "voz",
+            None,
+        );
         assert_eq!(ids(&manual), vec!["deepseek:deepseek-flash"]);
     }
 
@@ -687,7 +853,10 @@ mod tests_ruteo_por_tarea {
         assert!(motor_valido("auto", &cat), "la cadena configurada vale");
         assert!(motor_valido("auto:tarea", &cat), "y los ruteos por tarea");
         assert!(motor_valido("", &cat), "vacío = volver atrás");
-        assert!(!motor_valido("motor-que-no-existe", &cat), "un inventado NO vale");
+        assert!(
+            !motor_valido("motor-que-no-existe", &cat),
+            "un inventado NO vale"
+        );
         assert!(!motor_valido("granite3.3:3b", &cat), "ni uno parecido");
     }
 }
