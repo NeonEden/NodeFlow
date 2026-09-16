@@ -2482,8 +2482,19 @@ pub(crate) fn now_iso() -> String {
     )
 }
 
+/// Sello **local** del turno (`YYYY-MM-DDTHH:MM`) para nombrar la nota episódica. El desfase horario lo
+/// declara el usuario (`cerebro.offset_h`, por defecto -3 = Buenos Aires): una nota de las 21:11 de acá
+/// no puede llamarse con la fecha de mañana, que es lo que pasaba nombrando en UTC.
+pub(crate) fn sello_local(epoch_s: i64, offset_h: i32) -> String {
+    let s = epoch_s + (offset_h as i64) * 3600;
+    let days = s.div_euclid(86_400);
+    let rem = s.rem_euclid(86_400);
+    let (y, mo, d) = civil_from_days(days);
+    format!("{y:04}-{mo:02}-{d:02}T{:02}:{:02}", rem / 3600, (rem % 3600) / 60)
+}
+
 /// Días desde epoch → (año, mes, día). Algoritmo de Howard Hinnant.
-fn civil_from_days(z: i64) -> (i64, u32, u32) {
+pub(crate) fn civil_from_days(z: i64) -> (i64, u32, u32) {
     let z = z + 719_468;
     let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
     let doe = (z - era * 146_097) as u64;
@@ -2770,17 +2781,18 @@ async fn delegar(State(st): State<AppState>, Json(body): Json<Value>) -> impl In
         let ms = t0.elapsed().as_millis() as u64;
         let _ = crate::voz::guardar_delegacion(&st2.data_dir, &pedido2, ok, &texto, ms);
         if st2.cerebro.notas {
-            let sello = now_iso();
-            let corto = sello.chars().take(16).collect::<String>();
+            let utc = now_iso();
+            let local = sello_local((now_ms() / 1000) as i64, st2.cerebro.offset_h);
             let nota = crate::cerebro::nota_markdown(
                 &pedido2,
                 &texto,
                 &st2.cerebro.sesion,
                 ok,
                 ms,
-                &sello,
+                &local,
+                &utc,
             );
-            match st2.vault.escribir_nota(&crate::cerebro::nombre_nota(&corto), &nota) {
+            match st2.vault.escribir_nota(&crate::cerebro::nombre_nota(&local), &nota) {
                 Ok(p) => log::info!("cerebro: turno guardado en {}", p.display()),
                 Err(e) => log::warn!("cerebro: no pude escribir la nota del turno: {e}"),
             }
@@ -3801,6 +3813,26 @@ Todo artefacto tiene que distinguir lo establecido de lo propuesto, y lo medido 
             "costo": costo_texto,
         })),
     )
+}
+
+#[cfg(test)]
+mod tests_sello_local {
+    use super::sello_local;
+
+    #[test]
+    fn el_sello_usa_la_hora_local_y_no_la_de_manana() {
+        // 21:11 de Buenos Aires (UTC-3) es 00:11 del día siguiente en UTC: la nota tiene que decir 15.
+        let epoch_utc = 1789517482; // 2026-09-16T00:11:22Z
+        assert_eq!(sello_local(epoch_utc, -3), "2026-09-15T21:11");
+        assert_eq!(sello_local(epoch_utc, 0), "2026-09-16T00:11", "con 0 el sello es UTC");
+        assert_eq!(sello_local(epoch_utc, 2), "2026-09-16T02:11");
+    }
+
+    #[test]
+    fn el_sello_cruza_bien_el_cambio_de_mes() {
+        let epoch_utc = 1788220800; // 2026-09-01T00:00:00Z
+        assert_eq!(sello_local(epoch_utc, -3), "2026-08-31T21:00", "un turno de las 21 cae el mes anterior");
+    }
 }
 
 #[cfg(test)]

@@ -23,11 +23,20 @@ pub struct Config {
     pub run_budget_s: u64,
     /// Tope duro del proceso en la app (mata el hijo si se pasa): red de seguridad sobre el anterior.
     pub tope_s: u64,
+    /// Desfase horario del usuario en horas (±14) para nombrar y fechar la nota episódica en **hora
+    /// local**. `0` = UTC.
+    pub offset_h: i32,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Config { sesion: "nf-cerebro".into(), notas: true, run_budget_s: 900, tope_s: 1200 }
+        Config {
+            sesion: "nf-cerebro".into(),
+            notas: true,
+            run_budget_s: 900,
+            tope_s: 1200,
+            offset_h: -3,
+        }
     }
 }
 
@@ -47,10 +56,18 @@ impl Config {
             if let Some(v) = s.get("tope_s").and_then(|v| v.as_u64()) {
                 c.tope_s = v.clamp(120, 14_400);
             }
+            if let Some(v) = s.get("offset_h").and_then(|v| v.as_i64()) {
+                c.offset_h = (v as i32).clamp(-14, 14);
+            }
         }
         if let Ok(v) = std::env::var("NODEFLOW_CEREBRO_SESION") {
             if !v.trim().is_empty() {
                 c.sesion = v.trim().to_string();
+            }
+        }
+        if let Ok(v) = std::env::var("NODEFLOW_CEREBRO_OFFSET_H") {
+            if let Ok(n) = v.trim().parse::<i32>() {
+                c.offset_h = n.clamp(-14, 14);
             }
         }
         if let Ok(v) = std::env::var("NODEFLOW_CEREBRO_NOTAS") {
@@ -114,11 +131,20 @@ pub fn nombre_nota(sello: &str) -> String {
 
 /// La nota que deja cada turno. Es la memoria episódica: qué se pidió, qué volvió y en qué sesión.
 /// Frontmatter en el formato de la bóveda (mismo estilo que las notas de nodo, sin `id` de nodo).
-pub fn nota_markdown(pedido: &str, resultado: &str, sesion: &str, ok: bool, ms: u64, fecha: &str) -> String {
+pub fn nota_markdown(
+    pedido: &str,
+    resultado: &str,
+    sesion: &str,
+    ok: bool,
+    ms: u64,
+    fecha_local: &str,
+    fecha_utc: &str,
+) -> String {
     let esc = |s: &str| s.replace('"', "'").replace('\n', " ");
     format!(
-        "---\ntipo: turno\nfecha: \"{}\"\nsesion: \"{}\"\nestado: {}\nms: {}\npedido: \"{}\"\n---\n\n# Turno del cerebro\n\n## Pedido\n{}\n\n## Respuesta\n{}\n",
-        esc(fecha),
+        "---\ntipo: turno\nfecha: \"{}\"\nfecha_utc: \"{}\"\nsesion: \"{}\"\nestado: {}\nms: {}\npedido: \"{}\"\n---\n\n# Turno del cerebro\n\n## Pedido\n{}\n\n## Respuesta\n{}\n",
+        esc(fecha_local),
+        esc(fecha_utc),
         esc(sesion),
         if ok { "ok" } else { "error" },
         ms,
@@ -144,6 +170,9 @@ mod tests {
         let d = Config::desde(None);
         assert_eq!(d.sesion, "nf-cerebro");
         assert!(d.notas);
+        assert_eq!(d.offset_h, -3, "por defecto, hora de Buenos Aires");
+        let e = Config::desde(Some(&serde_json::json!({"offset_h": 99})));
+        assert_eq!(e.offset_h, 14, "el desfase se acota");
     }
 
     #[test]
@@ -184,15 +213,17 @@ mod tests {
             "nf-cerebro",
             true,
             1234,
-            "2026-09-15T21:10:33.000Z",
+            "2026-09-15T21:10",
+            "2026-09-16T00:10:33.000Z",
         );
-        assert!(nota.starts_with("---\ntipo: turno\nfecha: \"2026-09-15T21:10:33.000Z\"\n"));
+        assert!(nota.starts_with("---\ntipo: turno\nfecha: \"2026-09-15T21:10\"\n"));
+        assert!(nota.contains("fecha_utc: \"2026-09-16T00:10:33.000Z\""));
         assert!(nota.contains("sesion: \"nf-cerebro\""));
         assert!(nota.contains("estado: ok"));
         assert!(nota.contains("## Pedido\n¿qué hacemos?"));
         assert!(nota.contains("## Respuesta\nseguimos con el plan"));
         // Comillas y saltos en el pedido no rompen el frontmatter
-        let raro = nota_markdown("dijo \"esto\"\ny más", "", "s", false, 0, "t");
+        let raro = nota_markdown("dijo \"esto\"\ny más", "", "s", false, 0, "t", "u");
         assert!(raro.contains("pedido: \"dijo 'esto' y más\""));
         assert!(raro.contains("(sin respuesta)"));
     }
