@@ -16,6 +16,10 @@ npm-debug.log*
 .env.local
 *.key
 
+# Demo web: lo compilado y la clave que sólo vive en el servidor
+demo/public/
+demo/clave-assemblyai.txt
+
 # Datos locales de la app (solo en la raíz; src/data/ es código fuente)
 /data/
 vp.js

@@ -1,0 +1,132 @@
+{
+ "version": "0.3.5",
+ "generado": "2026-09-16",
+ "nota": "Planes reales del motor de la app, grabados para el demo online.",
+ "planes": [
+  {
+   "frases": [
+    "limpiá el lienzo y dejá sólo lo que se conecta con el copiloto espacial",
+    "enfocá el copiloto espacial",
+    "dejá sólo lo del copiloto espacial"
+   ],
+   "pedido": "limpiá el lienzo y dejá sólo lo que se conecta con el copiloto espacial",
+   "plan": {
+    "comandos": [
+     {
+      "accion": "enfocar",
+      "criterio": "Copiloto Espacial",
+      "nodos": [
+       "n-ag-copiloto-espacial-operativo",
+       "n-ag-fase-3-voz-de-ida-y-vuelta-kokoro",
+       "n-ag-fase-3b-puente-con-hermes-herramientas",
+       "n-ag-fase-4-búsqueda-web-en-vivo-grounding",
+       "n-ag-motor-dual-por-tarea-rápido-profundo",
+       "n-ag-modelo-local-deepseek-r1-distill-qwen-7b",
+       "node-voz-1789344440460-0",
+       "n-ag-norte-estratégico-nodeflow",
+       "n-ag-cerebro-residente-que-el-modelo-habite-los-nodos-plan-y-viab",
+       "n-ag-la-placa-manda-un-modelo-por-vez-12-gb-de-vram"
+      ]
+     }
+    ],
+    "descartados": 0,
+    "hablar": true,
+    "intencion": "comando",
+    "motivo": "",
+    "motivo_descarte": [],
+    "respuesta": "Voy a enfocar el lienzo en el Copiloto Espacial Operativo y todo lo que se conecta con él."
+   },
+   "motor": "openai@DeepSeek-V4-Flash"
+  },
+  {
+   "frases": [
+    "sumá dos ideas nuevas: el ruteo por tarea y la planilla de evaluación",
+    "sumá dos ideas nuevas",
+    "agregá el ruteo por tarea y la planilla"
+   ],
+   "pedido": "sumá dos ideas nuevas: el ruteo por tarea y la planilla de evaluación",
+   "plan": {
+    "comandos": [
+     {
+      "accion": "crear",
+      "categoria": "ARQUITECTURA",
+      "descripcion": "Mecanismo que asigna cada solicitud al motor o pipeline específico según la naturaleza de la tarea (consulta, generación, análisis, etc.), optimizando recursos y latencia.",
+      "titulo": "Ruteo por Tarea"
+     },
+     {
+      "accion": "crear",
+      "categoria": "GOBERNANZA",
+      "descripcion": "Matriz de criterios y métricas para evaluar el desempeño de los agentes y pipelines por tarea, incluyendo precisión, tiempo de respuesta, uso de VRAM y satisfacción de salida.",
+      "titulo": "Planilla de Evaluación"
+     }
+    ],
+    "descartados": 0,
+    "hablar": false,
+    "intencion": "capturar",
+    "motivo": "",
+    "motivo_descarte": [],
+    "respuesta": "Voy a crear los nodos 'Ruteo por Tarea' y 'Planilla de Evaluación'."
+   },
+   "motor": "openai@DeepSeek-V4-Flash"
+  },
+  {
+   "frases": [
+    "condensá en un solo nodo todo lo que es voz",
+    "condensá todo lo de voz",
+    "juntá el racimo de voz"
+   ],
+   "pedido": "condensá en un solo nodo todo lo que es voz",
+   "plan": {
+    "comandos": [
+     {
+      "accion": "condensar",
+      "nodos": [
+       "n-ag-fase-3-voz-de-ida-y-vuelta-kokoro",
+       "n-ag-fase-3b-puente-con-hermes-herramientas",
+       "n-ag-fase-4-búsqueda-web-en-vivo-grounding",
+       "node-voz-1789344440460-0",
+       "n-ag-motor-dual-por-tarea-rápido-profundo",
+       "n-ag-modelo-local-deepseek-r1-distill-qwen-7b",
+       "n-ag-norte-estratégico-nodeflow"
+      ]
+     }
+    ],
+    "descartados": 0,
+    "hablar": true,
+    "intencion": "comando",
+    "motivo": "",
+    "motivo_descarte": [],
+    "respuesta": "Voy a condensar en un solo nodo todo lo que habla de voz: las fases 3, 3b y 4, el nodo de telemetría en tiempo real, el motor dual y el modelo local que lo soportan, y el norte estratégico de NodeFlow."
+   },
+   "motor": "openai@DeepSeek-V4-Flash"
+  },
+  {
+   "frases": [
+    "criticá el racimo de investigación y decime qué falta",
+    "criticá la investigación",
+    "qué le falta a la investigación"
+   ],
+   "pedido": "criticá el racimo de investigación y decime qué falta",
+   "plan": {
+    "comandos": [
+     {
+      "accion": "criticar",
+      "nodos": [
+       "n-ag-investigación-quantizacion-de-modelos-locales",
+       "n-ag-investigación-cache-semantica-de-respuestas-para-apps-locale",
+       "n-ag-investigación-modelo-local-cuantizado-que-quepa-en-12-gb-de-",
+       "n-ag-investigación-mejoras-de-ia-para-hardware-amd-antiguo-6700xt"
+      ]
+     }
+    ],
+    "descartados": 0,
+    "hablar": true,
+    "intencion": "comando",
+    "motivo": "",
+    "motivo_descarte": [],
+    "respuesta": "Voy a criticar el racimo de investigación para identificar qué falta y mostrarlo en el lienzo."
+   },
+   "motor": "openai@DeepSeek-V4-Flash"
+  }
+ ]
+}

@@ -10,6 +10,8 @@
     "dev": "vite",
     "dev:web": "vite",
     "build": "vite build",
+    "demo:build": "node demo/build.mjs",
+    "demo": "node demo/server.mjs",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit"
   },
