@@ -9,6 +9,23 @@ sobre la máquina, no se supuso.
 
 ---
 
+## 0. Estado del plan (actualizado 15/09, noche)
+
+| Fase | Qué | Estado |
+|---|---|---|
+| 0 | Habilitar las 22 tools MCP del lienzo para Hermes | ✅ **hecho y permanente** (`exclude: []`; verificado en un proceso nuevo: contó los nodos del lienzo con sus tools) |
+| 1 | Corte vertical: `delegar` con sesión nombrada + nota episódica | ✅ **hecho y verificado en vivo**: dos turnos en la misma sesión (prueba dura en `state.db`), notas en `<bóveda>/cerebro/` con hora local |
+| 2 | El contexto lo arma la app (recuerdo dirigido), no el lienzo masticado | ✅ **hecho**: `cerebro::prompt_turno` (visión + top-6 BM25 + foco + contadores + puntero a las herramientas); la investigación comparte la misma sesión; el contexto usado se guarda en `delegacion.json` |
+| 3 | Panel «Pensar desde el lienzo» (pedido, progreso, aterrizaje, contexto usado) | ⏳ pendiente |
+| 4 | De `hermes -z` a `hermes serve`: delegar → habitar | ⏳ pendiente |
+
+Extra hecho esa noche, por directiva del usuario (*«las investigaciones tienen que aportar información que
+sirva para la construcción del cerebro/lienzo»*): la investigación aterriza en **un** nodo con la evidencia
+adentro de su nota y colgado del Norte (antes dejaba 5-6 nodos de bibliografía suelta), y la síntesis tiene
+**fallback declarado** (DeepSeek → Hermes) con el error visible en vez de morir en silencio.
+
+---
+
 ## 1. Dónde estamos hoy (estado real, verificado)
 
 ### El puente existe, pero en un solo sentido y sin memoria
