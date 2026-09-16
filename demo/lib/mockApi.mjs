@@ -269,7 +269,7 @@ async function tokenAssemblyAI() {
       proveedor: 'assemblyai',
       etiqueta: 'AssemblyAI Universal-Streaming',
       protocolo: 'assemblyai-v3',
-      modelo: 'universal-3-5-pro',
+      modelo: 'u3-rt-pro',
       idioma: 'es',
       codec: 'pcm_s16le 16000 Hz',
     },

@@ -19,7 +19,10 @@ async function leerCuerpo(req) {
 
 export async function apiHandler(req, res) {
   const u = new URL(req.url, 'http://localhost');
-  const ruta = u.pathname.replace(/\/+$/, '') || '/';
+  // El camino puede llegar por query (rewrite de Vercel: `/api/:camino*` → `/api/index?camino=…`) o
+  // directamente en la URL cuando lo sirve el server local. Así el ruteo no depende del hosting.
+  const camino = u.searchParams.get('camino');
+  const ruta = camino ? `/api/${camino.replace(/^\/+/, '')}` : u.pathname.replace(/\/+$/, '') || '/';
   // La IP real (detrás de Vercel viene en x-forwarded-for) es lo que limita el motor en vivo.
   const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim()
     || req.headers['x-real-ip']

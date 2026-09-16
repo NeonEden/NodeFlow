@@ -1,0 +1,9 @@
+# Vercel sube el SISTEMA DE ARCHIVOS, no el árbol de git: lo que está gitignoreado igual viaja.
+# Las claves locales del demo (clave-assemblyai.txt, clave-motor.txt) existen sólo para correr el
+# server en esta máquina — en Vercel van como variables de entorno, que ya están configuradas.
+clave-assemblyai.txt
+clave-motor.txt
+fixtures-crudas/
+node_modules/
+.vercel/
+.env*
