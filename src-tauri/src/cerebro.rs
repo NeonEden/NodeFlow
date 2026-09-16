@@ -274,14 +274,20 @@ pub fn nota_markdown(
     fecha_utc: &str,
 ) -> String {
     let esc = |s: &str| s.replace('"', "'").replace('\n', " ");
+    // El **título es el pedido**, no «Turno del cerebro»: la memoria (BM25) saca el título del primer
+    // `# ` del archivo, así que con un título genérico las cuatro notas de turno se pisaban en el
+    // recuerdo y no decían de qué hablaban (medido: `memoria=[Turno del cerebro, Turno del cerebro, …]`).
+    let titulo: String = pedido.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(90).collect();
     format!(
-        "---\ntipo: turno\nfecha: \"{}\"\nfecha_utc: \"{}\"\nsesion: \"{}\"\nestado: {}\nms: {}\npedido: \"{}\"\n---\n\n# Turno del cerebro\n\n## Pedido\n{}\n\n## Respuesta\n{}\n",
+        "---\ntipo: turno\ntitulo: \"{}\"\nfecha: \"{}\"\nfecha_utc: \"{}\"\nsesion: \"{}\"\nestado: {}\nms: {}\npedido: \"{}\"\n---\n\n# Turno: {}\n\n## Pedido\n{}\n\n## Respuesta\n{}\n",
+        esc(&titulo),
         esc(fecha_local),
         esc(fecha_utc),
         esc(sesion),
         if ok { "ok" } else { "error" },
         ms,
         esc(pedido),
+        titulo,
         pedido,
         if resultado.trim().is_empty() { "(sin respuesta)" } else { resultado }
     )
@@ -409,7 +415,11 @@ mod tests {
             "2026-09-15T21:10",
             "2026-09-16T00:10:33.000Z",
         );
-        assert!(nota.starts_with("---\ntipo: turno\nfecha: \"2026-09-15T21:10\"\n"));
+        assert!(nota.starts_with("---\ntipo: turno\ntitulo: \"¿qué hacemos?\"\nfecha: \"2026-09-15T21:10\"\n"));
+        assert!(
+            nota.contains("\n# Turno: ¿qué hacemos?\n"),
+            "el título de la nota es el pedido: es lo que hace útil el recuerdo"
+        );
         assert!(nota.contains("fecha_utc: \"2026-09-16T00:10:33.000Z\""));
         assert!(nota.contains("sesion: \"nf-cerebro\""));
         assert!(nota.contains("estado: ok"));
