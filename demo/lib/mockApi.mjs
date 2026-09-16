@@ -100,46 +100,147 @@ function planGrabado(texto) {
   return mejor ? { plan: mejor, exacto: false } : null;
 }
 
-async function motorReal(texto) {
-  const url = process.env.DEMO_MOTOR_URL;
-  const clave = process.env.DEMO_MOTOR_KEY;
-  const modelo = process.env.DEMO_MOTOR_MODELO;
-  if (!url || !clave || !modelo) return null;
-  const spec = existsSync(join(AQUI, 'spec-voz.txt')) ? readFileSync(join(AQUI, 'spec-voz.txt'), 'utf-8') : '';
-  const t0 = Date.now();
-  const r = await fetch(url, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${clave}` },
-    body: JSON.stringify({
-      model: modelo,
-      messages: [
-        { role: 'system', content: spec },
-        { role: 'user', content: `Pedido del usuario: ${texto}\nRespondé sólo con JSON.` },
-      ],
-      response_format: { type: 'json_object' },
-      max_tokens: 900,
-    }),
-  });
-  if (!r.ok) throw new Error(`motor ${r.status}`);
-  const d = await r.json();
-  const txt = d.choices?.[0]?.message?.content || '';
-  return { plan: JSON.parse(txt), ms: Date.now() - t0, modelo };
+// ---------------------------------------------------------------- motor en vivo (con guardrails)
+
+/**
+ * Límite por IP: el motor en vivo cuesta dinero real del autor, así que el demo acepta un tope de
+ * pedidos por minuto por IP y, pasado el tope, responde con los planes grabados en vez de fallar.
+ */
+const LIMITE = { ventanaMs: 60_000, tope: Number(process.env.DEMO_TOPE_POR_IP || 8) };
+const USO_POR_IP = new Map();
+
+function permitido(ip) {
+  const ahora = Date.now();
+  const marcas = (USO_POR_IP.get(ip) || []).filter((t) => ahora - t < LIMITE.ventanaMs);
+  if (marcas.length >= LIMITE.tope) {
+    USO_POR_IP.set(ip, marcas);
+    return false;
+  }
+  marcas.push(ahora);
+  USO_POR_IP.set(ip, marcas);
+  return true;
 }
 
-async function planDeVoz(texto) {
+/** Digest del lienzo para el prompt: el motor en vivo tiene que poder citar ids REALES. */
+function contextoLienzo(tope = 60) {
+  const ns = LIENZO.nodes.slice(0, tope).map((n) => ({
+    id: n.id,
+    titulo: n.data?.title ?? '',
+    categoria: n.data?.category ?? '',
+  }));
+  return ns.map((n) => `- ${n.id} · ${n.titulo} [${n.categoria}]`).join('\n');
+}
+
+/** ¿Hay motor en vivo configurado? La clave puede venir del entorno (Vercel) o de un archivo local. */
+function claveMotor() {
+  if (process.env.DEMO_MOTOR_KEY) return process.env.DEMO_MOTOR_KEY;
+  const f = join(AQUI, '..', 'clave-motor.txt');
+  return existsSync(f) ? readFileSync(f, 'utf-8').trim() : '';
+}
+const hayMotorEnVivo = () => !!(process.env.DEMO_MOTOR_URL && process.env.DEMO_MOTOR_MODELO && claveMotor());
+
+async function motorReal(texto) {
+  const url = process.env.DEMO_MOTOR_URL;
+  const modelo = process.env.DEMO_MOTOR_MODELO;
+  // La clave NUNCA va al repo: en Vercel es una variable de entorno; en local, un archivo gitignoreado.
+  const clave = claveMotor();
+  if (!url || !clave || !modelo) return null;
+  const spec = existsSync(join(AQUI, 'spec-voz.txt')) ? readFileSync(join(AQUI, 'spec-voz.txt'), 'utf-8') : '';
+  // Tope de salida propio: una consulta maliciosa no puede drenar créditos.
+  const maxTokens = Number(process.env.DEMO_MOTOR_MAX_TOKENS || 700);
+  const esperaMs = Number(process.env.DEMO_MOTOR_TIMEOUT_MS || 20000);
+  const t0 = Date.now();
+
+  const pedir = async (mensajes, max) => {
+    const ctl = new AbortController();
+    const reloj = setTimeout(() => ctl.abort(), esperaMs);
+    try {
+      const r = await fetch(url, {
+        method: 'POST',
+        signal: ctl.signal,
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${clave}` },
+        body: JSON.stringify({ model: modelo, messages: mensajes, response_format: { type: 'json_object' }, max_tokens: max }),
+      });
+      if (!r.ok) throw new Error(`motor ${r.status}: ${(await r.text()).slice(0, 120)}`);
+      const d = await r.json();
+      return { texto: d.choices?.[0]?.message?.content || '', requestId: d.request_id || d.id || null };
+    } finally {
+      clearTimeout(reloj);
+    }
+  };
+
+  const base = [
+    { role: 'system', content: spec },
+    {
+      role: 'user',
+      content:
+        `Nodos del lienzo (usá SOLO estos ids):\n${contextoLienzo()}\n\n` +
+        `Pedido del usuario: ${texto}\nRespondé sólo con JSON.`,
+    },
+  ];
+
+  let { texto: txt, requestId } = await pedir(base, maxTokens);
+  let plan = null;
   try {
-    const real = await motorReal(texto);
-    if (real?.plan) return { plan: real.plan, motor: `demo@${real.modelo}`, ms: real.ms, vivo: true };
-  } catch (e) {
-    /* si el motor real falla, se cae al plan grabado: el demo nunca se queda sin respuesta */
+    plan = JSON.parse(txt);
+  } catch {
+    plan = null;
+  }
+  // Reintento correctivo: si devolvió el ESQUEMA ({"type":"OBJECT","properties":…}) o cualquier cosa sin
+  // `comandos`, se lo dice el código una vez — el modelo propone, el código verifica. Medido: con el
+  // esquema crudo en el prompt pasaba seguido; una segunda pasada lo resuelve.
+  if (!plan || !Array.isArray(plan.comandos)) {
+    const correccion = await pedir(
+      [
+        ...base,
+        { role: 'assistant', content: txt.slice(0, 400) },
+        {
+          role: 'user',
+          content:
+            'Eso no es lo que pedí: devolviste el esquema o un objeto sin `comandos`. Devolvé AHORA los datos ' +
+            'del plan (intencion, respuesta, motivo y comandos con los ids reales del lienzo), sólo JSON.',
+        },
+      ],
+      maxTokens
+    );
+    try {
+      const p2 = JSON.parse(correccion.texto);
+      if (Array.isArray(p2.comandos)) {
+        plan = p2;
+        requestId = correccion.requestId || requestId;
+      }
+    } catch {
+      /* sigue sin servir: lo decide el que llama */
+    }
+  }
+  if (!plan || !Array.isArray(plan.comandos)) throw new Error('el motor no devolvió comandos');
+  return { plan, ms: Date.now() - t0, modelo, requestId };
+}
+
+async function planDeVoz(texto, ip = 'anon') {
+  const motorConfigurado = hayMotorEnVivo();
+  let limitado = false;
+  if (motorConfigurado && permitido(ip)) {
+    try {
+      const real = await motorReal(texto);
+      if (real?.plan) {
+        return { plan: real.plan, motor: `demo@${real.modelo}`, ms: real.ms, vivo: true };
+      }
+    } catch (e) {
+      // Fallback silencioso: si el motor vivo falla o tarda, el demo sigue respondiendo con lo grabado.
+      console.warn('demo: motor en vivo falló, cae a planes grabados —', String(e?.message || e));
+    }
+  } else if (motorConfigurado) {
+    limitado = true;
   }
   const g = planGrabado(texto);
-  if (g) return { plan: g.plan.plan, motor: 'demo@grabado', ms: 40, vivo: false, exacto: g.exacto };
+  if (g) return { plan: g.plan.plan, motor: 'demo@grabado', ms: 40, vivo: false, exacto: g.exacto, limitado };
   return {
     plan: { comandos: [], intencion: 'demo', respuesta: 'En el demo online el planificador corre con motores grabados: probá una de las frases sugeridas.' },
     motor: 'demo@sugerencias',
     ms: 10,
     vivo: false,
+    limitado,
   };
 }
 
@@ -179,7 +280,7 @@ async function tokenAssemblyAI() {
 
 const json = (status, body) => ({ status, json: body });
 
-export async function handle({ method, ruta, query, body }) {
+export async function handle({ method, ruta, query, body, ip = 'anon' }) {
   const m = (method || 'GET').toUpperCase();
   const t0 = Date.now();
 
@@ -205,7 +306,7 @@ export async function handle({ method, ruta, query, body }) {
   // --- el plan
   if (ruta === '/api/ai/action') {
     const texto = body?.texto || body?.prompt || body?.rawText || '';
-    const { plan, motor, ms, vivo, exacto } = await planDeVoz(texto);
+    const { plan, motor, ms, vivo, exacto, limitado } = await planDeVoz(texto, ip);
     return json(200, {
       success: true,
       voz: plan,
@@ -213,7 +314,16 @@ export async function handle({ method, ruta, query, body }) {
       cadena: ['demo'],
       modo: 'demo',
       ms,
-      demo: { vivo: !!vivo, exacto: !!exacto, aviso: vivo ? 'Plan generado en vivo por un motor real.' : 'Plan grabado de una corrida real del motor en la app.' },
+      demo: {
+        vivo: !!vivo,
+        exacto: !!exacto,
+        limitado: !!limitado,
+        aviso: vivo
+          ? 'Plan generado en vivo por un motor real.'
+          : limitado
+            ? 'Límite por IP alcanzado: se responde con planes grabados de corridas reales.'
+            : 'Plan grabado de una corrida real del motor en la app.',
+      },
       uso: { proveedor: motor, total_tokens: 0, cache_hit: 0 },
     });
   }

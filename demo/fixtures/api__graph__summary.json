@@ -1,1 +1,1531 @@
-{"mapa":"agente-autónomo-multimodal","nodos":[{"categoria":"NÚCLEO","conexiones":[{"dir":"→","label":"Contexto RAG","titulo":"Motor RAG Grafos & Vectorial"},{"dir":"→","label":"Feedback Visual","titulo":"Lienzo Interactivo Adaptativo"},{"dir":"→","label":"evoluciona a","titulo":"Copiloto Espacial Operativo"},{"dir":"→","label":"evoluciona a","titulo":"Fase 3 · Voz de ida y vuelta (Kokoro)"},{"dir":"→","label":"evoluciona a","titulo":"Fase 3b · Puente con Hermes (herramientas)"},{"dir":"→","label":"evoluciona a","titulo":"Fase 4 · Búsqueda web en vivo (grounding)"},{"dir":"→","label":"evoluciona a","titulo":"Motor dual por tarea (rápido / profundo)"},{"dir":"→","label":"evoluciona a","titulo":"Modelo local · DeepSeek-R1-Distill-Qwen-7B"},{"dir":"→","label":"revisar vínculo","titulo":"Hackathon · AI Infra Summit (lablab)"},{"dir":"←","label":null,"titulo":"Identidad y Permisos del Agente"},{"dir":"→","label":"contiene","titulo":"Expertos del lienzo (artefactos tipados)"}],"creado_por":null,"descripcion":"núcleo: el concepto está en pie y probado en partes (vault + API + MCP vivos); todavía no hay una pieza que haga de orquestador","id":"node-ai-root","madurez":4,"nucleo":true,"tags":["Gemini","Orquestador","Multiagente","nucleo"],"titulo":"Agente Autónomo Multimodal"},{"categoria":"DATOS","conexiones":[{"dir":"←","label":"Contexto RAG","titulo":"Agente Autónomo Multimodal"},{"dir":"→","label":"Estado en disco","titulo":"Vault en Disco como Fuente de Verdad"},{"dir":"→","label":"Sincronización","titulo":"Watcher Bidireccional sin Bucles"},{"dir":"←","label":"voz","titulo":"telemetría en tiempo real"}],"creado_por":null,"descripcion":"Decisión tomada y en producción: el contexto se recupera de la bóveda con BM25 (ver «La Bóveda Alimenta a la IA»). Los tres hijos especulativos (HNSW, CDC, ABAC) siguen podados a propósito: no se eligen tres pipelines, se eligió uno y se midió. El único caso que lo movería es un corpus donde el recall léxico falle.","id":"node-ai-rag","madurez":4,"nucleo":false,"tags":["Embeddings","VectorDB","KnowledgeGraph"],"titulo":"Motor RAG Grafos & Vectorial"},{"categoria":"UX","conexiones":[{"dir":"←","label":"Feedback Visual","titulo":"Agente Autónomo Multimodal"},{"dir":"←","label":"voz","titulo":"telemetría en tiempo real"},{"dir":"→","label":null,"titulo":"El build con el propositor de investigaciones"},{"dir":"←","label":"requiere","titulo":"Copiloto Espacial Operativo"},{"dir":"→","label":null,"titulo":"Imágenes que identifiquen cada nodo"}],"creado_por":null,"descripcion":"la app funciona: lienzo, nodos y persistencia editables a mano","id":"node-ai-interface","madurez":4,"nucleo":false,"tags":["ReactFlow","HITL","Canvas"],"titulo":"Lienzo Interactivo Adaptativo"},{"categoria":"GOBERNANZA","conexiones":[{"dir":"→","label":null,"titulo":"El rótulo de la propuesta dice «sin conexión a…»"},{"dir":"→","label":null,"titulo":"Partir el skill de NodeFlow (28,6 KB)"},{"dir":"→","label":null,"titulo":"La investigación propone; el humano aprueba"},{"dir":"→","label":"requiere","titulo":"Vault en Disco como Fuente de Verdad"},{"dir":"→","label":"revisar vínculo","titulo":"Identidad y Permisos del Agente"}],"creado_por":"bridge","descripcion":"Parcialmente resuelto: los nodos del agente nacen con marca de origen (aiOrigin: hermes) y toda escritura pasa por aprobación humana, así que ahora se distingue lo propuesto de lo aprobado. La generación además devuelve memoria_fuentes (qué notas de la bóveda la alimentaron). Falta persistir esas fuentes en el frontmatter del nodo para que la trazabilidad sobreviva al guardado.","id":"n-ag-provenance","madurez":3,"nucleo":false,"tags":["TRAZABILIDAD","CALIDAD"],"titulo":"Provenance y Madurez de Nodos IA"},{"categoria":"SEGURIDAD","conexiones":[{"dir":"←","label":"revisar vínculo","titulo":"Provenance y Madurez de Nodos IA"},{"dir":"→","label":null,"titulo":"Agente Autónomo Multimodal"}],"creado_por":"bridge","descripcion":"Quién escribe en el lienzo, con qué autoridad y cómo se deshace. Toda mutación del agente debe ser identificable, reversible y auditable (undo por lote).","id":"n-ag-identidad","madurez":1,"nucleo":false,"tags":["PERMISOS","AUDITORÍA"],"titulo":"Identidad y Permisos del Agente"},{"categoria":"DATOS","conexiones":[{"dir":"←","label":"Estado en disco","titulo":"Motor RAG Grafos & Vectorial"},{"dir":"→","label":"requiere","titulo":"Watcher Bidireccional sin Bucles"},{"dir":"←","label":"voz","titulo":"telemetría en tiempo real"},{"dir":"→","label":null,"titulo":"El conocimiento vive en la bóveda; la app es la vista"},{"dir":"←","label":"requiere","titulo":"Provenance y Madurez de Nodos IA"},{"dir":"←","label":"decide","titulo":"El conocimiento vive en la bóveda; la app es la vista"}],"creado_por":"bridge","descripcion":"APLICADO: el estado vive en disco (22 notas + .canvas) y el watcher lo mantiene sincronizado","id":"n-ag-vault","madurez":5,"nucleo":false,"tags":["PERSISTENCIA","FASE-3"],"titulo":"Vault en Disco como Fuente de Verdad"},{"categoria":"SISTEMAS","conexiones":[{"dir":"←","label":"Sincronización","titulo":"Motor RAG Grafos & Vectorial"},{"dir":"←","label":"requiere","titulo":"Vault en Disco como Fuente de Verdad"},{"dir":"←","label":"voz","titulo":"telemetría en tiempo real"},{"dir":"→","label":null,"titulo":"El checkpoint automático se adelanta a los commits"}],"creado_por":"bridge","descripcion":"APLICADO Y MEDIDO: notify::recommended_watcher + debounce 500 ms con TRES guardas anti-bucle — ventana de gracia de 2,5 s en memoria, hash por archivo de lo escrito, y revisión numérica que el frontend consulta por polling (solo reemplaza el estado si cambió). Verificado: revisión estable 15 s en reposo tras editar una nota desde Obsidian. Hueco real y menor: si Obsidian reescribe el .canvas generado la revisión sube igual; se detecta, se ignora y se regenera.","id":"n-ag-watcher","madurez":5,"nucleo":false,"tags":["WATCHER","RACE"],"titulo":"Watcher Bidireccional sin Bucles"},{"categoria":"VISIÓN","conexiones":[{"dir":"←","label":"evoluciona a","titulo":"Agente Autónomo Multimodal"},{"dir":"→","label":"requiere","titulo":"Lienzo Interactivo Adaptativo"}],"creado_por":"hermes","descripcion":"El lienzo deja de ser un tablero pasivo: es una conversación espacial donde la IA tiene ojos (lee el estado del lienzo), manos (crea, enlaza, poda, resalta) y voz selectiva (habla sólo ante un hallazgo o una contradicción). Referencia viva: la nota Manifiesto NodeFlow OS en la bóveda.","id":"n-ag-copiloto-espacial-operativo","madurez":5,"nucleo":false,"tags":["VISIÓN","Copiloto"],"titulo":"Copiloto Espacial Operativo"},{"categoria":"EJECUCIÓN","conexiones":[{"dir":"←","label":"evoluciona a","titulo":"Agente Autónomo Multimodal"},{"dir":"←","label":"requiere","titulo":"Fase 3b · Puente con Hermes (herramientas)"}],"creado_por":"hermes","descripcion":"Cerrar el bucle hablado: Speechmatics entra (listo), el motor actúa en silencio sobre el lienzo y una voz LOCAL (Kokoro, 82M) responde en una frase sólo cuando aporta algo. Sin cuotas, corre en la placa.","id":"n-ag-fase-3-voz-de-ida-y-vuelta-kokoro","madurez":2,"nucleo":false,"tags":["VISIÓN","Copiloto"],"titulo":"Fase 3 · Voz de ida y vuelta (Kokoro)"},{"categoria":"EJECUCIÓN","conexiones":[{"dir":"←","label":"evoluciona a","titulo":"Agente Autónomo Multimodal"},{"dir":"→","label":"requiere","titulo":"Fase 3 · Voz de ida y vuelta (Kokoro)"},{"dir":"←","label":"requiere","titulo":"Fase 4 · Búsqueda web en vivo (grounding)"},{"dir":"←","label":"decide","titulo":"La investigación propone; el humano aprueba"},{"dir":"←","label":"bloquea","titulo":"El build con el propositor de investigaciones"},{"dir":"←","label":null,"titulo":"Partir el skill de NodeFlow (28,6 KB)"},{"dir":"→","label":"revisar vínculo","titulo":"Sandbox Docker con snippets vectoriales y auditoría criptográfica"}],"creado_por":"hermes","descripcion":"El modelo que opera el lienzo delega lo pesado: búsqueda web, generación de código y síntesis profunda. Vía el CLI de Hermes en una pasada (con todas sus herramientas) y el resultado vuelve en el mismo protocolo de acciones, validado por el código.","id":"n-ag-fase-3b-puente-con-hermes-herramientas","madurez":4,"nucleo":false,"tags":["VISIÓN","Copiloto"],"titulo":"Fase 3b · Puente con Hermes (herramientas)"},{"categoria":"EJECUCIÓN","conexiones":[{"dir":"←","label":"evoluciona a","titulo":"Agente Autónomo Multimodal"},{"dir":"→","label":null,"titulo":"Verificar Tavily citando texto real"},{"dir":"→","label":"requiere","titulo":"Fase 3b · Puente con Hermes (herramientas)"},{"dir":"←","label":"bloquea","titulo":"Verificar Tavily citando texto real"},{"dir":"→","label":"Fusión IA","titulo":"Hermes Grounded Synthesis"}],"creado_por":"hermes","descripcion":"Los datos externos entran al lienzo como nodos de evidencia con metadatos: resumen, fuente/URL y fiabilidad. Requiere clave de búsqueda (Tavily o Serper, con plan gratuito).","id":"n-ag-fase-4-búsqueda-web-en-vivo-grounding","madurez":1,"nucleo":false,"tags":["VISIÓN","Copiloto"],"titulo":"Fase 4 · Búsqueda web en vivo (grounding)"},{"categoria":"ARQUITECTURA","conexiones":[{"dir":"←","label":"evoluciona a","titulo":"Agente Autónomo Multimodal"},{"dir":"→","label":null,"titulo":"Caché semántica · segundo nivel"},{"dir":"→","label":null,"titulo":"La placa manda: un modelo por vez (12 GB de VRAM)"},{"dir":"→","label":null,"titulo":"La escalada a la nube no tiene destino (HTTP 402)"},{"dir":"→","label":"requiere","titulo":"Modelo local · DeepSeek-R1-Distill-Qwen-7B"},{"dir":"→","label":"revisar vínculo","titulo":"Estado del proyecto"},{"dir":"←","label":"bloquea","titulo":"La escalada a la nube no tiene destino (HTTP 402)"},{"dir":"←","label":"aplica","titulo":"Investigación: cache semantica de respuestas para apps locales: umbrales y"}],"creado_por":"hermes","descripcion":"Dejar de elegir el motor a mano: bucle de UI ultrarrápido (200-400 ms) para voz y acciones del lienzo, y bucle profundo asíncrono para poda dialéctica, código y búsqueda. Determinista, en código, con tests (ADR 0005).","id":"n-ag-motor-dual-por-tarea-rápido-profundo","madurez":4,"nucleo":false,"tags":["VISIÓN","Copiloto"],"titulo":"Motor dual por tarea (rápido / profundo)"},{"categoria":"SISTEMAS","conexiones":[{"dir":"←","label":"evoluciona a","titulo":"Agente Autónomo Multimodal"},{"dir":"←","label":"requiere","titulo":"Motor dual por tarea (rápido / profundo)"},{"dir":"←","label":"bloquea","titulo":"La placa manda: un modelo por vez (12 GB de VRAM)"},{"dir":"←","label":"aplica","titulo":"Investigación: quantizacion de modelos locales"},{"dir":"←","label":"aplica","titulo":"Investigación: mejoras de ia para hardware amd antiguo, \\\\\\\"6700xt 12gb ram\\\\"}],"creado_por":"hermes","descripcion":"El razonamiento de DeepSeek en local y sin entrenar nada: el distilado ya existe (ollama deepseek-r1:7b, ~4,7 GB en Q4). A probar contra qwen2.5vl:7b — ojo: ese es multimodal (ve imágenes), el R1 no.","id":"n-ag-modelo-local-deepseek-r1-distill-qwen-7b","madurez":3,"nucleo":false,"tags":["VISIÓN","Copiloto"],"titulo":"Modelo local · DeepSeek-R1-Distill-Qwen-7B"},{"categoria":"DATOS","conexiones":[{"dir":"→","label":"voz","titulo":"Motor RAG Grafos & Vectorial"},{"dir":"→","label":"voz","titulo":"Lienzo Interactivo Adaptativo"},{"dir":"→","label":"voz","titulo":"Watcher Bidireccional sin Bucles"},{"dir":"→","label":"voz","titulo":"Vault en Disco como Fuente de Verdad"}],"creado_por":"braindump","descripcion":"Telemetría en tiempo real","id":"node-voz-1789344440460-0","madurez":1,"nucleo":false,"tags":["Voz"],"titulo":"telemetría en tiempo real"},{"categoria":"INVESTIGACIÓN","conexiones":[{"dir":"→","label":"revisar vínculo","titulo":"Investigación: cache semantica de respuestas para apps locales: umbrales y"},{"dir":"→","label":"alimenta","titulo":"Norte Estratégico · NodeFlow"},{"dir":"→","label":"aplica","titulo":"Modelo local · DeepSeek-R1-Distill-Qwen-7B"},{"dir":"→","label":"condiciona","titulo":"La placa manda: un modelo por vez (12 GB de VRAM)"}],"creado_por":"hermes","descripcion":"La cuantización de modelos de IA locales reduce los requisitos computacionales y de memoria al reemplazar valores de alta precisión por representaciones más gruesas, haciendo viables modelos como Qwen o DeepSeek en hardware limitado. Formatos como BF16, FP8, GGUF, AWQ y GPTQ permiten elegir entre ahorro de recursos y calidad de respuesta. Sin embargo, no basta con la VRAM de la GPU: influyen la ve","id":"n-ag-investigación-quantizacion-de-modelos-locales","madurez":5,"nucleo":false,"tags":[],"titulo":"Investigación: quantizacion de modelos locales"},{"categoria":"INVESTIGACIÓN","conexiones":[{"dir":"←","label":"revisar vínculo","titulo":"Investigación: quantizacion de modelos locales"},{"dir":"→","label":"alimenta","titulo":"Norte Estratégico · NodeFlow"},{"dir":"→","label":"abre","titulo":"Caché semántica · segundo nivel"},{"dir":"→","label":"aplica","titulo":"Motor dual por tarea (rápido / profundo)"}],"creado_por":"hermes","descripcion":"La caché semántica almacena embeddings de consultas y recupera respuestas pregeneradas cuando una nueva consulta es semánticamente similar, evitando llamadas redundantes al LLM. El paper de alphaXiv (GPT Semantic Cache) reporta reducciones notables de costos operativos usando Redis en memoria, pero reconoce que el umbral de similitud fijo puede no generalizar entre casos de uso y que la escalabilidad a conjuntos masivos es un desafío. El blog de Pedro Medinilla advierte dos trade-offs concretos: cada prompt debe vectorizarse (costo y latencia pequeños pero no nulos) y existe el problema de invalidación de caché. Couchbase confirma que la recuperación depende de un umbral de similitud para decidir si la respuesta almacenada se reutiliza.","id":"n-ag-investigación-cache-semantica-de-respuestas-para-apps-locale","madurez":5,"nucleo":false,"tags":[],"titulo":"Investigación: cache semantica de respuestas para apps locales: umbrales y"},{"categoria":"NORTE","conexiones":[{"dir":"→","label":null,"titulo":"v0.3.0 publicada con instaladores verificados"},{"dir":"→","label":null,"titulo":"Hackathon · AI Infra Summit (lablab)"},{"dir":"→","label":null,"titulo":"Estado del proyecto"},{"dir":"←","label":"revisar vínculo","titulo":"El conocimiento vive en la bóveda; la app es la vista"},{"dir":"→","label":null,"titulo":"Investigación por fases 🌱⚔️🧪🚀"},{"dir":"→","label":null,"titulo":"Auto-actualización firmada + sello del build"},{"dir":"→","label":null,"titulo":"Negocio · ingresos por servicios"},{"dir":"→","label":null,"titulo":"Amuse (imagen local) como herramienta de assets"},{"dir":"→","label":"deuda técnica medida","titulo":"Rendimiento del lienzo: qué medimos y qué arreglar a futuro"},{"dir":"→","label":"camino elegido","titulo":"Cerebro residente: que el modelo habite los nodos (plan y viabilidad)"},{"dir":"←","label":"alimenta","titulo":"Investigación: quantizacion de modelos locales"},{"dir":"←","label":"alimenta","titulo":"Investigación: cache semantica de respuestas para apps locales: umbrales y"},{"dir":"←","label":"alimenta","titulo":"Investigación: mejoras de ia para hardware amd antiguo, \\\\\\\"6700xt 12gb ram\\\\"},{"dir":"→","label":"alimenta","titulo":"Investigación: Modelo local cuantizado que quepa en 12 GB de VRAM y sirva d"},{"dir":"→","label":"alimenta","titulo":"Con el panel «Pensar desde el lienzo» ya hecho, ¿cuál es el próximo pa"}],"creado_por":"hermes","descripcion":"NodeFlow es un orquestador de inferencia híbrida Edge/Cloud con el humano en el circuito: el motor se elige por tarea y costo, el conocimiento vive en la bóveda y la app es la vista. Objetivo: producto demostrable (hackathons 2026) que traccione servicios de automatización IA / visuales TD / web.","id":"n-ag-norte-estratégico-nodeflow","madurez":3,"nucleo":false,"tags":[],"titulo":"Norte Estratégico · NodeFlow"},{"categoria":"PENDIENTE","conexiones":[{"dir":"←","label":null,"titulo":"Motor dual por tarea (rápido / profundo)"},{"dir":"←","label":"abre","titulo":"Investigación: cache semantica de respuestas para apps locales: umbrales y"}],"creado_por":"hermes","descripcion":"CONSTRUIDO Y MEDIDO (14/09): mismo pedido con otras palabras 11.028 ms → 17 ms; mismo tema con palabras distintas (vectorial, gemini-embedding-001) 5.181 ms → 417 ms; ~3,2k tokens evitados por acierto. Contadores en GET /api/ai/cache. FALTA: que el panel muestre los dos niveles y medir el acierto vectorial con pedidos largos.","id":"n-ag-caché-semántica-segundo-nivel-exacta-semántica","madurez":3,"nucleo":false,"tags":[],"titulo":"Caché semántica · segundo nivel"},{"categoria":"PENDIENTE","conexiones":[{"dir":"←","label":null,"titulo":"Watcher Bidireccional sin Bucles"},{"dir":"→","label":null,"titulo":"Estado del proyecto"}],"creado_por":"hermes","descripcion":"El autoguardado commitea con `chore(checkpoint)` antes de que yo commitee con mensaje propio, y se pierde el porqué. Debe no tomar archivos que él no escribió.","id":"n-ag-el-checkpoint-automático-se-adelanta-a-los-commits","madurez":1,"nucleo":false,"tags":[],"titulo":"El checkpoint automático se adelanta a los commits"},{"categoria":"PENDIENTE","conexiones":[{"dir":"←","label":null,"titulo":"Fase 4 · Búsqueda web en vivo (grounding)"},{"dir":"→","label":"bloquea","titulo":"Fase 4 · Búsqueda web en vivo (grounding)"},{"dir":"→","label":null,"titulo":"Investigación por fases 🌱⚔️🧪🚀"}],"creado_por":"hermes","descripcion":"La clave funciona (probada contra la API: 5.4k y 7.2k caracteres de contenido real en 1,18 s). Falta una corrida entera de la investigación atribuida a Tavily y no al respaldo de Hermes.","id":"n-ag-verificar-tavily-citando-texto-real","madurez":1,"nucleo":false,"tags":[],"titulo":"Verificar Tavily citando texto real"},{"categoria":"PENDIENTE","conexiones":[{"dir":"←","label":null,"titulo":"Provenance y Madurez de Nodos IA"},{"dir":"→","label":null,"titulo":"La investigación propone; el humano aprueba"}],"creado_por":"hermes","descripcion":"El dato está bien (padre_id resuelto), el texto de vista.resumen engaña. Pulir en el backend.","id":"n-ag-el-rótulo-de-la-propuesta-dice-sin-conexión-a","madurez":1,"nucleo":false,"tags":[],"titulo":"El rótulo de la propuesta dice «sin conexión a…»"},{"categoria":"HITO","conexiones":[{"dir":"←","label":null,"titulo":"Lienzo Interactivo Adaptativo"},{"dir":"→","label":"revisar vínculo","titulo":"v0.3.0 publicada con instaladores verificados"},{"dir":"→","label":"bloquea","titulo":"Fase 3b · Puente con Hermes (herramientas)"}],"creado_por":"hermes","descripcion":"RESUELTO 14/09, y mejor de lo previsto: no hizo falta reinstalar a mano. La app se auto-actualiza con firma verificada (v0.3.1) y el build se ve en el título de la ventana. Una investigación real del usuario entró sola a la cola de propuestas con sus 6 fuentes.","id":"n-ag-instalar-el-build-con-el-propositor-de-investigaciones","madurez":5,"nucleo":false,"tags":[],"titulo":"El build con el propositor de investigaciones"},{"categoria":"PENDIENTE","conexiones":[{"dir":"←","label":null,"titulo":"Provenance y Madurez de Nodos IA"},{"dir":"→","label":null,"titulo":"Fase 3b · Puente con Hermes (herramientas)"}],"creado_por":"hermes","descripcion":"Se carga entero en cada tarea del proyecto y viaja en cada turno. La doctrina es: SKILL.md fino + references por tema.","id":"n-ag-partir-el-skill-de-nodeflow-286-kb","madurez":1,"nucleo":false,"tags":[],"titulo":"Partir el skill de NodeFlow (28,6 KB)"},{"categoria":"RIESGO","conexiones":[{"dir":"←","label":null,"titulo":"Motor dual por tarea (rápido / profundo)"},{"dir":"→","label":"bloquea","titulo":"Modelo local · DeepSeek-R1-Distill-Qwen-7B"},{"dir":"←","label":"condiciona","titulo":"Investigación: quantizacion de modelos locales"},{"dir":"←","label":"condiciona","titulo":"Investigación: mejoras de ia para hardware amd antiguo, \\\\\\\"6700xt 12gb ram\\\\"}],"creado_por":"hermes","descripcion":"RX 6700 XT. Medido: pico 5,1 GB con un modelo. Correr tres a la vez es quemarla. Regla operativa: OLLAMA_MAX_LOADED_MODELS=1.","id":"n-ag-la-placa-manda-un-modelo-por-vez-12-gb-de-vram","madurez":4,"nucleo":false,"tags":[],"titulo":"La placa manda: un modelo por vez (12 GB de VRAM)"},{"categoria":"RIESGO","conexiones":[{"dir":"←","label":null,"titulo":"Motor dual por tarea (rápido / profundo)"},{"dir":"→","label":"bloquea","titulo":"Motor dual por tarea (rápido / profundo)"}],"creado_por":"hermes","descripcion":"Los modelos -cloud del daemon responden 402 sin créditos: la red de seguridad de la escalada existe pero no tiene a dónde ir. Hoy avisa en el log en vez de fallar en silencio.","id":"n-ag-la-escalada-a-la-nube-no-tiene-destino-http-402","madurez":3,"nucleo":false,"tags":[],"titulo":"La escalada a la nube no tiene destino (HTTP 402)"},{"categoria":"DECISIÓN","conexiones":[{"dir":"←","label":null,"titulo":"Vault en Disco como Fuente de Verdad"},{"dir":"→","label":"revisar vínculo","titulo":"Norte Estratégico · NodeFlow"},{"dir":"→","label":"decide","titulo":"Vault en Disco como Fuente de Verdad"}],"creado_por":"hermes","descripcion":"El vault en disco es la fuente de verdad y el watcher bidireccional mantiene el lienzo. Todo lo demás se deriva de ahí.","id":"n-ag-el-conocimiento-vive-en-la-bóveda-la-app-es-la-vista","madurez":4,"nucleo":false,"tags":[],"titulo":"El conocimiento vive en la bóveda; la app es la vista"},{"categoria":"DECISIÓN","conexiones":[{"dir":"←","label":null,"titulo":"Provenance y Madurez de Nodos IA"},{"dir":"→","label":"decide","titulo":"Fase 3b · Puente con Hermes (herramientas)"},{"dir":"←","label":null,"titulo":"El rótulo de la propuesta dice «sin conexión a…»"}],"creado_por":"hermes","descripcion":"Los hallazgos entran a la cola de propuestas (nodo central con la síntesis + fuentes colgando), nunca directo al lienzo. Verificado end-to-end el 14/09.","id":"n-ag-la-investigación-propone-el-humano-aprueba","madurez":3,"nucleo":false,"tags":[],"titulo":"La investigación propone; el humano aprueba"},{"categoria":"HITO","conexiones":[{"dir":"←","label":null,"titulo":"Norte Estratégico · NodeFlow"},{"dir":"←","label":"revisar vínculo","titulo":"El build con el propositor de investigaciones"}],"creado_por":"hermes","descripcion":"Releases públicas hasta v0.3.0 en NeonEden/NodeFlow, con digests coincidentes y CI en verde.","id":"n-ag-v0-3-0-publicada-con-instaladores-verificados","madurez":5,"nucleo":false,"tags":[],"titulo":"v0.3.0 publicada con instaladores verificados"},{"categoria":"HITO","conexiones":[{"dir":"←","label":null,"titulo":"Norte Estratégico · NodeFlow"},{"dir":"←","label":"revisar vínculo","titulo":"Agente Autónomo Multimodal"},{"dir":"→","label":null,"titulo":"Video demo (3 tomas)"}],"creado_por":"hermes","descripcion":"Miércoles 16/09 15:30. Después: AssemblyAI Voice (30/09) y AMD ACT III (12-18/10).","id":"n-ag-hackathon-ai-infra-summit-lablab","madurez":1,"nucleo":false,"tags":[],"titulo":"Hackathon · AI Infra Summit (lablab)"},{"categoria":"ESTADO","conexiones":[{"dir":"←","label":null,"titulo":"Norte Estratégico · NodeFlow"},{"dir":"←","label":"revisar vínculo","titulo":"Motor dual por tarea (rápido / profundo)"},{"dir":"←","label":null,"titulo":"El checkpoint automático se adelanta a los commits"}],"creado_por":"hermes","descripcion":"Estado al 2026-09-16 · rama main\n139 commits en 7 días.\nCerró: Fase 5.4 — la arquitectura de la app, inventariada del árbol real · Fase 5.2 — mi espacio (bitácora, planes y la nota del humano) · Fase 5.3 — el registro de herramientas del cerebro (crear, aprobar, usar) · el panel muestra el razonamiento del modelo (reasoning.delta resumido) · Fase 5.1 (briefing por turno) + fix del discriminante del gateway · Fase 4 - el panel habla con el gateway y resuelve aprobaciones ahi mismo · Fase 3 - panel «Pensar desde el lienzo» (la boca del cerebro en la app) · aterriza en UN nodo con la evidencia adentro, colgado del Norte · el turno se arma desde la boveda (Fase 2) - recuerdo dirigido, no el lienzo masticado · el motor profundo deja de ser one-shot - sesion nombrada + nota episodica · una generacion por vez + topes de salida y contexto explicitos · motor de reconocimiento declarativo (Speechmatics / AssemblyAI v3)\nCorrigió: el gateway se corre a un puerto libre y sólo se da por listo si es NUESTRO · el gateway arrancaba con stdout piped y sin lector (se trababa) + feedback visible en el panel · el titulo de la nota de turno es el pedido, no «Turno del cerebro» · fallback declarado en la sintesis (DeepSeek -> Hermes) y error visible · la nota episodica se fecha en hora local, no en UTC · subir lo commiteado y sin subir aunque el arbol este limpio · llavero del SO con verificacion de lectura + switch de idioma · la lista de motores mira el mismo config que el estado · \"Lo que sigue\" leía el estado en la forma equivocada y las etiquetas no se dibujaban · el nodo nuevo busca hueco y no cae encima de otro · el guardado automático espera quietud y no toma trabajo ajeno · proponer una sola vez por corrida (y limpiar el ruido de «Actualizar»)\nAceleró: el prompt se ordena para el cache de prefijo y la app mide el ahorro\nDocumentó: estado del plan 5.0-5.3 + como se crea una herramienta del cerebro · estado del plan (fases 0-2 hechas) + lo medido al curar el lienzo · alinear el relato de modelos con el codigo + benchmarks medidos + business value · las cuatro capas del mapa del proyecto y la regla de sincronizacion con la evidencia · Tavily verificado (la clave responde con el texto completo de las paginas) y tutorial corregido · como funciona NodeFlow de punta a punta, con la tabla honesta de limites · planilla medida y sus conclusiones · notas de v0.1.1 con el Motor de Condensación y los SHA-256 · bitácora de la Fase A · notas de v0.1.0 listas para publicar · add README (EN/ES), roadmap, ADRs, MIT license and real env example\nÚltima release etiquetada: v0.3.5.","id":"n-ag-estado-del-proyecto","madurez":3,"nucleo":false,"tags":[],"titulo":"Estado del proyecto"},{"categoria":"EJECUCIÓN","conexiones":[{"dir":"←","label":null,"titulo":"Norte Estratégico · NodeFlow"},{"dir":"←","label":null,"titulo":"Verificar Tavily citando texto real"},{"dir":"→","label":"Fusión IA","titulo":"Hermes Grounded Synthesis"}],"creado_por":"hermes","descripcion":"Hermes sale a la web y el motor sintetiza, en cuatro fases que el usuario ve crecer. Al terminar, los hallazgos entran a la cola de propuestas (nodo central con la síntesis + fuentes colgando) y el humano decide. Verificado end-to-end el 14/09: 6 propuestas automáticas, lienzo intacto.","id":"n-ag-investigación-por-fases","madurez":4,"nucleo":false,"tags":[],"titulo":"Investigación por fases 🌱⚔️🧪🚀"},{"categoria":"INVESTIGACIÓN","conexiones":[{"dir":"←","label":"revisar vínculo","titulo":"Imágenes que identifiquen cada nodo"},{"dir":"→","label":"alimenta","titulo":"Norte Estratégico · NodeFlow"},{"dir":"→","label":"condiciona","titulo":"La placa manda: un modelo por vez (12 GB de VRAM)"},{"dir":"→","label":"aplica","titulo":"Modelo local · DeepSeek-R1-Distill-Qwen-7B"}],"creado_por":"hermes","descripcion":"AMD ha presentado Amuse 3.0, una solución de IA optimizada para su hardware, con modelos que ofrecen hasta 4,3 veces más rendimiento. Para la RX 6700 XT de 12 GB, existe la duda de si dos tarjetas en CrossFire pueden combinarse para obtener 24 GB y ejecutar modelos de IA más grandes, ya que 12 GB se queda corto. Además, se documenta que la RX 6700 XT puede overclockearse hasta un 8,3% superando el límite de TDP de 189W mediante MorePowerTool.","id":"n-ag-investigación-mejoras-de-ia-para-hardware-amd-antiguo-6700xt","madurez":5,"nucleo":false,"tags":[],"titulo":"Investigación: mejoras de ia para hardware amd antiguo, \\\\\\\"6700xt 12gb ram\\\\"},{"categoria":"EJECUCIÓN","conexiones":[{"dir":"←","label":null,"titulo":"Norte Estratégico · NodeFlow"}],"creado_por":"hermes","descripcion":"La app consulta el manifiesto firmado del release y se actualiza sola, verificando la firma (un paquete trucho se rechaza). El build se lee en el título de la ventana: se terminó el «¿qué build estoy corriendo?» que costó un diagnóstico entero. Verificado end-to-end el 14/09: 0.3.0 → 0.3.1 en 6 segundos, un clic.","id":"n-ag-auto-actualización-firmada-sello-del-build","madurez":4,"nucleo":false,"tags":[],"titulo":"Auto-actualización firmada + sello del build"},{"categoria":"NEGOCIO","conexiones":[{"dir":"←","label":null,"titulo":"Norte Estratégico · NodeFlow"},{"dir":"→","label":null,"titulo":"One-pagers de servicios (IA / visuales TD / web)"},{"dir":"→","label":null,"titulo":"Outreach a 30 prospectos"},{"dir":"←","label":null,"titulo":"Video demo (3 tomas)"}],"creado_por":"hermes","descripcion":"Meta: ingresos por automatización con IA, visuales en TouchDesigner y web. NodeFlow no es el producto que paga las cuentas todavía (6-12 meses): es el imán de leads. Lo que se vende es el servicio; lo que se muestra es NodeFlow.","id":"n-ag-negocio-ingresos-por-servicios","madurez":2,"nucleo":false,"tags":[],"titulo":"Negocio · ingresos por servicios"},{"categoria":"PENDIENTE","conexiones":[{"dir":"←","label":null,"titulo":"Hackathon · AI Infra Summit (lablab)"},{"dir":"→","label":null,"titulo":"Negocio · ingresos por servicios"}],"creado_por":"hermes","descripcion":"Guion ya escrito en docs/TUTORIAL.md: arranque y lienzo, el circuito dictar→plan→aprobar, y la investigación por fases. Se muestra en el hackathon del miércoles 16/09 y después queda para el outreach.","id":"n-ag-video-demo-3-tomas","madurez":1,"nucleo":false,"tags":[],"titulo":"Video demo (3 tomas)"},{"categoria":"PENDIENTE","conexiones":[{"dir":"←","label":null,"titulo":"Negocio · ingresos por servicios"},{"dir":"→","label":"revisar vínculo","titulo":"Programación y construcción de aplicaciones en NodeFlow"}],"creado_por":"hermes","descripcion":"Una página por servicio con problema, qué se entrega y rango de precio. NodeFlow como prueba de capacidad.","id":"n-ag-one-pagers-de-servicios-ia-visuales-td-web","madurez":1,"nucleo":false,"tags":[],"titulo":"One-pagers de servicios (IA / visuales TD / web)"},{"categoria":"PENDIENTE","conexiones":[{"dir":"←","label":null,"titulo":"Negocio · ingresos por servicios"}],"creado_por":"hermes","descripcion":"Lista de 30 prospectos con motivo de contacto y un entregable concreto por cada uno. Es la acción que convierte el producto en ingresos.","id":"n-ag-outreach-a-30-prospectos","madurez":1,"nucleo":false,"tags":[],"titulo":"Outreach a 30 prospectos"},{"categoria":"PENDIENTE","conexiones":[{"dir":"←","label":null,"titulo":"Lienzo Interactivo Adaptativo"},{"dir":"→","label":"revisar vínculo","titulo":"Investigación: mejoras de ia para hardware amd antiguo, \\\\\\\"6700xt 12gb ram\\\\"}],"creado_por":"hermes","descripcion":"Miniaturas livianas (512 px o menos) generadas localmente para que cada nodo se reconozca de un vistazo, sin leer el título. Encaja con la taxonomía de formas por estado epistémico. Herramienta evaluada: Amuse v3.7.9 (zip portable en Escritorio\\Amuse, 418 MB) — su backend Vulkan es la vía para la RX 6700 XT, porque ROCm 7.2 solo cubre RDNA3+. Alternativa con mejor soporte AMD antiguo: ComfyUI. Modelos livianos: SD 1.5 / LCM.","id":"n-ag-imágenes-que-identifiquen-cada-nodo","madurez":1,"nucleo":false,"tags":[],"titulo":"Imágenes que identifiquen cada nodo"},{"categoria":"DECISIÓN","conexiones":[{"dir":"←","label":null,"titulo":"Norte Estratégico · NodeFlow"}],"creado_por":"hermes","descripcion":"Verificado el 14/09: Amuse es gratis, local y corre en Windows; la versión actual usa ROCm 7.2 (RDNA3+) pero trae backend Vulkan, que es la vía para la 6700XT. Para AMD antiguo la comunidad recomienda ComfyUI. Se descarga el zip portable (418 MB) y NO se instala todavía: se prueba cuando haga falta generar imágenes de nodos. No requiere cuenta ni internet para generar.","id":"n-ag-amuse-imagen-local-como-herramienta-de-assets","madurez":2,"nucleo":false,"tags":[],"titulo":"Amuse (imagen local) como herramienta de assets"},{"categoria":"ARQUITECTURA","conexiones":[{"dir":"←","label":"deuda técnica medida","titulo":"Norte Estratégico · NodeFlow"}],"creado_por":"hermes","descripcion":"Medido el 15/09 (release, 59 nodos / 89 aristas). JARDÍN: diagnostico 0,8 ms @50 → 388 ms @1600 nodos (exponente medido 1,61→2,02 = cuadrático) por grafo.rs 426-427 (validar: for i × for j) y 801-814 (padrinos: for e × for nodo). Lineales y sanos: grados y siguiente (1,5 ms @1600) → el panel «Lo que sigue» no se degrada. HTTP @59: /api/graph/garden 75 ms (casi todo leer+parsear state.json 107 KB ≈ 1,8 KB por nodo, no algoritmo), resto 0,7-5 ms; autoguardado 147 ms por 88 KB con debounce de 1,5 s → roza su propio debounce cerca de ~900 nodos. GPU: el prompt de IA está acotado por diseño (BM25 top-k ≤40 notas + recorte de cuerpo 1200 chars; 1039 tokens medidos) → más nodos NO se pagan en la placa. Frontend: una tarjeta DOM por nodo y una ruta SVG por arista, sin onlyRenderVisibleElements (primer cuello si se pasa de ~300-500). Arreglo ordenado: (1) indexar por id con HashMap en validar/padrinos → exponente ~1,2; (2) cachear el jardín por revisión; (3) cachear el parseo de state.json por mtime; (4) onlyRenderVisibleElements en ReactFlow. Umbrales: ≤200 sin efecto · ~400 garden 100-150 ms · ~800 garden 0,5-1 s · ~1600 garden 1,5-2 s. Banco reusable: %LOCALAPPDATA%/Temp/nf-bench → cargo run --release --offline (11 s, no toca el repo ni la bóveda). Detalle y tabla completa: skill nodeflow-mcp, references/rendimiento-y-escala.md. Costo fijo aparte: la tarea NodeFlow Checkpoint corre 6,6 s cada 5 min (tsc 4,8 + cargo test 1,8), independiente de los nodos.","id":"n-ag-rendimiento-del-lienzo-qué-medimos-y-qué-arreglar-a-futuro","madurez":1,"nucleo":false,"tags":["rendimiento","escala","deuda-tecnica"],"titulo":"Rendimiento del lienzo: qué medimos y qué arreglar a futuro"},{"categoria":"ARQUITECTURA","conexiones":[{"dir":"←","label":"camino elegido","titulo":"Norte Estratégico · NodeFlow"}],"creado_por":"hermes","descripcion":"Objetivo: que Hermes habite el lienzo — que la memoria, el contexto y la visión del proyecto crezcan DESDE la bóveda y no desde el chat, y que las modificaciones se hagan desde adentro de la app con las herramientas de Hermes ejecutando ahí. VIABILIDAD: sí, sin investigación nueva; ~3/4 de las piezas ya existen (cola HITL con auditoría, bóveda como verdad, BM25 acotado a 40, hilo de diálogo con foco, guardas base_revision+rescate, MCP en ambos sentidos). Lo que falta es cableado y política. VERIFICADO HOY: -z es sin estado · --resume por ID conserva la sesión (probado, resumió otra por usar 'latest': trampa) · -c por título funciona si la sesión existe (sessions rename) y --create-if-missing NO existe aunque el error lo sugiera · hermes mcp serve expone 10 tools de CONVERSACIONES, no ejecuta turnos (no sirve para esto) · hermes serve = JSON-RPC/WebSocket 127.0.0.1:9119, la misma puerta que usa la app de escritorio de Hermes (esa es la de 'habitar'). FASES: 0 habilitar las 22 tools MCP del lienzo para Hermes (30 min, reversible) · 1 corte vertical: delegar deja de ser one-shot con sesión nombrada por proyecto + nota episódica fechada por turno (medio día) · 2 el contexto lo arma la app desde la bóveda y se puede VER qué se mandó (1-2 días) · 3 panel «Pensar desde el lienzo» con progreso y aterrizaje en nodos propuestos (2-3 días) · 4 pasar de -z a hermes serve: streaming, eventos por herramienta, aprobaciones nativas, sin tope de 240 s (1-2 semanas, el salto grande) · 5 memoria del proyecto derivada del grafo por cron (visión, decisiones, deuda). REGLAS: una sola verdad (la bóveda) · toda escritura vuelve por la cola de propuestas · el turno NO manda el lienzo (pedido + top-k + foco; medido ~1.039 tokens hoy) · el residuo del turno se escribe siempre (nodo/actualización + nota fechada) · sesión nombrada, nunca 'latest'. RIESGOS: tope 240 s y one-shot (mientras delegar sea subproceso el habitante es visitante) · costo por turno 10-50× un pedido de lienzo si se manda el grafo entero · la placa no sostiene 7B@16k (426 s de TTFT): local para el bucle chico, nube para lo profundo con auto:tarea · proveedor inestable: el diseño necesita fallback declarado (hermes fallback) · la política de auto-aprobación es decisión de producto. DECISIONES PEDIDAS: (1) habilitar las 22 tools MCP, (2) qué se auto-aprueba (propuesta: crear notas/nodos sí, modificar y borrar con aprobación), (3) si vamos por la Fase 4 o alcanza con 1-3. Plan completo: docs/PLAN-CEREBRO-RESIDENTE.md","id":"n-ag-cerebro-residente-que-el-modelo-habite-los-nodos-plan-y-viab","madurez":3,"nucleo":false,"tags":["cerebro-residente","arquitectura","plan"],"titulo":"Cerebro residente: que el modelo habite los nodos (plan y viabilidad)"},{"categoria":"INVESTIGACIÓN","conexiones":[{"dir":"←","label":"alimenta","titulo":"Norte Estratégico · NodeFlow"}],"creado_por":"hermes","descripcion":"En 12 GB de VRAM el formato no es una preferencia sino una restricción: con GGUF de la familia K-quant el 14B denso entra en Q4_K_M (9.0 GB de pesos) pero el Q5_K_M (10.51 GB) deja casi nada para caché KV y el Q6_K (12.12 GB) no entra directamente. La calidad medida no exige subir de formato: Q5_K_M queda en PPL 6.289 contra 6.233 de f16 (~0.9% de degradación) y Q4_K_M en 6.407 (~2.8%), así que el Q4_K_M paga poco por el espacio que libera. La clase 20B+ queda descartada para esta placa: un 20B con cuantización nativa MXFP4 pesa 12.11 GB, es decir los pesos solos ya consumen la tarjeta antes de contar contexto. Conclusión práctica: cerebro residente = 14B en Q4_K_M (o Q3_K_M 7.32 GB si se necesita más contexto), con el presupuesto restante asignado a la caché KV.\n\nFuentes:\n- llama.cpp — tools/quantize/README.md (formatos GGUF: bits/peso, tamaño y velocidad por tipo de cuantización) — https://github.com/ggml-org/llama.cpp/blob/master/tools/quantize/README.md · Es la tabla oficial del formato: bits/peso y tamaño por tipo (Q4_K_M 4.89 bits · Q5_K_M 5.70 · Q6_K 6.56 · Q8_0 8.50) y baja la generación de 76 t/s en Q4_K_S a 51 t/s en Q8_0, que es el trade-off for\n- llama.cpp — tools/perplexity (calidad medida: f16 vs q4_K_M vs q5_K_M) — https://github.com/ggml-org/llama.cpp/tree/master/tools/perplexity · Mide la pérdida en vez de opinar: sobre el mismo modelo, q4_K_M queda en PPL 6.407 contra 6.233 de f16, mientras q5_K_M queda en 6.289 (~0.9% de degradación contra ~2.8% del Q4). Evidencia de que entr\n- unsloth/Qwen3-14B-GGUF — tamaños reales por cuantización (Hugging Face) — https://huggingface.co/unsloth/Qwen3-14B-GGUF · Da los bytes exactos por archivo del 14B denso (verificados vía API de HF): Q3_K_M 7.32 GB · Q4_K_M 9.0 GB · Q5_K_M 10.51 GB · Q6_K 12.12 GB. Con eso se ve que el techo real de la placa es Q4_K_M —y Q\n- ggml-org/gpt-oss-20b-GGUF — el 20B en MXFP4 pesa 12.11 GB — https://huggingface.co/ggml-org/gpt-oss-20b-GGUF · Es el límite superior concreto para 12 GB: un 20B con cuantización nativa MXFP4 ocupa 12.11 GB de pesos, así que no queda VRAM para caché KV ni contexto y obliga a offload a CPU. Sirve para descartar\n- Which Quantization Should I Use? A Unified Evaluation of llama.cpp Quantization on Llama-3.1-8B-Instruct — https://arxiv.org/abs/2601.14277 · Estudio unificado de 13 configuraciones (Q3_K* a Q8_0) derivadas del mismo checkpoint, con perplexity y benchmarks downstream (MMLU, GSM8K, HellaSwag, IFEval): reemplaza el consejo anecdótico por comp","id":"n-ag-investigación-modelo-local-cuantizado-que-quepa-en-12-gb-de-","madurez":5,"nucleo":false,"tags":null,"titulo":"Investigación: Modelo local cuantizado que quepa en 12 GB de VRAM y sirva d"},{"categoria":"ARQUITECTURA","conexiones":[{"dir":"←","label":"alimenta","titulo":"Norte Estratégico · NodeFlow"}],"creado_por":"hermes","descripcion":"El próximo paso es la Fase 4 del plan del cerebro: dejar de invocar a Hermes como subproceso (`cerebro.rs::argv` arma `hermes chat -q … -c nf-cerebro --oneshot --run-budget`, con la jaula del tope de 240 s y una sola respuesta) y conectarse como cliente al gateway `hermes serve` — JSON-RPC/WebSocket headless en 127.0.0.1:9119, verificado en su `--help`: «the JSON-RPC/WebSocket gateway the desktop app and remote clients connect to».\n\nCon eso el panel «Pensar desde el lienzo» (ya hecho: `src/components/CerebroPanel.tsx` + `App.tsx`) pasa de mostrar un resultado al final a mostrar el turno en vivo: streaming token a token, un evento por cada herramienta ejecutada, aprobaciones nativas y turnos largos sin re-lanzar procesos.\n\nCriterio de aceptación concreto y verificable: un pedido real con al menos 5 herramientas, cada paso visible en el panel y el registro del turno (nodo o actualización + nota episódica en `cerebro/`) escrito en la bóveda — eso es lo que convierte «delegar» en «habitar»; las Fases 0-3 ya están hechas y sirven sin esta, que es la única que cambia la naturaleza del sistema.\n\nContexto usado: lienzo=42/72 · pendientes=1 · norte=Norte Estratégico · NodeFlow · memoria=[Turno del cerebro, Cerebro residente: que el modelo habite los nodos (plan y viabilidad), Turno del cerebro, Turno del cerebro, Que es deepseek, agente-autónomo-multimodal.canvas (canvas)] · foco=[]","id":"n-ag-con-el-panel-pensar-desde-el-lienzo-ya-hecho-cuál-es-el-próx","madurez":3,"nucleo":false,"tags":null,"titulo":"Con el panel «Pensar desde el lienzo» ya hecho, ¿cuál es el próximo pa"},{"categoria":"ARQUITECTURA","conexiones":[{"dir":"←","label":"contiene","titulo":"Agente Autónomo Multimodal"},{"dir":"→","label":"prompt_visual","titulo":"Experto · Prompt Visual"},{"dir":"→","label":"brief_documento","titulo":"Experto · Brief Documento"},{"dir":"→","label":"critica","titulo":"Experto · Crítica Radical"},{"dir":"→","label":"spec_td","titulo":"Experto · Spec TD (sin nota)"}],"creado_por":"hermes","descripcion":"Puerta visible a los expertos del vault (<bóveda>/expertos/): no son código, son notas editables con system prompt que NodeFlow lee archivo por archivo. Hoy hay 3 registrados —Prompt Visual (3.062 car., proveedor gemini), Brief Documento (1.716 car., gemini) y Crítica Radical (1.527 car.)— y 4 tipos de artefacto declarados: prompt_visual, brief_documento, critica y spec_td. Al ejecutarse sobre un nodo, el experto recibe el nodo + su vecindad + la memoria BM25 de la bóveda y devuelve un artefacto tipado con validador por destino. Regla: el system prompt vive en la nota; este nodo apunta, no lo duplica (una sola verdad). Verificado: un experto corriendo de punta a punta tardó 18 s y entregó artefacto (14/09).","id":"n-ag-expertos-del-lienzo-artefactos-tipados","madurez":3,"nucleo":false,"tags":["expertos","orquestador","artefactos"],"titulo":"Expertos del lienzo (artefactos tipados)"},{"categoria":"ARQUITECTURA","conexiones":[{"dir":"←","label":"prompt_visual","titulo":"Expertos del lienzo (artefactos tipados)"}],"creado_por":"hermes","descripcion":"Tipo: prompt_visual → destino Flow / ComfyUI / TouchDesigner. Lleva un concepto del lienzo a su clímax visual: prompt técnico listo para pegar + 2 variaciones. System prompt de 3.062 caracteres en la nota de experto (proveedor gemini). Los ejemplos de estilo que dejes en expertos/ejemplos/ entran solos por BM25 (el título pesa ×2,5), así que el experto aprende de tus prompts que funcionaron sin configuración.","id":"n-ag-experto-prompt-visual","madurez":3,"nucleo":false,"tags":["expertos","visual","touchdesigner"],"titulo":"Experto · Prompt Visual"},{"categoria":"ARQUITECTURA","conexiones":[{"dir":"←","label":"brief_documento","titulo":"Expertos del lienzo (artefactos tipados)"}],"creado_por":"hermes","descripcion":"Tipo: brief_documento → destino Copilot / Word / Excel / PowerPoint. Convierte un concepto del lienzo en un brief ejecutable de una página. System prompt de 1.716 caracteres en la nota de experto (proveedor gemini). Es el experto que convierte la idea en entregable: el artefacto se pega en su destino y tiene que funcionar sin agregar nada.","id":"n-ag-experto-brief-documento","madurez":3,"nucleo":false,"tags":["expertos","documento","entregable"],"titulo":"Experto · Brief Documento"},{"categoria":"GOBERNANZA","conexiones":[{"dir":"←","label":"critica","titulo":"Expertos del lienzo (artefactos tipados)"}],"creado_por":"hermes","descripcion":"Tipo: critica → destino el propio lienzo o la decisión humana. Audita un concepto o una decisión sin cortesías: debilidades, riesgos y próximo paso. System prompt de 1.527 caracteres; no declara proveedor propio, así que lo corre el motor que elija el selector (auto:tarea). Es el experto que alimenta la gobernanza: convierte una idea madura en sus objeciones antes de que se conviertan en deuda.","id":"n-ag-experto-crítica-radical","madurez":3,"nucleo":false,"tags":["expertos","critica","gobernanza"],"titulo":"Experto · Crítica Radical"},{"categoria":"PENDIENTE","conexiones":[{"dir":"←","label":"spec_td","titulo":"Expertos del lienzo (artefactos tipados)"}],"creado_por":"hermes","descripcion":"El tipo spec_td está declarado en el contrato de artefactos (destino TouchDesigner: especificación visual + script Python para una red de TD) pero NO existe la nota de experto: hoy nadie produce ese artefacto y el panel solo puede listar 3 de los 4 tipos. Semilla: escribir la nota en <bóveda>/expertos/ la activa sin tocar una línea de código — es el hueco más barato del orquestador, y el oficio del usuario (visuales TD) es justo el que lo justifica.","id":"n-ag-experto-spec-td-sin-nota","madurez":1,"nucleo":false,"tags":["expertos","touchdesigner","pendiente"],"titulo":"Experto · Spec TD (sin nota)"},{"categoria":"HÍBRIDO","conexiones":[{"dir":"←","label":"Fusión IA","titulo":"Fase 4 · Búsqueda web en vivo (grounding)"},{"dir":"←","label":"Fusión IA","titulo":"Investigación por fases 🌱⚔️🧪🚀"}],"creado_por":"hybrid","descripcion":"Integra la ingestión de nodos de evidencia en tiempo real (Tavily/Serper) dentro del motor de investigación por fases, propagando metadatos de fiabilidad a través de cada etapa de síntesis. Al culminar la cuarta fase, el nodo central consolida la síntesis y sus fuentes, listo para la evaluación humana.","id":"node-hybrid-1789579118521","madurez":null,"nucleo":false,"tags":["grounding","fase‑orquestada","metadata"],"titulo":"Hermes Grounded Synthesis"},{"categoria":"MACRO","conexiones":[{"dir":"←","label":"revisar vínculo","titulo":"Fase 3b · Puente con Hermes (herramientas)"}],"creado_por":"condensar","descripcion":"Implementa un contenedor Docker de runtime restringido que expone una API LLM, incorpora un índice FAISS alimentado con el historial Git para recuperación O(1‑log N) de fragmentos, y asegura todas las interacciones con TLS mutua, cifrado AES‑256 y logs inmutables firmados. El flujo garantiza que el código generado nunca se ejecute sin revisión previa y provee trazabilidad verificable.","id":"node-macro-1789579788504","madurez":4,"nucleo":false,"tags":["sandbox","vectorsearch","audit"],"titulo":"Sandbox Docker con snippets vectoriales y auditoría criptográfica"},{"categoria":"ARQUITECTURA","conexiones":[{"dir":"←","label":"revisar vínculo","titulo":"One-pagers de servicios (IA / visuales TD / web)"}],"creado_por":"braindump","descripcion":"Analiza cómo los conceptos de programación se traducen en la arquitectura y flujo de trabajo para construir aplicaciones dentro de NodeFlow.","id":"node-voz-1789579916304-0","madurez":1,"nucleo":false,"tags":["Voz"],"titulo":"Programación y construcción de aplicaciones en NodeFlow"}],"ok":true,"revision":1,"stats":{"aristas":82,"aristas_colgadas":0,"madurez_promedio":2.9,"nodos":51,"nodos_sin_conexiones":0,"notas_en_disco":51},"vault":"C:\\Users\\tomas\\Documents\\Obsidian Vault\\NodeFlow"}
+{
+ "mapa": "agente-autónomo-multimodal",
+ "nodos": [
+  {
+   "categoria": "NÚCLEO",
+   "conexiones": [
+    {
+     "dir": "→",
+     "label": "Contexto RAG",
+     "titulo": "Motor RAG Grafos & Vectorial"
+    },
+    {
+     "dir": "→",
+     "label": "Feedback Visual",
+     "titulo": "Lienzo Interactivo Adaptativo"
+    },
+    {
+     "dir": "→",
+     "label": "evoluciona a",
+     "titulo": "Copiloto Espacial Operativo"
+    },
+    {
+     "dir": "→",
+     "label": "evoluciona a",
+     "titulo": "Fase 3 · Voz de ida y vuelta (Kokoro)"
+    },
+    {
+     "dir": "→",
+     "label": "evoluciona a",
+     "titulo": "Fase 3b · Puente con Hermes (herramientas)"
+    },
+    {
+     "dir": "→",
+     "label": "evoluciona a",
+     "titulo": "Fase 4 · Búsqueda web en vivo (grounding)"
+    },
+    {
+     "dir": "→",
+     "label": "evoluciona a",
+     "titulo": "Motor dual por tarea (rápido / profundo)"
+    },
+    {
+     "dir": "→",
+     "label": "evoluciona a",
+     "titulo": "Modelo local · DeepSeek-R1-Distill-Qwen-7B"
+    },
+    {
+     "dir": "→",
+     "label": "revisar vínculo",
+     "titulo": "Hackathon · AI Infra Summit (lablab)"
+    },
+    {
+     "dir": "←",
+     "label": null,
+     "titulo": "Identidad y Permisos del Agente"
+    },
+    {
+     "dir": "→",
+     "label": "contiene",
+     "titulo": "Expertos del lienzo (artefactos tipados)"
+    }
+   ],
+   "creado_por": null,
+   "descripcion": "núcleo: el concepto está en pie y probado en partes (vault + API + MCP vivos); todavía no hay una pieza que haga de orquestador",
+   "id": "node-ai-root",
+   "madurez": 4,
+   "nucleo": true,
+   "tags": [
+    "Gemini",
+    "Orquestador",
+    "Multiagente",
+    "nucleo"
+   ],
+   "titulo": "Agente Autónomo Multimodal"
+  },
+  {
+   "categoria": "DATOS",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": "Contexto RAG",
+     "titulo": "Agente Autónomo Multimodal"
+    },
+    {
+     "dir": "→",
+     "label": "Estado en disco",
+     "titulo": "Vault en Disco como Fuente de Verdad"
+    },
+    {
+     "dir": "→",
+     "label": "Sincronización",
+     "titulo": "Watcher Bidireccional sin Bucles"
+    },
+    {
+     "dir": "←",
+     "label": "voz",
+     "titulo": "telemetría en tiempo real"
+    }
+   ],
+   "creado_por": null,
+   "descripcion": "Decisión tomada y en producción: el contexto se recupera de la bóveda con BM25 (ver «La Bóveda Alimenta a la IA»). Los tres hijos especulativos (HNSW, CDC, ABAC) siguen podados a propósito: no se eligen tres pipelines, se eligió uno y se midió. El único caso que lo movería es un corpus donde el recall léxico falle.",
+   "id": "node-ai-rag",
+   "madurez": 4,
+   "nucleo": false,
+   "tags": [
+    "Embeddings",
+    "VectorDB",
+    "KnowledgeGraph"
+   ],
+   "titulo": "Motor RAG Grafos & Vectorial"
+  },
+  {
+   "categoria": "UX",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": "Feedback Visual",
+     "titulo": "Agente Autónomo Multimodal"
+    },
+    {
+     "dir": "←",
+     "label": "voz",
+     "titulo": "telemetría en tiempo real"
+    },
+    {
+     "dir": "→",
+     "label": null,
+     "titulo": "El build con el propositor de investigaciones"
+    },
+    {
+     "dir": "←",
+     "label": "requiere",
+     "titulo": "Copiloto Espacial Operativo"
+    },
+    {
+     "dir": "→",
+     "label": null,
+     "titulo": "Imágenes que identifiquen cada nodo"
+    }
+   ],
+   "creado_por": null,
+   "descripcion": "la app funciona: lienzo, nodos y persistencia editables a mano",
+   "id": "node-ai-interface",
+   "madurez": 4,
+   "nucleo": false,
+   "tags": [
+    "ReactFlow",
+    "HITL",
+    "Canvas"
+   ],
+   "titulo": "Lienzo Interactivo Adaptativo"
+  },
+  {
+   "categoria": "GOBERNANZA",
+   "conexiones": [
+    {
+     "dir": "→",
+     "label": null,
+     "titulo": "El rótulo de la propuesta dice «sin conexión a…»"
+    },
+    {
+     "dir": "→",
+     "label": null,
+     "titulo": "Partir el skill de NodeFlow (28,6 KB)"
+    },
+    {
+     "dir": "→",
+     "label": null,
+     "titulo": "La investigación propone; el humano aprueba"
+    },
+    {
+     "dir": "→",
+     "label": "requiere",
+     "titulo": "Vault en Disco como Fuente de Verdad"
+    },
+    {
+     "dir": "→",
+     "label": "revisar vínculo",
+     "titulo": "Identidad y Permisos del Agente"
+    }
+   ],
+   "creado_por": "bridge",
+   "descripcion": "Parcialmente resuelto: los nodos del agente nacen con marca de origen (aiOrigin: hermes) y toda escritura pasa por aprobación humana, así que ahora se distingue lo propuesto de lo aprobado. La generación además devuelve memoria_fuentes (qué notas de la bóveda la alimentaron). Falta persistir esas fuentes en el frontmatter del nodo para que la trazabilidad sobreviva al guardado.",
+   "id": "n-ag-provenance",
+   "madurez": 3,
+   "nucleo": false,
+   "tags": [
+    "TRAZABILIDAD",
+    "CALIDAD"
+   ],
+   "titulo": "Provenance y Madurez de Nodos IA"
+  },
+  {
+   "categoria": "SEGURIDAD",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": "revisar vínculo",
+     "titulo": "Provenance y Madurez de Nodos IA"
+    },
+    {
+     "dir": "→",
+     "label": null,
+     "titulo": "Agente Autónomo Multimodal"
+    }
+   ],
+   "creado_por": "bridge",
+   "descripcion": "Quién escribe en el lienzo, con qué autoridad y cómo se deshace. Toda mutación del agente debe ser identificable, reversible y auditable (undo por lote).",
+   "id": "n-ag-identidad",
+   "madurez": 1,
+   "nucleo": false,
+   "tags": [
+    "PERMISOS",
+    "AUDITORÍA"
+   ],
+   "titulo": "Identidad y Permisos del Agente"
+  },
+  {
+   "categoria": "DATOS",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": "Estado en disco",
+     "titulo": "Motor RAG Grafos & Vectorial"
+    },
+    {
+     "dir": "→",
+     "label": "requiere",
+     "titulo": "Watcher Bidireccional sin Bucles"
+    },
+    {
+     "dir": "←",
+     "label": "voz",
+     "titulo": "telemetría en tiempo real"
+    },
+    {
+     "dir": "→",
+     "label": null,
+     "titulo": "El conocimiento vive en la bóveda; la app es la vista"
+    },
+    {
+     "dir": "←",
+     "label": "requiere",
+     "titulo": "Provenance y Madurez de Nodos IA"
+    },
+    {
+     "dir": "←",
+     "label": "decide",
+     "titulo": "El conocimiento vive en la bóveda; la app es la vista"
+    }
+   ],
+   "creado_por": "bridge",
+   "descripcion": "APLICADO: el estado vive en disco (22 notas + .canvas) y el watcher lo mantiene sincronizado",
+   "id": "n-ag-vault",
+   "madurez": 5,
+   "nucleo": false,
+   "tags": [
+    "PERSISTENCIA",
+    "FASE-3"
+   ],
+   "titulo": "Vault en Disco como Fuente de Verdad"
+  },
+  {
+   "categoria": "SISTEMAS",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": "Sincronización",
+     "titulo": "Motor RAG Grafos & Vectorial"
+    },
+    {
+     "dir": "←",
+     "label": "requiere",
+     "titulo": "Vault en Disco como Fuente de Verdad"
+    },
+    {
+     "dir": "←",
+     "label": "voz",
+     "titulo": "telemetría en tiempo real"
+    },
+    {
+     "dir": "→",
+     "label": null,
+     "titulo": "El checkpoint automático se adelanta a los commits"
+    }
+   ],
+   "creado_por": "bridge",
+   "descripcion": "APLICADO Y MEDIDO: notify::recommended_watcher + debounce 500 ms con TRES guardas anti-bucle — ventana de gracia de 2,5 s en memoria, hash por archivo de lo escrito, y revisión numérica que el frontend consulta por polling (solo reemplaza el estado si cambió). Verificado: revisión estable 15 s en reposo tras editar una nota desde Obsidian. Hueco real y menor: si Obsidian reescribe el .canvas generado la revisión sube igual; se detecta, se ignora y se regenera.",
+   "id": "n-ag-watcher",
+   "madurez": 5,
+   "nucleo": false,
+   "tags": [
+    "WATCHER",
+    "RACE"
+   ],
+   "titulo": "Watcher Bidireccional sin Bucles"
+  },
+  {
+   "categoria": "VISIÓN",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": "evoluciona a",
+     "titulo": "Agente Autónomo Multimodal"
+    },
+    {
+     "dir": "→",
+     "label": "requiere",
+     "titulo": "Lienzo Interactivo Adaptativo"
+    }
+   ],
+   "creado_por": "hermes",
+   "descripcion": "El lienzo deja de ser un tablero pasivo: es una conversación espacial donde la IA tiene ojos (lee el estado del lienzo), manos (crea, enlaza, poda, resalta) y voz selectiva (habla sólo ante un hallazgo o una contradicción). Referencia viva: la nota Manifiesto NodeFlow OS en la bóveda.",
+   "id": "n-ag-copiloto-espacial-operativo",
+   "madurez": 5,
+   "nucleo": false,
+   "tags": [
+    "VISIÓN",
+    "Copiloto"
+   ],
+   "titulo": "Copiloto Espacial Operativo"
+  },
+  {
+   "categoria": "EJECUCIÓN",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": "evoluciona a",
+     "titulo": "Agente Autónomo Multimodal"
+    },
+    {
+     "dir": "←",
+     "label": "requiere",
+     "titulo": "Fase 3b · Puente con Hermes (herramientas)"
+    }
+   ],
+   "creado_por": "hermes",
+   "descripcion": "Cerrar el bucle hablado: Speechmatics entra (listo), el motor actúa en silencio sobre el lienzo y una voz LOCAL (Kokoro, 82M) responde en una frase sólo cuando aporta algo. Sin cuotas, corre en la placa.",
+   "id": "n-ag-fase-3-voz-de-ida-y-vuelta-kokoro",
+   "madurez": 2,
+   "nucleo": false,
+   "tags": [
+    "VISIÓN",
+    "Copiloto"
+   ],
+   "titulo": "Fase 3 · Voz de ida y vuelta (Kokoro)"
+  },
+  {
+   "categoria": "EJECUCIÓN",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": "evoluciona a",
+     "titulo": "Agente Autónomo Multimodal"
+    },
+    {
+     "dir": "→",
+     "label": "requiere",
+     "titulo": "Fase 3 · Voz de ida y vuelta (Kokoro)"
+    },
+    {
+     "dir": "←",
+     "label": "requiere",
+     "titulo": "Fase 4 · Búsqueda web en vivo (grounding)"
+    },
+    {
+     "dir": "←",
+     "label": "decide",
+     "titulo": "La investigación propone; el humano aprueba"
+    },
+    {
+     "dir": "←",
+     "label": "bloquea",
+     "titulo": "El build con el propositor de investigaciones"
+    },
+    {
+     "dir": "←",
+     "label": null,
+     "titulo": "Partir el skill de NodeFlow (28,6 KB)"
+    },
+    {
+     "dir": "→",
+     "label": "revisar vínculo",
+     "titulo": "Sandbox Docker con snippets vectoriales y auditoría criptográfica"
+    }
+   ],
+   "creado_por": "hermes",
+   "descripcion": "El modelo que opera el lienzo delega lo pesado: búsqueda web, generación de código y síntesis profunda. Vía el CLI de Hermes en una pasada (con todas sus herramientas) y el resultado vuelve en el mismo protocolo de acciones, validado por el código.",
+   "id": "n-ag-fase-3b-puente-con-hermes-herramientas",
+   "madurez": 4,
+   "nucleo": false,
+   "tags": [
+    "VISIÓN",
+    "Copiloto"
+   ],
+   "titulo": "Fase 3b · Puente con Hermes (herramientas)"
+  },
+  {
+   "categoria": "EJECUCIÓN",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": "evoluciona a",
+     "titulo": "Agente Autónomo Multimodal"
+    },
+    {
+     "dir": "→",
+     "label": null,
+     "titulo": "Verificar Tavily citando texto real"
+    },
+    {
+     "dir": "→",
+     "label": "requiere",
+     "titulo": "Fase 3b · Puente con Hermes (herramientas)"
+    },
+    {
+     "dir": "←",
+     "label": "bloquea",
+     "titulo": "Verificar Tavily citando texto real"
+    },
+    {
+     "dir": "→",
+     "label": "Fusión IA",
+     "titulo": "Hermes Grounded Synthesis"
+    }
+   ],
+   "creado_por": "hermes",
+   "descripcion": "Los datos externos entran al lienzo como nodos de evidencia con metadatos: resumen, fuente/URL y fiabilidad. Requiere clave de búsqueda (Tavily o Serper, con plan gratuito).",
+   "id": "n-ag-fase-4-búsqueda-web-en-vivo-grounding",
+   "madurez": 1,
+   "nucleo": false,
+   "tags": [
+    "VISIÓN",
+    "Copiloto"
+   ],
+   "titulo": "Fase 4 · Búsqueda web en vivo (grounding)"
+  },
+  {
+   "categoria": "ARQUITECTURA",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": "evoluciona a",
+     "titulo": "Agente Autónomo Multimodal"
+    },
+    {
+     "dir": "→",
+     "label": null,
+     "titulo": "Caché semántica · segundo nivel"
+    },
+    {
+     "dir": "→",
+     "label": null,
+     "titulo": "La placa manda: un modelo por vez (12 GB de VRAM)"
+    },
+    {
+     "dir": "→",
+     "label": null,
+     "titulo": "La escalada a la nube no tiene destino (HTTP 402)"
+    },
+    {
+     "dir": "→",
+     "label": "requiere",
+     "titulo": "Modelo local · DeepSeek-R1-Distill-Qwen-7B"
+    },
+    {
+     "dir": "→",
+     "label": "revisar vínculo",
+     "titulo": "Estado del proyecto"
+    },
+    {
+     "dir": "←",
+     "label": "bloquea",
+     "titulo": "La escalada a la nube no tiene destino (HTTP 402)"
+    },
+    {
+     "dir": "←",
+     "label": "aplica",
+     "titulo": "Investigación: cache semantica de respuestas para apps locales: umbrales y"
+    }
+   ],
+   "creado_por": "hermes",
+   "descripcion": "Dejar de elegir el motor a mano: bucle de UI ultrarrápido (200-400 ms) para voz y acciones del lienzo, y bucle profundo asíncrono para poda dialéctica, código y búsqueda. Determinista, en código, con tests (ADR 0005).",
+   "id": "n-ag-motor-dual-por-tarea-rápido-profundo",
+   "madurez": 4,
+   "nucleo": false,
+   "tags": [
+    "VISIÓN",
+    "Copiloto"
+   ],
+   "titulo": "Motor dual por tarea (rápido / profundo)"
+  },
+  {
+   "categoria": "SISTEMAS",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": "evoluciona a",
+     "titulo": "Agente Autónomo Multimodal"
+    },
+    {
+     "dir": "←",
+     "label": "requiere",
+     "titulo": "Motor dual por tarea (rápido / profundo)"
+    },
+    {
+     "dir": "←",
+     "label": "bloquea",
+     "titulo": "La placa manda: un modelo por vez (12 GB de VRAM)"
+    },
+    {
+     "dir": "←",
+     "label": "aplica",
+     "titulo": "Investigación: quantizacion de modelos locales"
+    },
+    {
+     "dir": "←",
+     "label": "aplica",
+     "titulo": "Investigación: mejoras de ia para hardware amd antiguo, \\\\\\\"6700xt 12gb ram\\\\"
+    }
+   ],
+   "creado_por": "hermes",
+   "descripcion": "El razonamiento de DeepSeek en local y sin entrenar nada: el distilado ya existe (ollama deepseek-r1:7b, ~4,7 GB en Q4). A probar contra qwen2.5vl:7b — ojo: ese es multimodal (ve imágenes), el R1 no.",
+   "id": "n-ag-modelo-local-deepseek-r1-distill-qwen-7b",
+   "madurez": 3,
+   "nucleo": false,
+   "tags": [
+    "VISIÓN",
+    "Copiloto"
+   ],
+   "titulo": "Modelo local · DeepSeek-R1-Distill-Qwen-7B"
+  },
+  {
+   "categoria": "DATOS",
+   "conexiones": [
+    {
+     "dir": "→",
+     "label": "voz",
+     "titulo": "Motor RAG Grafos & Vectorial"
+    },
+    {
+     "dir": "→",
+     "label": "voz",
+     "titulo": "Lienzo Interactivo Adaptativo"
+    },
+    {
+     "dir": "→",
+     "label": "voz",
+     "titulo": "Watcher Bidireccional sin Bucles"
+    },
+    {
+     "dir": "→",
+     "label": "voz",
+     "titulo": "Vault en Disco como Fuente de Verdad"
+    }
+   ],
+   "creado_por": "braindump",
+   "descripcion": "Telemetría en tiempo real",
+   "id": "node-voz-1789344440460-0",
+   "madurez": 1,
+   "nucleo": false,
+   "tags": [
+    "Voz"
+   ],
+   "titulo": "telemetría en tiempo real"
+  },
+  {
+   "categoria": "INVESTIGACIÓN",
+   "conexiones": [
+    {
+     "dir": "→",
+     "label": "revisar vínculo",
+     "titulo": "Investigación: cache semantica de respuestas para apps locales: umbrales y"
+    },
+    {
+     "dir": "→",
+     "label": "alimenta",
+     "titulo": "Norte Estratégico · NodeFlow"
+    },
+    {
+     "dir": "→",
+     "label": "aplica",
+     "titulo": "Modelo local · DeepSeek-R1-Distill-Qwen-7B"
+    },
+    {
+     "dir": "→",
+     "label": "condiciona",
+     "titulo": "La placa manda: un modelo por vez (12 GB de VRAM)"
+    }
+   ],
+   "creado_por": "hermes",
+   "descripcion": "La cuantización de modelos de IA locales reduce los requisitos computacionales y de memoria al reemplazar valores de alta precisión por representaciones más gruesas, haciendo viables modelos como Qwen o DeepSeek en hardware limitado. Formatos como BF16, FP8, GGUF, AWQ y GPTQ permiten elegir entre ahorro de recursos y calidad de respuesta. Sin embargo, no basta con la VRAM de la GPU: influyen la ve",
+   "id": "n-ag-investigación-quantizacion-de-modelos-locales",
+   "madurez": 5,
+   "nucleo": false,
+   "tags": [],
+   "titulo": "Investigación: quantizacion de modelos locales"
+  },
+  {
+   "categoria": "INVESTIGACIÓN",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": "revisar vínculo",
+     "titulo": "Investigación: quantizacion de modelos locales"
+    },
+    {
+     "dir": "→",
+     "label": "alimenta",
+     "titulo": "Norte Estratégico · NodeFlow"
+    },
+    {
+     "dir": "→",
+     "label": "abre",
+     "titulo": "Caché semántica · segundo nivel"
+    },
+    {
+     "dir": "→",
+     "label": "aplica",
+     "titulo": "Motor dual por tarea (rápido / profundo)"
+    }
+   ],
+   "creado_por": "hermes",
+   "descripcion": "La caché semántica almacena embeddings de consultas y recupera respuestas pregeneradas cuando una nueva consulta es semánticamente similar, evitando llamadas redundantes al LLM. El paper de alphaXiv (GPT Semantic Cache) reporta reducciones notables de costos operativos usando Redis en memoria, pero reconoce que el umbral de similitud fijo puede no generalizar entre casos de uso y que la escalabilidad a conjuntos masivos es un desafío. El blog de Pedro Medinilla advierte dos trade-offs concretos: cada prompt debe vectorizarse (costo y latencia pequeños pero no nulos) y existe el problema de invalidación de caché. Couchbase confirma que la recuperación depende de un umbral de similitud para decidir si la respuesta almacenada se reutiliza.",
+   "id": "n-ag-investigación-cache-semantica-de-respuestas-para-apps-locale",
+   "madurez": 5,
+   "nucleo": false,
+   "tags": [],
+   "titulo": "Investigación: cache semantica de respuestas para apps locales: umbrales y"
+  },
+  {
+   "categoria": "NORTE",
+   "conexiones": [
+    {
+     "dir": "→",
+     "label": null,
+     "titulo": "v0.3.0 publicada con instaladores verificados"
+    },
+    {
+     "dir": "→",
+     "label": null,
+     "titulo": "Hackathon · AI Infra Summit (lablab)"
+    },
+    {
+     "dir": "→",
+     "label": null,
+     "titulo": "Estado del proyecto"
+    },
+    {
+     "dir": "←",
+     "label": "revisar vínculo",
+     "titulo": "El conocimiento vive en la bóveda; la app es la vista"
+    },
+    {
+     "dir": "→",
+     "label": null,
+     "titulo": "Investigación por fases 🌱⚔️🧪🚀"
+    },
+    {
+     "dir": "→",
+     "label": null,
+     "titulo": "Auto-actualización firmada + sello del build"
+    },
+    {
+     "dir": "→",
+     "label": null,
+     "titulo": "Negocio · ingresos por servicios"
+    },
+    {
+     "dir": "→",
+     "label": null,
+     "titulo": "Amuse (imagen local) como herramienta de assets"
+    },
+    {
+     "dir": "→",
+     "label": "deuda técnica medida",
+     "titulo": "Rendimiento del lienzo: qué medimos y qué arreglar a futuro"
+    },
+    {
+     "dir": "→",
+     "label": "camino elegido",
+     "titulo": "Cerebro residente: que el modelo habite los nodos (plan y viabilidad)"
+    },
+    {
+     "dir": "←",
+     "label": "alimenta",
+     "titulo": "Investigación: quantizacion de modelos locales"
+    },
+    {
+     "dir": "←",
+     "label": "alimenta",
+     "titulo": "Investigación: cache semantica de respuestas para apps locales: umbrales y"
+    },
+    {
+     "dir": "←",
+     "label": "alimenta",
+     "titulo": "Investigación: mejoras de ia para hardware amd antiguo, \\\\\\\"6700xt 12gb ram\\\\"
+    },
+    {
+     "dir": "→",
+     "label": "alimenta",
+     "titulo": "Investigación: Modelo local cuantizado que quepa en 12 GB de VRAM y sirva d"
+    },
+    {
+     "dir": "→",
+     "label": "alimenta",
+     "titulo": "Con el panel «Pensar desde el lienzo» ya hecho, ¿cuál es el próximo pa"
+    }
+   ],
+   "creado_por": "hermes",
+   "descripcion": "NodeFlow es un orquestador de inferencia híbrida Edge/Cloud con el humano en el circuito: el motor se elige por tarea y costo, el conocimiento vive en la bóveda y la app es la vista. Objetivo: producto demostrable (hackathons 2026) que traccione servicios de automatización IA / visuales TD / web.",
+   "id": "n-ag-norte-estratégico-nodeflow",
+   "madurez": 3,
+   "nucleo": false,
+   "tags": [],
+   "titulo": "Norte Estratégico · NodeFlow"
+  },
+  {
+   "categoria": "PENDIENTE",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": null,
+     "titulo": "Motor dual por tarea (rápido / profundo)"
+    },
+    {
+     "dir": "←",
+     "label": "abre",
+     "titulo": "Investigación: cache semantica de respuestas para apps locales: umbrales y"
+    }
+   ],
+   "creado_por": "hermes",
+   "descripcion": "CONSTRUIDO Y MEDIDO (14/09): mismo pedido con otras palabras 11.028 ms → 17 ms; mismo tema con palabras distintas (vectorial, gemini-embedding-001) 5.181 ms → 417 ms; ~3,2k tokens evitados por acierto. Contadores en GET /api/ai/cache. FALTA: que el panel muestre los dos niveles y medir el acierto vectorial con pedidos largos.",
+   "id": "n-ag-caché-semántica-segundo-nivel-exacta-semántica",
+   "madurez": 3,
+   "nucleo": false,
+   "tags": [],
+   "titulo": "Caché semántica · segundo nivel"
+  },
+  {
+   "categoria": "PENDIENTE",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": null,
+     "titulo": "Watcher Bidireccional sin Bucles"
+    },
+    {
+     "dir": "→",
+     "label": null,
+     "titulo": "Estado del proyecto"
+    }
+   ],
+   "creado_por": "hermes",
+   "descripcion": "El autoguardado commitea con `chore(checkpoint)` antes de que yo commitee con mensaje propio, y se pierde el porqué. Debe no tomar archivos que él no escribió.",
+   "id": "n-ag-el-checkpoint-automático-se-adelanta-a-los-commits",
+   "madurez": 1,
+   "nucleo": false,
+   "tags": [],
+   "titulo": "El checkpoint automático se adelanta a los commits"
+  },
+  {
+   "categoria": "PENDIENTE",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": null,
+     "titulo": "Fase 4 · Búsqueda web en vivo (grounding)"
+    },
+    {
+     "dir": "→",
+     "label": "bloquea",
+     "titulo": "Fase 4 · Búsqueda web en vivo (grounding)"
+    },
+    {
+     "dir": "→",
+     "label": null,
+     "titulo": "Investigación por fases 🌱⚔️🧪🚀"
+    }
+   ],
+   "creado_por": "hermes",
+   "descripcion": "La clave funciona (probada contra la API: 5.4k y 7.2k caracteres de contenido real en 1,18 s). Falta una corrida entera de la investigación atribuida a Tavily y no al respaldo de Hermes.",
+   "id": "n-ag-verificar-tavily-citando-texto-real",
+   "madurez": 1,
+   "nucleo": false,
+   "tags": [],
+   "titulo": "Verificar Tavily citando texto real"
+  },
+  {
+   "categoria": "PENDIENTE",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": null,
+     "titulo": "Provenance y Madurez de Nodos IA"
+    },
+    {
+     "dir": "→",
+     "label": null,
+     "titulo": "La investigación propone; el humano aprueba"
+    }
+   ],
+   "creado_por": "hermes",
+   "descripcion": "El dato está bien (padre_id resuelto), el texto de vista.resumen engaña. Pulir en el backend.",
+   "id": "n-ag-el-rótulo-de-la-propuesta-dice-sin-conexión-a",
+   "madurez": 1,
+   "nucleo": false,
+   "tags": [],
+   "titulo": "El rótulo de la propuesta dice «sin conexión a…»"
+  },
+  {
+   "categoria": "HITO",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": null,
+     "titulo": "Lienzo Interactivo Adaptativo"
+    },
+    {
+     "dir": "→",
+     "label": "revisar vínculo",
+     "titulo": "v0.3.0 publicada con instaladores verificados"
+    },
+    {
+     "dir": "→",
+     "label": "bloquea",
+     "titulo": "Fase 3b · Puente con Hermes (herramientas)"
+    }
+   ],
+   "creado_por": "hermes",
+   "descripcion": "RESUELTO 14/09, y mejor de lo previsto: no hizo falta reinstalar a mano. La app se auto-actualiza con firma verificada (v0.3.1) y el build se ve en el título de la ventana. Una investigación real del usuario entró sola a la cola de propuestas con sus 6 fuentes.",
+   "id": "n-ag-instalar-el-build-con-el-propositor-de-investigaciones",
+   "madurez": 5,
+   "nucleo": false,
+   "tags": [],
+   "titulo": "El build con el propositor de investigaciones"
+  },
+  {
+   "categoria": "PENDIENTE",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": null,
+     "titulo": "Provenance y Madurez de Nodos IA"
+    },
+    {
+     "dir": "→",
+     "label": null,
+     "titulo": "Fase 3b · Puente con Hermes (herramientas)"
+    }
+   ],
+   "creado_por": "hermes",
+   "descripcion": "Se carga entero en cada tarea del proyecto y viaja en cada turno. La doctrina es: SKILL.md fino + references por tema.",
+   "id": "n-ag-partir-el-skill-de-nodeflow-286-kb",
+   "madurez": 1,
+   "nucleo": false,
+   "tags": [],
+   "titulo": "Partir el skill de NodeFlow (28,6 KB)"
+  },
+  {
+   "categoria": "RIESGO",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": null,
+     "titulo": "Motor dual por tarea (rápido / profundo)"
+    },
+    {
+     "dir": "→",
+     "label": "bloquea",
+     "titulo": "Modelo local · DeepSeek-R1-Distill-Qwen-7B"
+    },
+    {
+     "dir": "←",
+     "label": "condiciona",
+     "titulo": "Investigación: quantizacion de modelos locales"
+    },
+    {
+     "dir": "←",
+     "label": "condiciona",
+     "titulo": "Investigación: mejoras de ia para hardware amd antiguo, \\\\\\\"6700xt 12gb ram\\\\"
+    }
+   ],
+   "creado_por": "hermes",
+   "descripcion": "RX 6700 XT. Medido: pico 5,1 GB con un modelo. Correr tres a la vez es quemarla. Regla operativa: OLLAMA_MAX_LOADED_MODELS=1.",
+   "id": "n-ag-la-placa-manda-un-modelo-por-vez-12-gb-de-vram",
+   "madurez": 4,
+   "nucleo": false,
+   "tags": [],
+   "titulo": "La placa manda: un modelo por vez (12 GB de VRAM)"
+  },
+  {
+   "categoria": "RIESGO",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": null,
+     "titulo": "Motor dual por tarea (rápido / profundo)"
+    },
+    {
+     "dir": "→",
+     "label": "bloquea",
+     "titulo": "Motor dual por tarea (rápido / profundo)"
+    }
+   ],
+   "creado_por": "hermes",
+   "descripcion": "Los modelos -cloud del daemon responden 402 sin créditos: la red de seguridad de la escalada existe pero no tiene a dónde ir. Hoy avisa en el log en vez de fallar en silencio.",
+   "id": "n-ag-la-escalada-a-la-nube-no-tiene-destino-http-402",
+   "madurez": 3,
+   "nucleo": false,
+   "tags": [],
+   "titulo": "La escalada a la nube no tiene destino (HTTP 402)"
+  },
+  {
+   "categoria": "DECISIÓN",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": null,
+     "titulo": "Vault en Disco como Fuente de Verdad"
+    },
+    {
+     "dir": "→",
+     "label": "revisar vínculo",
+     "titulo": "Norte Estratégico · NodeFlow"
+    },
+    {
+     "dir": "→",
+     "label": "decide",
+     "titulo": "Vault en Disco como Fuente de Verdad"
+    }
+   ],
+   "creado_por": "hermes",
+   "descripcion": "El vault en disco es la fuente de verdad y el watcher bidireccional mantiene el lienzo. Todo lo demás se deriva de ahí.",
+   "id": "n-ag-el-conocimiento-vive-en-la-bóveda-la-app-es-la-vista",
+   "madurez": 4,
+   "nucleo": false,
+   "tags": [],
+   "titulo": "El conocimiento vive en la bóveda; la app es la vista"
+  },
+  {
+   "categoria": "DECISIÓN",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": null,
+     "titulo": "Provenance y Madurez de Nodos IA"
+    },
+    {
+     "dir": "→",
+     "label": "decide",
+     "titulo": "Fase 3b · Puente con Hermes (herramientas)"
+    },
+    {
+     "dir": "←",
+     "label": null,
+     "titulo": "El rótulo de la propuesta dice «sin conexión a…»"
+    }
+   ],
+   "creado_por": "hermes",
+   "descripcion": "Los hallazgos entran a la cola de propuestas (nodo central con la síntesis + fuentes colgando), nunca directo al lienzo. Verificado end-to-end el 14/09.",
+   "id": "n-ag-la-investigación-propone-el-humano-aprueba",
+   "madurez": 3,
+   "nucleo": false,
+   "tags": [],
+   "titulo": "La investigación propone; el humano aprueba"
+  },
+  {
+   "categoria": "HITO",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": null,
+     "titulo": "Norte Estratégico · NodeFlow"
+    },
+    {
+     "dir": "←",
+     "label": "revisar vínculo",
+     "titulo": "El build con el propositor de investigaciones"
+    }
+   ],
+   "creado_por": "hermes",
+   "descripcion": "Releases públicas hasta v0.3.0 en NeonEden/NodeFlow, con digests coincidentes y CI en verde.",
+   "id": "n-ag-v0-3-0-publicada-con-instaladores-verificados",
+   "madurez": 5,
+   "nucleo": false,
+   "tags": [],
+   "titulo": "v0.3.0 publicada con instaladores verificados"
+  },
+  {
+   "categoria": "HITO",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": null,
+     "titulo": "Norte Estratégico · NodeFlow"
+    },
+    {
+     "dir": "←",
+     "label": "revisar vínculo",
+     "titulo": "Agente Autónomo Multimodal"
+    },
+    {
+     "dir": "→",
+     "label": null,
+     "titulo": "Video demo (3 <usuario>)"
+    }
+   ],
+   "creado_por": "hermes",
+   "descripcion": "Miércoles 16/09 15:30. Después: AssemblyAI Voice (30/09) y AMD ACT III (12-18/10).",
+   "id": "n-ag-hackathon-ai-infra-summit-lablab",
+   "madurez": 1,
+   "nucleo": false,
+   "tags": [],
+   "titulo": "Hackathon · AI Infra Summit (lablab)"
+  },
+  {
+   "categoria": "ESTADO",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": null,
+     "titulo": "Norte Estratégico · NodeFlow"
+    },
+    {
+     "dir": "←",
+     "label": "revisar vínculo",
+     "titulo": "Motor dual por tarea (rápido / profundo)"
+    },
+    {
+     "dir": "←",
+     "label": null,
+     "titulo": "El checkpoint automático se adelanta a los commits"
+    }
+   ],
+   "creado_por": "hermes",
+   "descripcion": "Estado al 2026-09-16 · rama main\n139 commits en 7 días.\nCerró: Fase 5.4 — la arquitectura de la app, inventariada del árbol real · Fase 5.2 — mi espacio (bitácora, planes y la nota del humano) · Fase 5.3 — el registro de herramientas del cerebro (crear, aprobar, usar) · el panel muestra el razonamiento del modelo (reasoning.delta resumido) · Fase 5.1 (briefing por turno) + fix del discriminante del gateway · Fase 4 - el panel habla con el gateway y resuelve aprobaciones ahi mismo · Fase 3 - panel «Pensar desde el lienzo» (la boca del cerebro en la app) · aterriza en UN nodo con la evidencia adentro, colgado del Norte · el turno se arma desde la boveda (Fase 2) - recuerdo dirigido, no el lienzo masticado · el motor profundo deja de ser one-shot - sesion nombrada + nota episodica · una generacion por vez + topes de salida y contexto explicitos · motor de reconocimiento declarativo (Speechmatics / AssemblyAI v3)\nCorrigió: el gateway se corre a un puerto libre y sólo se da por listo si es NUESTRO · el gateway arrancaba con stdout piped y sin lector (se trababa) + feedback visible en el panel · el titulo de la nota de turno es el pedido, no «Turno del cerebro» · fallback declarado en la sintesis (DeepSeek -> Hermes) y error visible · la nota episodica se fecha en hora local, no en UTC · subir lo commiteado y sin subir aunque el arbol este limpio · llavero del SO con verificacion de lectura + switch de idioma · la lista de motores mira el mismo config que el estado · \"Lo que sigue\" leía el estado en la forma equivocada y las etiquetas no se dibujaban · el nodo nuevo busca hueco y no cae encima de otro · el guardado automático espera quietud y no toma trabajo ajeno · proponer una sola vez por corrida (y limpiar el ruido de «Actualizar»)\nAceleró: el prompt se ordena para el cache de prefijo y la app mide el ahorro\nDocumentó: estado del plan 5.0-5.3 + como se crea una herramienta del cerebro · estado del plan (fases 0-2 hechas) + lo medido al curar el lienzo · alinear el relato de modelos con el codigo + benchmarks medidos + business value · las cuatro capas del mapa del proyecto y la regla de sincronizacion con la evidencia · Tavily verificado (la clave responde con el texto completo de las paginas) y tutorial corregido · como funciona NodeFlow de punta a punta, con la tabla honesta de limites · planilla medida y sus conclusiones · notas de v0.1.1 con el Motor de Condensación y los SHA-256 · bitácora de la Fase A · notas de v0.1.0 listas para publicar · add README (EN/ES), roadmap, ADRs, MIT license and real env example\nÚltima release etiquetada: v0.3.5.",
+   "id": "n-ag-estado-del-proyecto",
+   "madurez": 3,
+   "nucleo": false,
+   "tags": [],
+   "titulo": "Estado del proyecto"
+  },
+  {
+   "categoria": "EJECUCIÓN",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": null,
+     "titulo": "Norte Estratégico · NodeFlow"
+    },
+    {
+     "dir": "←",
+     "label": null,
+     "titulo": "Verificar Tavily citando texto real"
+    },
+    {
+     "dir": "→",
+     "label": "Fusión IA",
+     "titulo": "Hermes Grounded Synthesis"
+    }
+   ],
+   "creado_por": "hermes",
+   "descripcion": "Hermes sale a la web y el motor sintetiza, en cuatro fases que el usuario ve crecer. Al terminar, los hallazgos entran a la cola de propuestas (nodo central con la síntesis + fuentes colgando) y el humano decide. Verificado end-to-end el 14/09: 6 propuestas automáticas, lienzo intacto.",
+   "id": "n-ag-investigación-por-fases",
+   "madurez": 4,
+   "nucleo": false,
+   "tags": [],
+   "titulo": "Investigación por fases 🌱⚔️🧪🚀"
+  },
+  {
+   "categoria": "INVESTIGACIÓN",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": "revisar vínculo",
+     "titulo": "Imágenes que identifiquen cada nodo"
+    },
+    {
+     "dir": "→",
+     "label": "alimenta",
+     "titulo": "Norte Estratégico · NodeFlow"
+    },
+    {
+     "dir": "→",
+     "label": "condiciona",
+     "titulo": "La placa manda: un modelo por vez (12 GB de VRAM)"
+    },
+    {
+     "dir": "→",
+     "label": "aplica",
+     "titulo": "Modelo local · DeepSeek-R1-Distill-Qwen-7B"
+    }
+   ],
+   "creado_por": "hermes",
+   "descripcion": "AMD ha presentado Amuse 3.0, una solución de IA optimizada para su hardware, con modelos que ofrecen hasta 4,3 veces más rendimiento. Para la RX 6700 XT de 12 GB, existe la duda de si dos tarjetas en CrossFire pueden combinarse para obtener 24 GB y ejecutar modelos de IA más grandes, ya que 12 GB se queda corto. Además, se documenta que la RX 6700 XT puede overclockearse hasta un 8,3% superando el límite de TDP de 189W mediante MorePowerTool.",
+   "id": "n-ag-investigación-mejoras-de-ia-para-hardware-amd-antiguo-6700xt",
+   "madurez": 5,
+   "nucleo": false,
+   "tags": [],
+   "titulo": "Investigación: mejoras de ia para hardware amd antiguo, \\\\\\\"6700xt 12gb ram\\\\"
+  },
+  {
+   "categoria": "EJECUCIÓN",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": null,
+     "titulo": "Norte Estratégico · NodeFlow"
+    }
+   ],
+   "creado_por": "hermes",
+   "descripcion": "La app consulta el manifiesto firmado del release y se actualiza sola, verificando la firma (un paquete trucho se rechaza). El build se lee en el título de la ventana: se terminó el «¿qué build estoy corriendo?» que costó un diagnóstico entero. Verificado end-to-end el 14/09: 0.3.0 → 0.3.1 en 6 segundos, un clic.",
+   "id": "n-ag-auto-actualización-firmada-sello-del-build",
+   "madurez": 4,
+   "nucleo": false,
+   "tags": [],
+   "titulo": "Auto-actualización firmada + sello del build"
+  },
+  {
+   "categoria": "NEGOCIO",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": null,
+     "titulo": "Norte Estratégico · NodeFlow"
+    },
+    {
+     "dir": "→",
+     "label": null,
+     "titulo": "One-pagers de servicios (IA / visuales TD / web)"
+    },
+    {
+     "dir": "→",
+     "label": null,
+     "titulo": "Outreach a 30 prospectos"
+    },
+    {
+     "dir": "←",
+     "label": null,
+     "titulo": "Video demo (3 <usuario>)"
+    }
+   ],
+   "creado_por": "hermes",
+   "descripcion": "Meta: ingresos por automatización con IA, visuales en TouchDesigner y web. NodeFlow no es el producto que paga las cuentas todavía (6-12 meses): es el imán de leads. Lo que se vende es el servicio; lo que se muestra es NodeFlow.",
+   "id": "n-ag-negocio-ingresos-por-servicios",
+   "madurez": 2,
+   "nucleo": false,
+   "tags": [],
+   "titulo": "Negocio · ingresos por servicios"
+  },
+  {
+   "categoria": "PENDIENTE",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": null,
+     "titulo": "Hackathon · AI Infra Summit (lablab)"
+    },
+    {
+     "dir": "→",
+     "label": null,
+     "titulo": "Negocio · ingresos por servicios"
+    }
+   ],
+   "creado_por": "hermes",
+   "descripcion": "Guion ya escrito en docs/TUTORIAL.md: arranque y lienzo, el circuito dictar→plan→aprobar, y la investigación por fases. Se muestra en el hackathon del miércoles 16/09 y después queda para el outreach.",
+   "id": "n-ag-video-demo-3-<usuario>",
+   "madurez": 1,
+   "nucleo": false,
+   "tags": [],
+   "titulo": "Video demo (3 <usuario>)"
+  },
+  {
+   "categoria": "PENDIENTE",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": null,
+     "titulo": "Negocio · ingresos por servicios"
+    },
+    {
+     "dir": "→",
+     "label": "revisar vínculo",
+     "titulo": "Programación y construcción de aplicaciones en NodeFlow"
+    }
+   ],
+   "creado_por": "hermes",
+   "descripcion": "Una página por servicio con problema, qué se entrega y rango de precio. NodeFlow como prueba de capacidad.",
+   "id": "n-ag-one-pagers-de-servicios-ia-visuales-td-web",
+   "madurez": 1,
+   "nucleo": false,
+   "tags": [],
+   "titulo": "One-pagers de servicios (IA / visuales TD / web)"
+  },
+  {
+   "categoria": "PENDIENTE",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": null,
+     "titulo": "Negocio · ingresos por servicios"
+    }
+   ],
+   "creado_por": "hermes",
+   "descripcion": "Lista de 30 prospectos con motivo de contacto y un entregable concreto por cada uno. Es la acción que convierte el producto en ingresos.",
+   "id": "n-ag-outreach-a-30-prospectos",
+   "madurez": 1,
+   "nucleo": false,
+   "tags": [],
+   "titulo": "Outreach a 30 prospectos"
+  },
+  {
+   "categoria": "PENDIENTE",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": null,
+     "titulo": "Lienzo Interactivo Adaptativo"
+    },
+    {
+     "dir": "→",
+     "label": "revisar vínculo",
+     "titulo": "Investigación: mejoras de ia para hardware amd antiguo, \\\\\\\"6700xt 12gb ram\\\\"
+    }
+   ],
+   "creado_por": "hermes",
+   "descripcion": "Miniaturas livianas (512 px o menos) generadas localmente para que cada nodo se reconozca de un vistazo, sin leer el título. Encaja con la taxonomía de formas por estado epistémico. Herramienta evaluada: Amuse v3.7.9 (zip portable en Escritorio\\Amuse, 418 MB) — su backend Vulkan es la vía para la RX 6700 XT, porque ROCm 7.2 solo cubre RDNA3+. Alternativa con mejor soporte AMD antiguo: ComfyUI. Modelos livianos: SD 1.5 / LCM.",
+   "id": "n-ag-imágenes-que-identifiquen-cada-nodo",
+   "madurez": 1,
+   "nucleo": false,
+   "tags": [],
+   "titulo": "Imágenes que identifiquen cada nodo"
+  },
+  {
+   "categoria": "DECISIÓN",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": null,
+     "titulo": "Norte Estratégico · NodeFlow"
+    }
+   ],
+   "creado_por": "hermes",
+   "descripcion": "Verificado el 14/09: Amuse es gratis, local y corre en Windows; la versión actual usa ROCm 7.2 (RDNA3+) pero trae backend Vulkan, que es la vía para la 6700XT. Para AMD antiguo la comunidad recomienda ComfyUI. Se descarga el zip portable (418 MB) y NO se instala todavía: se prueba cuando haga falta generar imágenes de nodos. No requiere cuenta ni internet para generar.",
+   "id": "n-ag-amuse-imagen-local-como-herramienta-de-assets",
+   "madurez": 2,
+   "nucleo": false,
+   "tags": [],
+   "titulo": "Amuse (imagen local) como herramienta de assets"
+  },
+  {
+   "categoria": "ARQUITECTURA",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": "deuda técnica medida",
+     "titulo": "Norte Estratégico · NodeFlow"
+    }
+   ],
+   "creado_por": "hermes",
+   "descripcion": "Medido el 15/09 (release, 59 nodos / 89 aristas). JARDÍN: diagnostico 0,8 ms @50 → 388 ms @1600 nodos (exponente medido 1,61→2,02 = cuadrático) por grafo.rs 426-427 (validar: for i × for j) y 801-814 (padrinos: for e × for nodo). Lineales y sanos: grados y siguiente (1,5 ms @1600) → el panel «Lo que sigue» no se degrada. HTTP @59: /api/graph/garden 75 ms (casi todo leer+parsear state.json 107 KB ≈ 1,8 KB por nodo, no algoritmo), resto 0,7-5 ms; autoguardado 147 ms por 88 KB con debounce de 1,5 s → roza su propio debounce cerca de ~900 nodos. GPU: el prompt de IA está acotado por diseño (BM25 top-k ≤40 notas + recorte de cuerpo 1200 chars; 1039 tokens medidos) → más nodos NO se pagan en la placa. Frontend: una tarjeta DOM por nodo y una ruta SVG por arista, sin onlyRenderVisibleElements (primer cuello si se pasa de ~300-500). Arreglo ordenado: (1) indexar por id con HashMap en validar/padrinos → exponente ~1,2; (2) cachear el jardín por revisión; (3) cachear el parseo de state.json por mtime; (4) onlyRenderVisibleElements en ReactFlow. Umbrales: ≤200 sin efecto · ~400 garden 100-150 ms · ~800 garden 0,5-1 s · ~1600 garden 1,5-2 s. Banco reusable: %LOCALAPPDATA%/Temp/nf-bench → cargo run --release --offline (11 s, no toca el repo ni la bóveda). Detalle y tabla completa: skill nodeflow-mcp, references/rendimiento-y-escala.md. Costo fijo aparte: la tarea NodeFlow Checkpoint corre 6,6 s cada 5 min (tsc 4,8 + cargo test 1,8), independiente de los nodos.",
+   "id": "n-ag-rendimiento-del-lienzo-qué-medimos-y-qué-arreglar-a-futuro",
+   "madurez": 1,
+   "nucleo": false,
+   "tags": [
+    "rendimiento",
+    "escala",
+    "deuda-tecnica"
+   ],
+   "titulo": "Rendimiento del lienzo: qué medimos y qué arreglar a futuro"
+  },
+  {
+   "categoria": "ARQUITECTURA",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": "camino elegido",
+     "titulo": "Norte Estratégico · NodeFlow"
+    }
+   ],
+   "creado_por": "hermes",
+   "descripcion": "Objetivo: que Hermes habite el lienzo — que la memoria, el contexto y la visión del proyecto crezcan DESDE la bóveda y no desde el chat, y que las modificaciones se hagan desde adentro de la app con las herramientas de Hermes ejecutando ahí. VIABILIDAD: sí, sin investigación nueva; ~3/4 de las piezas ya existen (cola HITL con auditoría, bóveda como verdad, BM25 acotado a 40, hilo de diálogo con foco, guardas base_revision+rescate, MCP en ambos sentidos). Lo que falta es cableado y política. VERIFICADO HOY: -z es sin estado · --resume por ID conserva la sesión (probado, resumió otra por usar 'latest': trampa) · -c por título funciona si la sesión existe (sessions rename) y --create-if-missing NO existe aunque el error lo sugiera · hermes mcp serve expone 10 tools de CONVERSACIONES, no ejecuta turnos (no sirve para esto) · hermes serve = JSON-RPC/WebSocket 127.0.0.1:9119, la misma puerta que usa la app de escritorio de Hermes (esa es la de 'habitar'). FASES: 0 habilitar las 22 tools MCP del lienzo para Hermes (30 min, reversible) · 1 corte vertical: delegar deja de ser one-shot con sesión nombrada por proyecto + nota episódica fechada por turno (medio día) · 2 el contexto lo arma la app desde la bóveda y se puede VER qué se mandó (1-2 días) · 3 panel «Pensar desde el lienzo» con progreso y aterrizaje en nodos propuestos (2-3 días) · 4 pasar de -z a hermes serve: streaming, eventos por herramienta, aprobaciones nativas, sin tope de 240 s (1-2 semanas, el salto grande) · 5 memoria del proyecto derivada del grafo por cron (visión, decisiones, deuda). REGLAS: una sola verdad (la bóveda) · toda escritura vuelve por la cola de propuestas · el turno NO manda el lienzo (pedido + top-k + foco; medido ~1.039 tokens hoy) · el residuo del turno se escribe siempre (nodo/actualización + nota fechada) · sesión nombrada, nunca 'latest'. RIESGOS: tope 240 s y one-shot (mientras delegar sea subproceso el habitante es visitante) · costo por turno 10-50× un pedido de lienzo si se manda el grafo entero · la placa no sostiene 7B@16k (426 s de TTFT): local para el bucle chico, nube para lo profundo con auto:tarea · proveedor inestable: el diseño necesita fallback declarado (hermes fallback) · la política de auto-aprobación es decisión de producto. DECISIONES PEDIDAS: (1) habilitar las 22 tools MCP, (2) qué se auto-aprueba (propuesta: crear notas/nodos sí, modificar y borrar con aprobación), (3) si vamos por la Fase 4 o alcanza con 1-3. Plan completo: docs/PLAN-CEREBRO-RESIDENTE.md",
+   "id": "n-ag-cerebro-residente-que-el-modelo-habite-los-nodos-plan-y-viab",
+   "madurez": 3,
+   "nucleo": false,
+   "tags": [
+    "cerebro-residente",
+    "arquitectura",
+    "plan"
+   ],
+   "titulo": "Cerebro residente: que el modelo habite los nodos (plan y viabilidad)"
+  },
+  {
+   "categoria": "INVESTIGACIÓN",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": "alimenta",
+     "titulo": "Norte Estratégico · NodeFlow"
+    }
+   ],
+   "creado_por": "hermes",
+   "descripcion": "En 12 GB de VRAM el formato no es una preferencia sino una restricción: con GGUF de la familia K-quant el 14B denso entra en Q4_K_M (9.0 GB de pesos) pero el Q5_K_M (10.51 GB) deja casi nada para caché KV y el Q6_K (12.12 GB) no entra directamente. La calidad medida no exige subir de formato: Q5_K_M queda en PPL 6.289 contra 6.233 de f16 (~0.9% de degradación) y Q4_K_M en 6.407 (~2.8%), así que el Q4_K_M paga poco por el espacio que libera. La clase 20B+ queda descartada para esta placa: un 20B con cuantización nativa MXFP4 pesa 12.11 GB, es decir los pesos solos ya consumen la tarjeta antes de contar contexto. Conclusión práctica: cerebro residente = 14B en Q4_K_M (o Q3_K_M 7.32 GB si se necesita más contexto), con el presupuesto restante asignado a la caché KV.\n\nFuentes:\n- llama.cpp — tools/quantize/README.md (formatos GGUF: bits/peso, tamaño y velocidad por tipo de cuantización) — https://github.com/ggml-org/llama.cpp/blob/master/tools/quantize/README.md · Es la tabla oficial del formato: bits/peso y tamaño por tipo (Q4_K_M 4.89 bits · Q5_K_M 5.70 · Q6_K 6.56 · Q8_0 8.50) y baja la generación de 76 t/s en Q4_K_S a 51 t/s en Q8_0, que es el trade-off for\n- llama.cpp — tools/perplexity (calidad medida: f16 vs q4_K_M vs q5_K_M) — https://github.com/ggml-org/llama.cpp/tree/master/tools/perplexity · Mide la pérdida en vez de opinar: sobre el mismo modelo, q4_K_M queda en PPL 6.407 contra 6.233 de f16, mientras q5_K_M queda en 6.289 (~0.9% de degradación contra ~2.8% del Q4). Evidencia de que entr\n- unsloth/Qwen3-14B-GGUF — tamaños reales por cuantización (Hugging Face) — https://huggingface.co/unsloth/Qwen3-14B-GGUF · Da los bytes exactos por archivo del 14B denso (verificados vía API de HF): Q3_K_M 7.32 GB · Q4_K_M 9.0 GB · Q5_K_M 10.51 GB · Q6_K 12.12 GB. Con eso se ve que el techo real de la placa es Q4_K_M —y Q\n- ggml-org/gpt-oss-20b-GGUF — el 20B en MXFP4 pesa 12.11 GB — https://huggingface.co/ggml-org/gpt-oss-20b-GGUF · Es el límite superior concreto para 12 GB: un 20B con cuantización nativa MXFP4 ocupa 12.11 GB de pesos, así que no queda VRAM para caché KV ni contexto y obliga a offload a CPU. Sirve para descartar\n- Which Quantization Should I Use? A Unified Evaluation of llama.cpp Quantization on Llama-3.1-8B-Instruct — https://arxiv.org/abs/2601.14277 · Estudio unificado de 13 configuraciones (Q3_K* a Q8_0) derivadas del mismo checkpoint, con perplexity y benchmarks downstream (MMLU, GSM8K, HellaSwag, IFEval): reemplaza el consejo anecdótico por comp",
+   "id": "n-ag-investigación-modelo-local-cuantizado-que-quepa-en-12-gb-de-",
+   "madurez": 5,
+   "nucleo": false,
+   "tags": null,
+   "titulo": "Investigación: Modelo local cuantizado que quepa en 12 GB de VRAM y sirva d"
+  },
+  {
+   "categoria": "ARQUITECTURA",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": "alimenta",
+     "titulo": "Norte Estratégico · NodeFlow"
+    }
+   ],
+   "creado_por": "hermes",
+   "descripcion": "El próximo paso es la Fase 4 del plan del cerebro: dejar de invocar a Hermes como subproceso (`cerebro.rs::argv` arma `hermes chat -q … -c nf-cerebro --oneshot --run-budget`, con la jaula del tope de 240 s y una sola respuesta) y conectarse como cliente al gateway `hermes serve` — JSON-RPC/WebSocket headless en 127.0.0.1:9119, verificado en su `--help`: «the JSON-RPC/WebSocket gateway the desktop app and remote clients connect to».\n\nCon eso el panel «Pensar desde el lienzo» (ya hecho: `src/components/CerebroPanel.tsx` + `App.tsx`) pasa de mostrar un resultado al final a mostrar el turno en vivo: streaming token a token, un evento por cada herramienta ejecutada, aprobaciones nativas y turnos largos sin re-lanzar procesos.\n\nCriterio de aceptación concreto y verificable: un pedido real con al menos 5 herramientas, cada paso visible en el panel y el registro del turno (nodo o actualización + nota episódica en `cerebro/`) escrito en la bóveda — eso es lo que convierte «delegar» en «habitar»; las Fases 0-3 ya están hechas y sirven sin esta, que es la única que cambia la naturaleza del sistema.\n\nContexto usado: lienzo=42/72 · pendientes=1 · norte=Norte Estratégico · NodeFlow · memoria=[Turno del cerebro, Cerebro residente: que el modelo habite los nodos (plan y viabilidad), Turno del cerebro, Turno del cerebro, Que es deepseek, agente-autónomo-multimodal.canvas (canvas)] · foco=[]",
+   "id": "n-ag-con-el-panel-pensar-desde-el-lienzo-ya-hecho-cuál-es-el-próx",
+   "madurez": 3,
+   "nucleo": false,
+   "tags": null,
+   "titulo": "Con el panel «Pensar desde el lienzo» ya hecho, ¿cuál es el próximo pa"
+  },
+  {
+   "categoria": "ARQUITECTURA",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": "contiene",
+     "titulo": "Agente Autónomo Multimodal"
+    },
+    {
+     "dir": "→",
+     "label": "prompt_visual",
+     "titulo": "Experto · Prompt Visual"
+    },
+    {
+     "dir": "→",
+     "label": "brief_documento",
+     "titulo": "Experto · Brief Documento"
+    },
+    {
+     "dir": "→",
+     "label": "critica",
+     "titulo": "Experto · Crítica Radical"
+    },
+    {
+     "dir": "→",
+     "label": "spec_td",
+     "titulo": "Experto · Spec TD (sin nota)"
+    }
+   ],
+   "creado_por": "hermes",
+   "descripcion": "Puerta visible a los expertos del vault (<bóveda>/expertos/): no son código, son notas editables con system prompt que NodeFlow lee archivo por archivo. Hoy hay 3 registrados —Prompt Visual (3.062 car., proveedor gemini), Brief Documento (1.716 car., gemini) y Crítica Radical (1.527 car.)— y 4 tipos de artefacto declarados: prompt_visual, brief_documento, critica y spec_td. Al ejecutarse sobre un nodo, el experto recibe el nodo + su vecindad + la memoria BM25 de la bóveda y devuelve un artefacto tipado con validador por destino. Regla: el system prompt vive en la nota; este nodo apunta, no lo duplica (una sola verdad). Verificado: un experto corriendo de punta a punta tardó 18 s y entregó artefacto (14/09).",
+   "id": "n-ag-expertos-del-lienzo-artefactos-tipados",
+   "madurez": 3,
+   "nucleo": false,
+   "tags": [
+    "expertos",
+    "orquestador",
+    "artefactos"
+   ],
+   "titulo": "Expertos del lienzo (artefactos tipados)"
+  },
+  {
+   "categoria": "ARQUITECTURA",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": "prompt_visual",
+     "titulo": "Expertos del lienzo (artefactos tipados)"
+    }
+   ],
+   "creado_por": "hermes",
+   "descripcion": "Tipo: prompt_visual → destino Flow / ComfyUI / TouchDesigner. Lleva un concepto del lienzo a su clímax visual: prompt técnico listo para pegar + 2 variaciones. System prompt de 3.062 caracteres en la nota de experto (proveedor gemini). Los ejemplos de estilo que dejes en expertos/ejemplos/ entran solos por BM25 (el título pesa ×2,5), así que el experto aprende de tus prompts que funcionaron sin configuración.",
+   "id": "n-ag-experto-prompt-visual",
+   "madurez": 3,
+   "nucleo": false,
+   "tags": [
+    "expertos",
+    "visual",
+    "touchdesigner"
+   ],
+   "titulo": "Experto · Prompt Visual"
+  },
+  {
+   "categoria": "ARQUITECTURA",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": "brief_documento",
+     "titulo": "Expertos del lienzo (artefactos tipados)"
+    }
+   ],
+   "creado_por": "hermes",
+   "descripcion": "Tipo: brief_documento → destino Copilot / Word / Excel / PowerPoint. Convierte un concepto del lienzo en un brief ejecutable de una página. System prompt de 1.716 caracteres en la nota de experto (proveedor gemini). Es el experto que convierte la idea en entregable: el artefacto se pega en su destino y tiene que funcionar sin agregar nada.",
+   "id": "n-ag-experto-brief-documento",
+   "madurez": 3,
+   "nucleo": false,
+   "tags": [
+    "expertos",
+    "documento",
+    "entregable"
+   ],
+   "titulo": "Experto · Brief Documento"
+  },
+  {
+   "categoria": "GOBERNANZA",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": "critica",
+     "titulo": "Expertos del lienzo (artefactos tipados)"
+    }
+   ],
+   "creado_por": "hermes",
+   "descripcion": "Tipo: critica → destino el propio lienzo o la decisión humana. Audita un concepto o una decisión sin cortesías: debilidades, riesgos y próximo paso. System prompt de 1.527 caracteres; no declara proveedor propio, así que lo corre el motor que elija el selector (auto:tarea). Es el experto que alimenta la gobernanza: convierte una idea madura en sus objeciones antes de que se conviertan en deuda.",
+   "id": "n-ag-experto-crítica-radical",
+   "madurez": 3,
+   "nucleo": false,
+   "tags": [
+    "expertos",
+    "critica",
+    "gobernanza"
+   ],
+   "titulo": "Experto · Crítica Radical"
+  },
+  {
+   "categoria": "PENDIENTE",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": "spec_td",
+     "titulo": "Expertos del lienzo (artefactos tipados)"
+    }
+   ],
+   "creado_por": "hermes",
+   "descripcion": "El tipo spec_td está declarado en el contrato de artefactos (destino TouchDesigner: especificación visual + script Python para una red de TD) pero NO existe la nota de experto: hoy nadie produce ese artefacto y el panel solo puede listar 3 de los 4 tipos. Semilla: escribir la nota en <bóveda>/expertos/ la activa sin tocar una línea de código — es el hueco más barato del orquestador, y el oficio del usuario (visuales TD) es justo el que lo justifica.",
+   "id": "n-ag-experto-spec-td-sin-nota",
+   "madurez": 1,
+   "nucleo": false,
+   "tags": [
+    "expertos",
+    "touchdesigner",
+    "pendiente"
+   ],
+   "titulo": "Experto · Spec TD (sin nota)"
+  },
+  {
+   "categoria": "HÍBRIDO",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": "Fusión IA",
+     "titulo": "Fase 4 · Búsqueda web en vivo (grounding)"
+    },
+    {
+     "dir": "←",
+     "label": "Fusión IA",
+     "titulo": "Investigación por fases 🌱⚔️🧪🚀"
+    }
+   ],
+   "creado_por": "hybrid",
+   "descripcion": "Integra la ingestión de nodos de evidencia en tiempo real (Tavily/Serper) dentro del motor de investigación por fases, propagando metadatos de fiabilidad a través de cada etapa de síntesis. Al culminar la cuarta fase, el nodo central consolida la síntesis y sus fuentes, listo para la evaluación humana.",
+   "id": "node-hybrid-1789579118521",
+   "madurez": null,
+   "nucleo": false,
+   "tags": [
+    "grounding",
+    "fase‑orquestada",
+    "metadata"
+   ],
+   "titulo": "Hermes Grounded Synthesis"
+  },
+  {
+   "categoria": "MACRO",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": "revisar vínculo",
+     "titulo": "Fase 3b · Puente con Hermes (herramientas)"
+    }
+   ],
+   "creado_por": "condensar",
+   "descripcion": "Implementa un contenedor Docker de runtime restringido que expone una API LLM, incorpora un índice FAISS alimentado con el historial Git para recuperación O(1‑log N) de fragmentos, y asegura todas las interacciones con TLS mutua, cifrado AES‑256 y logs inmutables firmados. El flujo garantiza que el código generado nunca se ejecute sin revisión previa y provee trazabilidad verificable.",
+   "id": "node-macro-1789579788504",
+   "madurez": 4,
+   "nucleo": false,
+   "tags": [
+    "sandbox",
+    "vectorsearch",
+    "audit"
+   ],
+   "titulo": "Sandbox Docker con snippets vectoriales y auditoría criptográfica"
+  },
+  {
+   "categoria": "ARQUITECTURA",
+   "conexiones": [
+    {
+     "dir": "←",
+     "label": "revisar vínculo",
+     "titulo": "One-pagers de servicios (IA / visuales TD / web)"
+    }
+   ],
+   "creado_por": "braindump",
+   "descripcion": "Analiza cómo los conceptos de programación se traducen en la arquitectura y flujo de trabajo para construir aplicaciones dentro de NodeFlow.",
+   "id": "node-voz-1789579916304-0",
+   "madurez": 1,
+   "nucleo": false,
+   "tags": [
+    "Voz"
+   ],
+   "titulo": "Programación y construcción de aplicaciones en NodeFlow"
+  }
+ ],
+ "ok": true,
+ "revision": 1,
+ "stats": {
+  "aristas": 82,
+  "aristas_colgadas": 0,
+  "madurez_promedio": 2.9,
+  "nodos": 51,
+  "nodos_sin_conexiones": 0,
+  "notas_en_disco": 51
+ },
+ "vault": "<bóveda>"
+}

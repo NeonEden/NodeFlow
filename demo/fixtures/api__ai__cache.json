@@ -1,1 +1,17 @@
-{"cache":{"entradas":110,"hits":5,"hits_semanticos":3,"misses":175,"ruta":"C:\\Users\\tomas\\Documents\\Obsidian Vault\\NodeFlow\\.nodeflow\\ai-cache.json","tokens_evitados":14031,"tokens_evitados_semanticos":10486,"tope":300,"ver":3},"ok":true,"tarifas_declaradas":["gemini-3.6-flash"]}
+{
+ "cache": {
+  "entradas": 110,
+  "hits": 5,
+  "hits_semanticos": 3,
+  "misses": 175,
+  "ruta": "<bóveda>",
+  "tokens_evitados": 14031,
+  "tokens_evitados_semanticos": 10486,
+  "tope": 300,
+  "ver": 3
+ },
+ "ok": true,
+ "tarifas_declaradas": [
+  "gemini-3.6-flash"
+ ]
+}

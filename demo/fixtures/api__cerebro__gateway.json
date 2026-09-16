@@ -1,1 +1,10 @@
-{"gateway":{"listo":false,"puerto":9121,"url":"ws://127.0.0.1:9121/api/ws?token=cpvdn5luy8uzsz5meagouk7w9538hzoq","vivo":false},"success":true,"url":"ws://127.0.0.1:9121/api/ws?token=cpvdn5luy8uzsz5meagouk7w9538hzoq"}
+{
+ "gateway": {
+  "listo": false,
+  "puerto": 9121,
+  "url": "ws://127.0.0.1:9121/api/ws?token=cpvdn5luy8uzsz5meagouk7w9538hzoq",
+  "vivo": false
+ },
+ "success": true,
+ "url": "ws://127.0.0.1:9121/api/ws?token=cpvdn5luy8uzsz5meagouk7w9538hzoq"
+}

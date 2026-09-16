@@ -26,16 +26,22 @@ execFileSync(process.execPath, [viteBin, 'build', '--outDir', 'demo/public', '--
 });
 
 // El spec de voz del backend entra al demo: es el mismo prompt que usa la app para planificar.
+// OJO: NO se adjunta el esquema JSON crudo. Medido: el modelo lo devuelve a él ({"type":"OBJECT",
+// "properties":…}) en vez de los datos — es un imán de eco. En prosa, acierta.
 const spec = join(RAIZ, 'src-tauri', 'specs', 'actions.json');
 if (existsSync(spec)) {
   const d = JSON.parse(readFileSync(spec, 'utf-8'));
   const voz = d?.voz || {};
-  writeFileSync(
-    join(RAIZ, 'demo', 'lib', 'spec-voz.txt'),
-    `${voz.prompt || ''}\n\nDevolvé SOLO un JSON con la forma:\n${JSON.stringify(voz.schema || {})}\n`,
-    'utf-8'
-  );
-  console.log('· spec de voz exportado a demo/lib/spec-voz.txt');
+  const forma = [
+    'Devolvé SOLO un objeto JSON (sin markdown, sin el esquema) con estos campos:',
+    '- intencion: "capturar" o "comando"',
+    '- respuesta: una frase en primera persona, como se lo dirías hablando',
+    '- motivo: por qué elegiste esos comandos (una frase)',
+    '- comandos: lista de objetos; cada uno lleva accion ("crear" | "enlazar" | "enfocar" | "condensar" | "criticar" | "actualizar" | "delegar") y los campos que esa acción necesita',
+    'Si no hay nada que hacer, devolvé comandos: [].',
+  ].join('\n');
+  writeFileSync(join(RAIZ, 'demo', 'lib', 'spec-voz.txt'), `${voz.prompt || ''}\n\n${forma}\n`, 'utf-8');
+  console.log('· spec de voz exportado a demo/lib/spec-voz.txt (en prosa, sin el esquema crudo)');
 }
 
 console.log('listo. Serví con: node demo/server.mjs');

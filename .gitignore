@@ -16,9 +16,10 @@ npm-debug.log*
 .env.local
 *.key
 
-# Demo web: lo compilado y la clave que sólo vive en el servidor
+# Demo web: lo compilado y las claves que sólo viven en el servidor
 demo/public/
 demo/clave-assemblyai.txt
+demo/clave-motor.txt
 
 # Datos locales de la app (solo en la raíz; src/data/ es código fuente)
 /data/
@@ -31,3 +32,6 @@ tools/tts/voices-*.bin
 tools/tts/*.wav
 # manifiesto temporal del updater: se genera al publicar
 latest.json
+
+# Demo: materias primas crudas (traen datos de la máquina del autor)
+demo/fixtures-crudas/

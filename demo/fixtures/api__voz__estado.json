@@ -1,1 +1,44 @@
-{"ajuste_entorno":{"modelo":"enhanced","url":"wss://eu.rt.speechmatics.com/v2"},"aviso":null,"codec":"pcm_s16le 16000 Hz","configurada":true,"idioma":"es","idiomas_soportados":"en, es, de, fr","modelo":"enhanced","nota":"Universal-Streaming multilingüe (en, es, de, fr). Verificado en vivo el 16/09 contra el WS v3: transcribió castellano tal cual, sin parámetro de idioma ni de modelo. Token temporal de hasta 600 s.","pista":"Clave presente. El token temporal se pide a /api/voz/jwt.","protocolo":"assemblyai-v3","proveedor":"assemblyai","proveedor_etiqueta":"AssemblyAI Universal-Streaming","proveedores":[{"clave_configurada":true,"etiqueta":"Speechmatics Realtime","id":"speechmatics","idiomas":"*","nota":"Multilingüe (55+ idiomas) con parciales sub-segundo. Token temporal de 300 s.","protocolo":"speechmatics-v2","url":"wss://eu.rt.speechmatics.com/v2"},{"clave_configurada":true,"etiqueta":"AssemblyAI Universal-Streaming","id":"assemblyai","idiomas":"en, es, de, fr","nota":"Universal-Streaming multilingüe (en, es, de, fr). Verificado en vivo el 16/09 contra el WS v3: transcribió castellano tal cual, sin parámetro de idioma ni de modelo. Token temporal de hasta 600 s.","protocolo":"assemblyai-v3","url":"wss://streaming.assemblyai.com/v3/ws"}],"success":true,"tts":{"disponible":false,"motor":"Kokoro (local)","url":"http://127.0.0.1:8125"},"url":"wss://streaming.assemblyai.com/v3/ws"}
+{
+ "ajuste_entorno": {
+  "modelo": "enhanced",
+  "url": "wss://eu.rt.speechmatics.com/v2"
+ },
+ "aviso": null,
+ "codec": "pcm_s16le 16000 Hz",
+ "configurada": true,
+ "idioma": "es",
+ "idiomas_soportados": "en, es, de, fr",
+ "modelo": "enhanced",
+ "nota": "Universal-Streaming multilingüe (en, es, de, fr). Verificado en vivo el 16/09 contra el WS v3: transcribió castellano tal cual, sin parámetro de idioma ni de modelo. Token temporal de hasta 600 s.",
+ "pista": "Clave presente. El token temporal se pide a /api/voz/jwt.",
+ "protocolo": "assemblyai-v3",
+ "proveedor": "assemblyai",
+ "proveedor_etiqueta": "AssemblyAI Universal-Streaming",
+ "proveedores": [
+  {
+   "clave_configurada": true,
+   "etiqueta": "Speechmatics Realtime",
+   "id": "speechmatics",
+   "idiomas": "*",
+   "nota": "Multilingüe (55+ idiomas) con parciales sub-segundo. Token temporal de 300 s.",
+   "protocolo": "speechmatics-v2",
+   "url": "wss://eu.rt.speechmatics.com/v2"
+  },
+  {
+   "clave_configurada": true,
+   "etiqueta": "AssemblyAI Universal-Streaming",
+   "id": "assemblyai",
+   "idiomas": "en, es, de, fr",
+   "nota": "Universal-Streaming multilingüe (en, es, de, fr). Verificado en vivo el 16/09 contra el WS v3: transcribió castellano tal cual, sin parámetro de idioma ni de modelo. Token temporal de hasta 600 s.",
+   "protocolo": "assemblyai-v3",
+   "url": "wss://streaming.assemblyai.com/v3/ws"
+  }
+ ],
+ "success": true,
+ "tts": {
+  "disponible": false,
+  "motor": "Kokoro (local)",
+  "url": "http://127.0.0.1:8125"
+ },
+ "url": "wss://streaming.assemblyai.com/v3/ws"
+}

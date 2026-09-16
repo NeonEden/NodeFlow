@@ -1,1 +1,156 @@
-{"cuantas_con_requisitos":1,"cuantas_frenadas":4,"frenado":[{"frenan":["La placa manda: un modelo por vez (12 GB de VRAM)"],"id":"n-ag-modelo-local-deepseek-r1-distill-qwen-7b","titulo":"Modelo local · DeepSeek-R1-Distill-Qwen-7B"},{"frenan":["El build con el propositor de investigaciones"],"id":"n-ag-fase-3b-puente-con-hermes-herramientas","titulo":"Fase 3b · Puente con Hermes (herramientas)"},{"frenan":["La escalada a la nube no tiene destino (HTTP 402)"],"id":"n-ag-motor-dual-por-tarea-rápido-profundo","titulo":"Motor dual por tarea (rápido / profundo)"},{"frenan":["Verificar Tavily citando texto real"],"id":"n-ag-fase-4-búsqueda-web-en-vivo-grounding","titulo":"Fase 4 · Búsqueda web en vivo (grounding)"}],"jugadas":[{"categoria":"RIESGO","desbloquea":1,"frenado_por":0,"id":"n-ag-la-escalada-a-la-nube-no-tiene-destino-http-402","peso":3,"requisitos_sin_cumplir":[],"titulo":"La escalada a la nube no tiene destino (HTTP 402)"},{"categoria":"RIESGO","desbloquea":1,"frenado_por":0,"id":"n-ag-la-placa-manda-un-modelo-por-vez-12-gb-de-vram","peso":3,"requisitos_sin_cumplir":[],"titulo":"La placa manda: un modelo por vez (12 GB de VRAM)"},{"categoria":"PENDIENTE","desbloquea":1,"frenado_por":0,"id":"n-ag-verificar-tavily-citando-texto-real","peso":3,"requisitos_sin_cumplir":[],"titulo":"Verificar Tavily citando texto real"},{"categoria":"PENDIENTE","desbloquea":0,"frenado_por":0,"id":"n-ag-caché-semántica-segundo-nivel-exacta-semántica","peso":0,"requisitos_sin_cumplir":[],"titulo":"Caché semántica · segundo nivel"},{"categoria":"PENDIENTE","desbloquea":0,"frenado_por":0,"id":"n-ag-el-checkpoint-automático-se-adelanta-a-los-commits","peso":0,"requisitos_sin_cumplir":[],"titulo":"El checkpoint automático se adelanta a los commits"},{"categoria":"PENDIENTE","desbloquea":0,"frenado_por":0,"id":"n-ag-el-rótulo-de-la-propuesta-dice-sin-conexión-a","peso":0,"requisitos_sin_cumplir":[],"titulo":"El rótulo de la propuesta dice «sin conexión a…»"},{"categoria":"PENDIENTE","desbloquea":0,"frenado_por":0,"id":"n-ag-experto-spec-td-sin-nota","peso":0,"requisitos_sin_cumplir":[],"titulo":"Experto · Spec TD (sin nota)"},{"categoria":"PENDIENTE","desbloquea":0,"frenado_por":0,"id":"n-ag-imágenes-que-identifiquen-cada-nodo","peso":0,"requisitos_sin_cumplir":[],"titulo":"Imágenes que identifiquen cada nodo"},{"categoria":"PENDIENTE","desbloquea":0,"frenado_por":0,"id":"n-ag-one-pagers-de-servicios-ia-visuales-td-web","peso":0,"requisitos_sin_cumplir":[],"titulo":"One-pagers de servicios (IA / visuales TD / web)"},{"categoria":"PENDIENTE","desbloquea":0,"frenado_por":0,"id":"n-ag-outreach-a-30-prospectos","peso":0,"requisitos_sin_cumplir":[],"titulo":"Outreach a 30 prospectos"},{"categoria":"PENDIENTE","desbloquea":0,"frenado_por":0,"id":"n-ag-partir-el-skill-de-nodeflow-286-kb","peso":0,"requisitos_sin_cumplir":[],"titulo":"Partir el skill de NodeFlow (28,6 KB)"},{"categoria":"PENDIENTE","desbloquea":0,"frenado_por":0,"id":"n-ag-video-demo-3-tomas","peso":0,"requisitos_sin_cumplir":[],"titulo":"Video demo (3 tomas)"}],"mapa":"agente-autónomo-multimodal","ok":true,"requisitos":[{"faltan":["Fase 3 · Voz de ida y vuelta (Kokoro)"],"id":"n-ag-fase-3b-puente-con-hermes-herramientas","titulo":"Fase 3b · Puente con Hermes (herramientas)"}],"revision":1}
+{
+ "cuantas_con_requisitos": 1,
+ "cuantas_frenadas": 4,
+ "frenado": [
+  {
+   "frenan": [
+    "La placa manda: un modelo por vez (12 GB de VRAM)"
+   ],
+   "id": "n-ag-modelo-local-deepseek-r1-distill-qwen-7b",
+   "titulo": "Modelo local · DeepSeek-R1-Distill-Qwen-7B"
+  },
+  {
+   "frenan": [
+    "El build con el propositor de investigaciones"
+   ],
+   "id": "n-ag-fase-3b-puente-con-hermes-herramientas",
+   "titulo": "Fase 3b · Puente con Hermes (herramientas)"
+  },
+  {
+   "frenan": [
+    "La escalada a la nube no tiene destino (HTTP 402)"
+   ],
+   "id": "n-ag-motor-dual-por-tarea-rápido-profundo",
+   "titulo": "Motor dual por tarea (rápido / profundo)"
+  },
+  {
+   "frenan": [
+    "Verificar Tavily citando texto real"
+   ],
+   "id": "n-ag-fase-4-búsqueda-web-en-vivo-grounding",
+   "titulo": "Fase 4 · Búsqueda web en vivo (grounding)"
+  }
+ ],
+ "jugadas": [
+  {
+   "categoria": "RIESGO",
+   "desbloquea": 1,
+   "frenado_por": 0,
+   "id": "n-ag-la-escalada-a-la-nube-no-tiene-destino-http-402",
+   "peso": 3,
+   "requisitos_sin_cumplir": [],
+   "titulo": "La escalada a la nube no tiene destino (HTTP 402)"
+  },
+  {
+   "categoria": "RIESGO",
+   "desbloquea": 1,
+   "frenado_por": 0,
+   "id": "n-ag-la-placa-manda-un-modelo-por-vez-12-gb-de-vram",
+   "peso": 3,
+   "requisitos_sin_cumplir": [],
+   "titulo": "La placa manda: un modelo por vez (12 GB de VRAM)"
+  },
+  {
+   "categoria": "PENDIENTE",
+   "desbloquea": 1,
+   "frenado_por": 0,
+   "id": "n-ag-verificar-tavily-citando-texto-real",
+   "peso": 3,
+   "requisitos_sin_cumplir": [],
+   "titulo": "Verificar Tavily citando texto real"
+  },
+  {
+   "categoria": "PENDIENTE",
+   "desbloquea": 0,
+   "frenado_por": 0,
+   "id": "n-ag-caché-semántica-segundo-nivel-exacta-semántica",
+   "peso": 0,
+   "requisitos_sin_cumplir": [],
+   "titulo": "Caché semántica · segundo nivel"
+  },
+  {
+   "categoria": "PENDIENTE",
+   "desbloquea": 0,
+   "frenado_por": 0,
+   "id": "n-ag-el-checkpoint-automático-se-adelanta-a-los-commits",
+   "peso": 0,
+   "requisitos_sin_cumplir": [],
+   "titulo": "El checkpoint automático se adelanta a los commits"
+  },
+  {
+   "categoria": "PENDIENTE",
+   "desbloquea": 0,
+   "frenado_por": 0,
+   "id": "n-ag-el-rótulo-de-la-propuesta-dice-sin-conexión-a",
+   "peso": 0,
+   "requisitos_sin_cumplir": [],
+   "titulo": "El rótulo de la propuesta dice «sin conexión a…»"
+  },
+  {
+   "categoria": "PENDIENTE",
+   "desbloquea": 0,
+   "frenado_por": 0,
+   "id": "n-ag-experto-spec-td-sin-nota",
+   "peso": 0,
+   "requisitos_sin_cumplir": [],
+   "titulo": "Experto · Spec TD (sin nota)"
+  },
+  {
+   "categoria": "PENDIENTE",
+   "desbloquea": 0,
+   "frenado_por": 0,
+   "id": "n-ag-imágenes-que-identifiquen-cada-nodo",
+   "peso": 0,
+   "requisitos_sin_cumplir": [],
+   "titulo": "Imágenes que identifiquen cada nodo"
+  },
+  {
+   "categoria": "PENDIENTE",
+   "desbloquea": 0,
+   "frenado_por": 0,
+   "id": "n-ag-one-pagers-de-servicios-ia-visuales-td-web",
+   "peso": 0,
+   "requisitos_sin_cumplir": [],
+   "titulo": "One-pagers de servicios (IA / visuales TD / web)"
+  },
+  {
+   "categoria": "PENDIENTE",
+   "desbloquea": 0,
+   "frenado_por": 0,
+   "id": "n-ag-outreach-a-30-prospectos",
+   "peso": 0,
+   "requisitos_sin_cumplir": [],
+   "titulo": "Outreach a 30 prospectos"
+  },
+  {
+   "categoria": "PENDIENTE",
+   "desbloquea": 0,
+   "frenado_por": 0,
+   "id": "n-ag-partir-el-skill-de-nodeflow-286-kb",
+   "peso": 0,
+   "requisitos_sin_cumplir": [],
+   "titulo": "Partir el skill de NodeFlow (28,6 KB)"
+  },
+  {
+   "categoria": "PENDIENTE",
+   "desbloquea": 0,
+   "frenado_por": 0,
+   "id": "n-ag-video-demo-3-<usuario>",
+   "peso": 0,
+   "requisitos_sin_cumplir": [],
+   "titulo": "Video demo (3 <usuario>)"
+  }
+ ],
+ "mapa": "agente-autónomo-multimodal",
+ "ok": true,
+ "requisitos": [
+  {
+   "faltan": [
+    "Fase 3 · Voz de ida y vuelta (Kokoro)"
+   ],
+   "id": "n-ag-fase-3b-puente-con-hermes-herramientas",
+   "titulo": "Fase 3b · Puente con Hermes (herramientas)"
+  }
+ ],
+ "revision": 1
+}

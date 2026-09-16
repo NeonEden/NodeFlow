@@ -1,1 +1,210 @@
-{"efectivo":"openai:foundry","motores":[{"base_url":"http://localhost:11434/v1","disponible":true,"donde":"local","etiqueta":"deepseek-r1:7b · en tu placa","id":"ollama:deepseek-r1:7b","modelo":"deepseek-r1:7b","proveedor":"ollama"},{"base_url":"http://localhost:11434/v1","disponible":true,"donde":"local","etiqueta":"granite3.3:2b · en tu placa","id":"ollama:granite3.3:2b","modelo":"granite3.3:2b","proveedor":"ollama"},{"base_url":"http://localhost:11434/v1","disponible":true,"donde":"local","etiqueta":"qwen2.5:7b-instruct-q4_K_M · en tu placa","id":"ollama:qwen2.5:7b-instruct-q4_K_M","modelo":"qwen2.5:7b-instruct-q4_K_M","proveedor":"ollama"},{"base_url":"http://localhost:11434/v1","disponible":true,"donde":"local","etiqueta":"qwen2.5vl:7b · en tu placa","id":"ollama:qwen2.5vl:7b","modelo":"qwen2.5vl:7b","proveedor":"ollama"},{"base_url":"http://localhost:11434/v1","disponible":true,"donde":"gratis","etiqueta":"deepseek-v4-flash:0731-cloud · nube gratuita","id":"ollama:deepseek-v4-flash:0731-cloud","modelo":"deepseek-v4-flash:0731-cloud","proveedor":"ollama"},{"base_url":"http://localhost:11434/v1","disponible":true,"donde":"gratis","etiqueta":"deepseek-v4.1-flash:cloud · nube gratuita","id":"ollama:deepseek-v4.1-flash:cloud","modelo":"deepseek-v4.1-flash:cloud","proveedor":"ollama"},{"base_url":"http://localhost:11434/v1","disponible":true,"donde":"gratis","etiqueta":"glm-5.3-flash:cloud · nube gratuita","id":"ollama:glm-5.3-flash:cloud","modelo":"glm-5.3-flash:cloud","proveedor":"ollama"},{"base_url":"http://localhost:11434/v1","disponible":true,"donde":"gratis","etiqueta":"glm-5.3:cloud · nube gratuita","id":"ollama:glm-5.3:cloud","modelo":"glm-5.3:cloud","proveedor":"ollama"},{"base_url":"http://localhost:11434/v1","disponible":true,"donde":"gratis","etiqueta":"gpt-oss:120b-cloud · nube gratuita","id":"ollama:gpt-oss:120b-cloud","modelo":"gpt-oss:120b-cloud","proveedor":"ollama"},{"base_url":"http://localhost:11434/v1","disponible":true,"donde":"gratis","etiqueta":"gpt-oss:20b-cloud · nube gratuita","id":"ollama:gpt-oss:20b-cloud","modelo":"gpt-oss:20b-cloud","proveedor":"ollama"},{"base_url":"http://localhost:11434/v1","disponible":true,"donde":"gratis","etiqueta":"kimi-k2.7-code:cloud · nube gratuita","id":"ollama:kimi-k2.7-code:cloud","modelo":"kimi-k2.7-code:cloud","proveedor":"ollama"},{"base_url":"http://localhost:11434/v1","disponible":true,"donde":"gratis","etiqueta":"kimi-k3:cloud · nube gratuita","id":"ollama:kimi-k3:cloud","modelo":"kimi-k3:cloud","proveedor":"ollama"},{"base_url":"http://localhost:11434/v1","disponible":true,"donde":"gratis","etiqueta":"minimax-m3:cloud · nube gratuita","id":"ollama:minimax-m3:cloud","modelo":"minimax-m3:cloud","proveedor":"ollama"},{"base_url":"http://localhost:11434/v1","disponible":true,"donde":"gratis","etiqueta":"mistral-large-3:675b-cloud · nube gratuita","id":"ollama:mistral-large-3:675b-cloud","modelo":"mistral-large-3:675b-cloud","proveedor":"ollama"},{"base_url":"http://localhost:11434/v1","disponible":true,"donde":"gratis","etiqueta":"nemotron-3-nano:30b-cloud · nube gratuita","id":"ollama:nemotron-3-nano:30b-cloud","modelo":"nemotron-3-nano:30b-cloud","proveedor":"ollama"},{"base_url":"http://localhost:11434/v1","disponible":true,"donde":"gratis","etiqueta":"nemotron-3-super:cloud · nube gratuita","id":"ollama:nemotron-3-super:cloud","modelo":"nemotron-3-super:cloud","proveedor":"ollama"},{"base_url":"http://localhost:11434/v1","disponible":true,"donde":"gratis","etiqueta":"qwen3.5:397b-cloud · nube gratuita","id":"ollama:qwen3.5:397b-cloud","modelo":"qwen3.5:397b-cloud","proveedor":"ollama"},{"disponible":true,"donde":"pago","etiqueta":"gemini-3.6-flash · nube","id":"gemini:gemini-3.6-flash","modelo":"gemini-3.6-flash","proveedor":"gemini"},{"base_url":"https://api.deepseek.com/v1","clave_ref":"deepseek_api_key","disponible":false,"donde":"pago","etiqueta":"deepseek-chat · API","id":"openai:deepseek","modelo":"deepseek-chat","nota":"falta la clave","proveedor":"openai"},{"base_url":"https://api.deepseek.com/v1","clave_ref":"deepseek_api_key","disponible":false,"donde":"pago","etiqueta":"DeepSeek (razonador)","id":"openai:deepseek-r1","modelo":"deepseek-reasoner","nota":"falta la clave","proveedor":"openai"},{"base_url":"https://tomaspieruz-8921-resource.cognitiveservices.azure.com/openai/v1","clave_ref":"foundry_api_key","disponible":true,"donde":"pago","etiqueta":"Azure Foundry · DeepSeek-V4-Flash","id":"openai:foundry","modelo":"DeepSeek-V4-Flash","proveedor":"openai"},{"base_url":"https://tomaspieruz-8921-resource.cognitiveservices.azure.com/openai/v1","clave_ref":"foundry-grok_api_key","disponible":true,"donde":"pago","etiqueta":"Azure Foundry · grok-4.6 (razonador)","id":"openai:foundry-grok","modelo":"grok-4.6","proveedor":"openai"}],"ok":true,"seleccionado":"openai:foundry"}
+{
+ "efectivo": "openai:foundry",
+ "motores": [
+  {
+   "base_url": "http://localhost:11434/v1",
+   "disponible": true,
+   "donde": "local",
+   "etiqueta": "deepseek-r1:7b · en tu placa",
+   "id": "ollama:deepseek-r1:7b",
+   "modelo": "deepseek-r1:7b",
+   "proveedor": "ollama"
+  },
+  {
+   "base_url": "http://localhost:11434/v1",
+   "disponible": true,
+   "donde": "local",
+   "etiqueta": "granite3.3:2b · en tu placa",
+   "id": "ollama:granite3.3:2b",
+   "modelo": "granite3.3:2b",
+   "proveedor": "ollama"
+  },
+  {
+   "base_url": "http://localhost:11434/v1",
+   "disponible": true,
+   "donde": "local",
+   "etiqueta": "qwen2.5:7b-instruct-q4_K_M · en tu placa",
+   "id": "ollama:qwen2.5:7b-instruct-q4_K_M",
+   "modelo": "qwen2.5:7b-instruct-q4_K_M",
+   "proveedor": "ollama"
+  },
+  {
+   "base_url": "http://localhost:11434/v1",
+   "disponible": true,
+   "donde": "local",
+   "etiqueta": "qwen2.5vl:7b · en tu placa",
+   "id": "ollama:qwen2.5vl:7b",
+   "modelo": "qwen2.5vl:7b",
+   "proveedor": "ollama"
+  },
+  {
+   "base_url": "http://localhost:11434/v1",
+   "disponible": true,
+   "donde": "gratis",
+   "etiqueta": "deepseek-v4-flash:0731-cloud · nube gratuita",
+   "id": "ollama:deepseek-v4-flash:0731-cloud",
+   "modelo": "deepseek-v4-flash:0731-cloud",
+   "proveedor": "ollama"
+  },
+  {
+   "base_url": "http://localhost:11434/v1",
+   "disponible": true,
+   "donde": "gratis",
+   "etiqueta": "deepseek-v4.1-flash:cloud · nube gratuita",
+   "id": "ollama:deepseek-v4.1-flash:cloud",
+   "modelo": "deepseek-v4.1-flash:cloud",
+   "proveedor": "ollama"
+  },
+  {
+   "base_url": "http://localhost:11434/v1",
+   "disponible": true,
+   "donde": "gratis",
+   "etiqueta": "glm-5.3-flash:cloud · nube gratuita",
+   "id": "ollama:glm-5.3-flash:cloud",
+   "modelo": "glm-5.3-flash:cloud",
+   "proveedor": "ollama"
+  },
+  {
+   "base_url": "http://localhost:11434/v1",
+   "disponible": true,
+   "donde": "gratis",
+   "etiqueta": "glm-5.3:cloud · nube gratuita",
+   "id": "ollama:glm-5.3:cloud",
+   "modelo": "glm-5.3:cloud",
+   "proveedor": "ollama"
+  },
+  {
+   "base_url": "http://localhost:11434/v1",
+   "disponible": true,
+   "donde": "gratis",
+   "etiqueta": "gpt-oss:120b-cloud · nube gratuita",
+   "id": "ollama:gpt-oss:120b-cloud",
+   "modelo": "gpt-oss:120b-cloud",
+   "proveedor": "ollama"
+  },
+  {
+   "base_url": "http://localhost:11434/v1",
+   "disponible": true,
+   "donde": "gratis",
+   "etiqueta": "gpt-oss:20b-cloud · nube gratuita",
+   "id": "ollama:gpt-oss:20b-cloud",
+   "modelo": "gpt-oss:20b-cloud",
+   "proveedor": "ollama"
+  },
+  {
+   "base_url": "http://localhost:11434/v1",
+   "disponible": true,
+   "donde": "gratis",
+   "etiqueta": "kimi-k2.7-code:cloud · nube gratuita",
+   "id": "ollama:kimi-k2.7-code:cloud",
+   "modelo": "kimi-k2.7-code:cloud",
+   "proveedor": "ollama"
+  },
+  {
+   "base_url": "http://localhost:11434/v1",
+   "disponible": true,
+   "donde": "gratis",
+   "etiqueta": "kimi-k3:cloud · nube gratuita",
+   "id": "ollama:kimi-k3:cloud",
+   "modelo": "kimi-k3:cloud",
+   "proveedor": "ollama"
+  },
+  {
+   "base_url": "http://localhost:11434/v1",
+   "disponible": true,
+   "donde": "gratis",
+   "etiqueta": "minimax-m3:cloud · nube gratuita",
+   "id": "ollama:minimax-m3:cloud",
+   "modelo": "minimax-m3:cloud",
+   "proveedor": "ollama"
+  },
+  {
+   "base_url": "http://localhost:11434/v1",
+   "disponible": true,
+   "donde": "gratis",
+   "etiqueta": "mistral-large-3:675b-cloud · nube gratuita",
+   "id": "ollama:mistral-large-3:675b-cloud",
+   "modelo": "mistral-large-3:675b-cloud",
+   "proveedor": "ollama"
+  },
+  {
+   "base_url": "http://localhost:11434/v1",
+   "disponible": true,
+   "donde": "gratis",
+   "etiqueta": "nemotron-3-nano:30b-cloud · nube gratuita",
+   "id": "ollama:nemotron-3-nano:30b-cloud",
+   "modelo": "nemotron-3-nano:30b-cloud",
+   "proveedor": "ollama"
+  },
+  {
+   "base_url": "http://localhost:11434/v1",
+   "disponible": true,
+   "donde": "gratis",
+   "etiqueta": "nemotron-3-super:cloud · nube gratuita",
+   "id": "ollama:nemotron-3-super:cloud",
+   "modelo": "nemotron-3-super:cloud",
+   "proveedor": "ollama"
+  },
+  {
+   "base_url": "http://localhost:11434/v1",
+   "disponible": true,
+   "donde": "gratis",
+   "etiqueta": "qwen3.5:397b-cloud · nube gratuita",
+   "id": "ollama:qwen3.5:397b-cloud",
+   "modelo": "qwen3.5:397b-cloud",
+   "proveedor": "ollama"
+  },
+  {
+   "disponible": true,
+   "donde": "pago",
+   "etiqueta": "gemini-3.6-flash · nube",
+   "id": "gemini:gemini-3.6-flash",
+   "modelo": "gemini-3.6-flash",
+   "proveedor": "gemini"
+  },
+  {
+   "base_url": "https://api.deepseek.com/v1",
+   "clave_ref": "deepseek_api_key",
+   "disponible": false,
+   "donde": "pago",
+   "etiqueta": "deepseek-chat · API",
+   "id": "openai:deepseek",
+   "modelo": "deepseek-chat",
+   "nota": "falta la clave",
+   "proveedor": "openai"
+  },
+  {
+   "base_url": "https://api.deepseek.com/v1",
+   "clave_ref": "deepseek_api_key",
+   "disponible": false,
+   "donde": "pago",
+   "etiqueta": "DeepSeek (razonador)",
+   "id": "openai:deepseek-r1",
+   "modelo": "deepseek-reasoner",
+   "nota": "falta la clave",
+   "proveedor": "openai"
+  },
+  {
+   "base_url": "https://tomaspieruz-8921-resource.cognitiveservices.azure.com/openai/v1",
+   "clave_ref": "foundry_api_key",
+   "disponible": true,
+   "donde": "pago",
+   "etiqueta": "Azure Foundry · DeepSeek-V4-Flash",
+   "id": "openai:foundry",
+   "modelo": "DeepSeek-V4-Flash",
+   "proveedor": "openai"
+  },
+  {
+   "base_url": "https://tomaspieruz-8921-resource.cognitiveservices.azure.com/openai/v1",
+   "clave_ref": "foundry-grok_api_key",
+   "disponible": true,
+   "donde": "pago",
+   "etiqueta": "Azure Foundry · grok-4.6 (razonador)",
+   "id": "openai:foundry-grok",
+   "modelo": "grok-4.6",
+   "proveedor": "openai"
+  }
+ ],
+ "ok": true,
+ "seleccionado": "openai:foundry"
+}

@@ -53,5 +53,9 @@ EN QUÉ ESTÁ ENFOCADA LA CONVERSACIÓN AHORA:
 {{memoria}}
 
 
-Devolvé SOLO un JSON con la forma:
-{"type":"OBJECT","properties":{"intencion":{"type":"STRING"},"respuesta":{"type":"STRING"},"motivo":{"type":"STRING"},"comandos":{"type":"ARRAY","items":{"type":"OBJECT","properties":{"accion":{"type":"STRING"},"titulo":{"type":"STRING"},"descripcion":{"type":"STRING"},"categoria":{"type":"STRING"},"criterio":{"type":"STRING"},"nodos":{"type":"ARRAY","items":{"type":"STRING"}},"desde":{"type":"STRING"},"hasta":{"type":"STRING"}},"required":["accion"]}}},"required":["intencion","respuesta","comandos"]}
+Devolvé SOLO un objeto JSON (sin markdown, sin el esquema) con estos campos:
+- intencion: "capturar" o "comando"
+- respuesta: una frase en primera persona, como se lo dirías hablando
+- motivo: por qué elegiste esos comandos (una frase)
+- comandos: lista de objetos; cada uno lleva accion ("crear" | "enlazar" | "enfocar" | "condensar" | "criticar" | "actualizar" | "delegar") y los campos que esa acción necesita
+Si no hay nada que hacer, devolvé comandos: [].

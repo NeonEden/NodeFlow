@@ -20,10 +20,15 @@ async function leerCuerpo(req) {
 export async function apiHandler(req, res) {
   const u = new URL(req.url, 'http://localhost');
   const ruta = u.pathname.replace(/\/+$/, '') || '/';
+  // La IP real (detrás de Vercel viene en x-forwarded-for) es lo que limita el motor en vivo.
+  const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim()
+    || req.headers['x-real-ip']
+    || req.socket?.remoteAddress
+    || 'anon';
   let salida;
   try {
     const body = (req.method || 'GET').toUpperCase() === 'GET' ? Object.fromEntries(u.searchParams) : await leerCuerpo(req);
-    salida = await handle({ method: req.method, ruta, query: Object.fromEntries(u.searchParams), body });
+    salida = await handle({ method: req.method, ruta, query: Object.fromEntries(u.searchParams), body, ip });
   } catch (e) {
     salida = { status: 500, json: { success: false, error: String(e?.message || e) } };
   }

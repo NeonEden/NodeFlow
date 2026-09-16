@@ -1,1 +1,20 @@
-{"carpeta":"C:\\Users\\tomas\\Documents\\Obsidian Vault\\NodeFlow\\cerebro\\herramientas","herramientas":[{"descripcion":"Resume el lienzo (nodos, aristas, categorias, madurez y hubs) sin traer el JSON entero al contexto.","nombre":"resumen_lienzo","parametros":{"properties":{"tope":{"description":"cuantas categorias mostrar","type":"number"}},"type":"object"},"riesgo":"lectura"}],"success":true}
+{
+ "carpeta": "<bóveda>/cerebro/herramientas",
+ "herramientas": [
+  {
+   "descripcion": "Resume el lienzo (nodos, aristas, categorias, madurez y hubs) sin traer el JSON entero al contexto.",
+   "nombre": "resumen_lienzo",
+   "parametros": {
+    "properties": {
+     "tope": {
+      "description": "cuantas categorias mostrar",
+      "type": "number"
+     }
+    },
+    "type": "object"
+   },
+   "riesgo": "lectura"
+  }
+ ],
+ "success": true
+}

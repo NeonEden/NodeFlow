@@ -1,1 +1,43 @@
-{"campos":[{"campo":"deepseek_api_key","etiqueta":"DeepSeek","huella":"","largo":0,"origen":"ausente"},{"campo":"gemini_api_key","etiqueta":"Gemini","huella":"232447a3","largo":53,"origen":"llavero"},{"campo":"speechmatics_api_key","etiqueta":"Speechmatics","huella":"1735679e","largo":32,"origen":"llavero"},{"campo":"assemblyai_api_key","etiqueta":"AssemblyAI","huella":"55954503","largo":32,"origen":"llavero"},{"campo":"tavily_api_key","etiqueta":"Tavily","huella":"","largo":0,"origen":"ausente"}],"en_llavero":3,"en_texto_plano":0,"seguro":true,"servicio":"com.nodeflow.desktop"}
+{
+ "campos": [
+  {
+   "campo": "deepseek_api_key",
+   "etiqueta": "DeepSeek",
+   "huella": "",
+   "largo": 0,
+   "origen": "ausente"
+  },
+  {
+   "campo": "gemini_api_key",
+   "etiqueta": "Gemini",
+   "huella": "232447a3",
+   "largo": 53,
+   "origen": "llavero"
+  },
+  {
+   "campo": "speechmatics_api_key",
+   "etiqueta": "Speechmatics",
+   "huella": "1735679e",
+   "largo": 32,
+   "origen": "llavero"
+  },
+  {
+   "campo": "assemblyai_api_key",
+   "etiqueta": "AssemblyAI",
+   "huella": "55954503",
+   "largo": 32,
+   "origen": "llavero"
+  },
+  {
+   "campo": "tavily_api_key",
+   "etiqueta": "Tavily",
+   "huella": "",
+   "largo": 0,
+   "origen": "ausente"
+  }
+ ],
+ "en_llavero": 3,
+ "en_texto_plano": 0,
+ "seguro": true,
+ "servicio": "com.nodeflow.desktop"
+}
