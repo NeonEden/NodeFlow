@@ -2,6 +2,7 @@ mod artefactos;
 mod borrador;
 mod conocimiento;
 mod costo;
+mod cerebro;
 mod expertos;
 mod grafo;
 mod memoria;

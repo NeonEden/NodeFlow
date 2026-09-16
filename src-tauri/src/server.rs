@@ -62,6 +62,8 @@ pub struct AppState {
     /// B — turnos de generación en curso (clave → instante de arranque). La app no encola prompts sin
     /// freno: una generación por nodo y acción, y una sola cuando corre en la placa.
     pub ia_en_curso: Arc<std::sync::Mutex<std::collections::HashMap<String, f64>>>,
+    /// Fase 1 del cerebro residente: sesión nombrada de Hermes (memoria entre turnos) + notas episódicas.
+    pub cerebro: crate::cerebro::Config,
 }
 
 impl AppState {
@@ -154,6 +156,8 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
             .unwrap_or_default();
         // Fase 10: el borrador local se configura con env > `nodeflow.config.json` > default.
         let borrador = crate::borrador::Config::desde(cfg.as_ref().and_then(|c| c.get("borrador")));
+        // Fase 1: el cerebro residente (sesión nombrada de Hermes + notas episódicas en la bóveda).
+        let cerebro = crate::cerebro::Config::desde(cfg.as_ref().and_then(|c| c.get("cerebro")));
         let cache = Arc::new(crate::costo::Cache::cargar(
             vault.raiz().join(".nodeflow").join("ai-cache.json"),
         ));
@@ -170,6 +174,7 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
             cache,
             tarifas,
             borrador,
+            cerebro,
             motores_caidos: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         config_sello: Arc::new(std::sync::Mutex::new(0)),
         ia_en_curso: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
@@ -2745,17 +2750,47 @@ async fn delegar(State(st): State<AppState>, Json(body): Json<Value>) -> impl In
                 .unwrap_or_default();
             let prompt = crate::voz::prompt_delegar(&pedido2, &titulos);
             let exe = crate::voz::hermes_exe();
-            move || correr_proceso(&exe, &prompt, std::time::Duration::from_secs(300))
+            let cfg = st2.cerebro.clone();
+            move || {
+                let args = crate::cerebro::argv(&prompt, &cfg);
+                correr_proceso_argv(&exe, &args, std::time::Duration::from_secs(cfg.tope_s))
+            }
         })
         .await;
-        let (ok, texto) = match salida {
-            Ok(Ok(t)) => (true, t),
-            Ok(Err(e)) => (false, e),
-            Err(e) => (false, format!("no pude correr el motor profundo: {e}")),
+        // El turno corre en una **sesión nombrada** de Hermes: además de la respuesta queda la memoria
+        // (el turno siguiente recuerda éste) y, si está activado, la nota episódica en la bóveda.
+        let (ok, texto, sesion_vista) = match salida {
+            Ok(Ok(bruto)) => {
+                let (limpio, id) = crate::cerebro::limpiar_salida(&bruto);
+                (true, limpio, id)
+            }
+            Ok(Err(e)) => (false, e, None),
+            Err(e) => (false, format!("no pude correr el motor profundo: {e}"), None),
         };
         let ms = t0.elapsed().as_millis() as u64;
         let _ = crate::voz::guardar_delegacion(&st2.data_dir, &pedido2, ok, &texto, ms);
-        log::info!("motor profundo: {} · {} caracteres", if ok { "listo" } else { "falló" }, texto.chars().count());
+        if st2.cerebro.notas {
+            let sello = now_iso();
+            let corto = sello.chars().take(16).collect::<String>();
+            let nota = crate::cerebro::nota_markdown(
+                &pedido2,
+                &texto,
+                &st2.cerebro.sesion,
+                ok,
+                ms,
+                &sello,
+            );
+            match st2.vault.escribir_nota(&crate::cerebro::nombre_nota(&corto), &nota) {
+                Ok(p) => log::info!("cerebro: turno guardado en {}", p.display()),
+                Err(e) => log::warn!("cerebro: no pude escribir la nota del turno: {e}"),
+            }
+        }
+        log::info!(
+            "motor profundo: {} · {} caracteres · sesión {}",
+            if ok { "listo" } else { "falló" },
+            texto.chars().count(),
+            sesion_vista.as_deref().unwrap_or(st2.cerebro.sesion.as_str())
+        );
     });
     (
         StatusCode::OK,
@@ -2806,10 +2841,15 @@ async fn delegar_estado(State(st): State<AppState>) -> impl IntoResponse {
 /// Corre un proceso y devuelve su salida con tope de tiempo. En Windows se lanza **sin consola**:
 /// nada de ventanas apareciendo mientras la app trabaja.
 fn correr_proceso(exe: &str, arg: &str, tope: std::time::Duration) -> Result<String, String> {
+    correr_proceso_argv(exe, &["-z".to_string(), arg.to_string()], tope)
+}
+
+/// Igual que `correr_proceso` pero con argumentos explícitos: lo usa el cerebro residente, que corre
+/// `hermes chat -c <sesión> --create-if-missing` (ver `cerebro::argv`).
+fn correr_proceso_argv(exe: &str, args: &[String], tope: std::time::Duration) -> Result<String, String> {
     use std::process::{Command, Stdio};
     let mut cmd = Command::new(exe);
-    cmd.arg("-z")
-        .arg(arg)
+    cmd.args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());

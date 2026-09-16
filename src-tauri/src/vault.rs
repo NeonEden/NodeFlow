@@ -147,6 +147,25 @@ fn sin_repetidos(tags: Vec<String>) -> Vec<String> {
     salida
 }
 
+/// Normaliza y valida la ruta de una nota suelta. **Camino jaula**: sólo rutas relativas a la bóveda,
+/// sin `..`, sin `:` de unidad, terminadas en `.md` y de largo razonable. Es la única puerta por la que
+/// el agente escribe texto libre en la bóveda, así que se prueba sola.
+pub fn ruta_nota_valida(rel: &str) -> Result<String, String> {
+    let rel = rel.replace('\\', "/");
+    let invalida = rel.is_empty()
+        || rel.contains("..")
+        || rel.starts_with('/')
+        || rel.contains(':')
+        || !rel.ends_with(".md")
+        || rel.len() > 180;
+    if invalida {
+        return Err(format!(
+            "ruta de nota inválida: «{rel}» (relativa a la bóveda, sin .., terminada en .md)"
+        ));
+    }
+    Ok(rel)
+}
+
 #[cfg(test)]
 mod tests_tags {
     use super::sin_repetidos;
@@ -278,6 +297,15 @@ impl Vault {
             .hashes
             .insert(rel.replace('\\', "/"), hash_bytes(content.as_bytes()));
         Ok(bytes)
+    }
+
+    /// Escribe una **nota suelta** (no un nodo) dentro de la bóveda: la memoria episódica del cerebro
+    /// residente vive acá. Camino jaula: se rechaza cualquier ruta absoluta, con `..`, con `:` de unidad
+    /// o que no termine en `.md` — el agente no puede escribir fuera de la bóveda.
+    pub fn escribir_nota(&self, rel: &str, contenido: &str) -> Result<std::path::PathBuf, String> {
+        let rel = ruta_nota_valida(rel)?;
+        self.write_atomic(&rel, contenido)?;
+        Ok(self.root.join(&rel))
     }
 
     // ── serializadores (mismo formato que el export de la app) ────────────────
@@ -2728,3 +2756,24 @@ fn al_guardar_no_se_persisten_banderas_de_interfaz() {
     assert_eq!(d["title"], "Idea", "lo del concepto se conserva");
     assert_eq!(d["maturity"], 2);
 }
+
+#[cfg(test)]
+mod tests_nota_jaula {
+    use super::ruta_nota_valida;
+
+    #[test]
+    fn acepta_una_ruta_relativa_normal() {
+        assert_eq!(ruta_nota_valida("cerebro/2026-09-15T21-10-turno.md").unwrap(),
+                   "cerebro/2026-09-15T21-10-turno.md");
+        // las barras invertidas se normalizan
+        assert_eq!(ruta_nota_valida("cerebro\\x.md").unwrap(), "cerebro/x.md");
+    }
+
+    #[test]
+    fn rechaza_todo_lo_que_se_escape_de_la_boveda() {
+        for mala in ["/absoluta.md", "C:/windows/x.md", "sub/../../fuera.md", "", "sin-extension.txt", "a".repeat(190).as_str()] {
+            assert!(ruta_nota_valida(mala).is_err(), "debía rechazar «{mala}»");
+        }
+    }
+}
+
