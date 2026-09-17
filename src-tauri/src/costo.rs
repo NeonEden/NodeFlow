@@ -182,6 +182,10 @@ pub fn consumo_estimado(prompt: &str, salida: &str) -> Consumo {
 #[derive(Clone, Debug, Default)]
 pub struct Tarifas {
     modelos: HashMap<String, (f64, f64)>,
+    /// Precio de la entrada **servida desde la caché del proveedor** (USD por 1M). Es el tercer número
+    /// de la tarifa (`[entrada, salida, cache]`). Sin él, los tokens cacheados se cobran a precio pleno
+    /// y el costo del turno queda sobreestimado: el descuento del proveedor existe, la medición no.
+    cache: HashMap<String, f64>,
     gratis: Vec<String>,
 }
 
@@ -192,12 +196,13 @@ impl Tarifas {
             return Tarifas::default();
         };
         let mut modelos = HashMap::new();
+        let mut cache = HashMap::new();
         if let Some(obj) = cfg.get("tarifas").and_then(|t| t.as_object()) {
             for (modelo, par) in obj {
                 let nums: Option<(f64, f64)> = par
                     .as_array()
                     .and_then(|a| match a.len() {
-                        2 => match (a[0].as_f64(), a[1].as_f64()) {
+                        2 | 3 => match (a[0].as_f64(), a[1].as_f64()) {
                             (Some(e), Some(s)) => Some((e, s)),
                             _ => None,
                         },
@@ -209,8 +214,18 @@ impl Tarifas {
                         let s = par.get("salida").and_then(|v| v.as_f64())?;
                         Some((e, s))
                     });
+                // Tercer número (o `entrada_cacheada`): el precio de la entrada cacheada.
+                let cacheada = par
+                    .as_array()
+                    .and_then(|a| a.get(2))
+                    .and_then(|v| v.as_f64())
+                    .or_else(|| par.get("entrada_cacheada").and_then(|v| v.as_f64()));
                 if let Some(par) = nums {
-                    modelos.insert(modelo.to_lowercase(), par);
+                    let clave = modelo.to_lowercase();
+                    if let Some(c) = cacheada {
+                        cache.insert(clave.clone(), c);
+                    }
+                    modelos.insert(clave, par);
                 }
             }
         }
@@ -224,25 +239,64 @@ impl Tarifas {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_else(|| vec!["ollama".to_string()]);
-        Tarifas { modelos, gratis }
+        Tarifas {
+            modelos,
+            cache,
+            gratis,
+        }
+    }
+
+    /// La clave de tarifa que aplica: exacta y, si no, por prefijo más largo (`gemini-3.6-flash` cubre
+    /// `gemini-3.6-flash-001`).
+    fn mejor_clave(&self, modelo: &str) -> Option<&String> {
+        let m = modelo.to_lowercase();
+        if let Some(k) = self.modelos.keys().find(|k| k.as_str() == m) {
+            return Some(k);
+        }
+        let mut mejor: Option<&String> = None;
+        for k in self.modelos.keys() {
+            if m.starts_with(k.as_str()) && mejor.map(|b| k.len() > b.len()).unwrap_or(true) {
+                mejor = Some(k);
+            }
+        }
+        mejor
     }
 
     /// Match exacto y, si no, por prefijo más largo (`gemini-3.6-flash` cubre `gemini-3.6-flash-001`).
     pub fn tarifa_de(&self, modelo: &str) -> Option<(f64, f64)> {
-        let m = modelo.to_lowercase();
-        if let Some(t) = self.modelos.get(&m) {
-            return Some(*t);
+        self.mejor_clave(modelo)
+            .and_then(|k| self.modelos.get(k).copied())
+    }
+
+    /// Precio de la entrada cacheada (USD por 1M) si está declarado. `None` = no se declaró: se cobra
+    /// a precio pleno en vez de inventar un descuento.
+    pub fn cache_de(&self, modelo: &str) -> Option<f64> {
+        self.mejor_clave(modelo)
+            .and_then(|k| self.cache.get(k).copied())
+    }
+
+    /// Costo en USD **cobrando el descuento por caché de prefijo** que el proveedor reportó
+    /// (`cache_hit`). Devuelve `(costo, costo_sin_cache)`: el segundo número es lo que habría costado
+    /// sin caché, así el ahorro es una resta de dos mediciones y no una estimación.
+    pub fn costo_con_cache(
+        &self,
+        modelo: &str,
+        proveedor: &str,
+        c: &Consumo,
+    ) -> Option<(f64, f64)> {
+        if self.es_gratis(proveedor) {
+            return Some((0.0, 0.0));
         }
-        let mut mejor: Option<(usize, (f64, f64))> = None;
-        for (clave, t) in &self.modelos {
-            if m.starts_with(clave.as_str()) {
-                let largo = clave.len();
-                if mejor.map(|(l, _)| largo > l).unwrap_or(true) {
-                    mejor = Some((largo, *t));
-                }
-            }
-        }
-        mejor.map(|(_, t)| t)
+        let (entrada, salida) = self.tarifa_de(modelo)?;
+        let precio_cache = self.cache_de(modelo).unwrap_or(entrada);
+        let millon = |n: u64| n as f64 / 1_000_000.0;
+        let hit = c.cache_hit.min(c.prompt);
+        let miss = c.prompt.saturating_sub(hit);
+        let con =
+            millon(miss) * entrada + millon(hit) * precio_cache + millon(c.completion) * salida;
+        let sin = millon(c.prompt) * entrada + millon(c.completion) * salida;
+        let r = |v: f64| (v * 1_000_000.0).round() / 1_000_000.0;
+        Some((r(con), r(sin)))
     }
 
     /// `proveedor` puede venir como `proveedor@modelo` (la etiqueta del motor): alcanza con que
@@ -791,6 +845,46 @@ mod tests {
         assert_eq!(
             tarifas.costo("granite3.3:2b", "ollama@granite3.3:2b", &c),
             Some(0.0)
+        );
+    }
+
+    #[test]
+    fn el_costo_cobra_la_entrada_cacheada_a_su_precio_y_reporta_el_ahorro() {
+        // Tarifa con el tercer número: [entrada, salida, entrada_cacheada] (USD por 1M).
+        let cfg = json!({
+            "tarifas": { "deepseek-flash": [0.28, 1.10, 0.028] },
+            "gratis": ["ollama"]
+        });
+        let t = Tarifas::desde_config(Some(&cfg));
+        assert_eq!(t.tarifa_de("deepseek-flash"), Some((0.28, 1.10)));
+        assert_eq!(t.cache_de("deepseek-flash"), Some(0.028));
+        // El match por prefijo del modelo también aplica al precio cacheado.
+        assert_eq!(t.cache_de("DeepSeek-Flash-0324"), Some(0.028));
+        // 1M de entrada: 900k servidos por caché y 100k a precio pleno, + 100k de salida.
+        let c = Consumo {
+            prompt: 1_000_000,
+            completion: 100_000,
+            cache_hit: 900_000,
+        };
+        let (con, sin) = t
+            .costo_con_cache("deepseek-flash", "openai:deepseek", &c)
+            .unwrap();
+        let esperado_con = 0.1 * 0.28 + 0.9 * 0.028 + 0.1 * 1.10; // 0,1632
+        let esperado_sin = 1.0 * 0.28 + 0.1 * 1.10; // 0,39
+        assert!((con - esperado_con).abs() < 1e-6, "costo con caché: {con}");
+        assert!((sin - esperado_sin).abs() < 1e-6, "costo sin caché: {sin}");
+        assert!(con < sin, "el ahorro tiene que ser positivo");
+        // Sin el tercer número se cobra todo a precio pleno (no se inventa un descuento).
+        let sin_precio_cache = Tarifas::desde_config(Some(&json!({
+            "tarifas": { "m": [0.28, 1.10] }
+        })));
+        assert_eq!(sin_precio_cache.cache_de("m"), None);
+        let (con2, _) = sin_precio_cache
+            .costo_con_cache("m", "openai:x", &c)
+            .unwrap();
+        assert!(
+            (con2 - esperado_sin).abs() < 1e-6,
+            "sin tarifa cacheada: {con2}"
         );
     }
 

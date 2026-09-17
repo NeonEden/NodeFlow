@@ -3812,14 +3812,17 @@ async fn agente_turno(State(st): State<AppState>, Json(body): Json<Value>) -> im
         .unwrap_or(0);
     let _ = std::fs::write(st.data_dir.join(AGENTE_CORRIENDO), sello.to_string());
 
-    let cfg_crudo: Option<Value> = std::fs::read_to_string(st.data_dir.join("nodeflow.config.json"))
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok());
+    let cfg_crudo: Option<Value> =
+        std::fs::read_to_string(st.data_dir.join("nodeflow.config.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok());
     let cfg = crate::agente::Config::desde(
         cfg_crudo.as_ref().and_then(|c| c.get("agente")),
         repo.clone(),
         st.data_dir.clone(),
     );
+    // Tarifas declaradas por el usuario (config) — incluye, si está, el precio de la entrada cacheada.
+    let tarifas = crate::costo::Tarifas::desde_config(cfg_crudo.as_ref());
     // Lo que la respuesta necesita, capturado **antes** de que el `spawn` se lleve `cfg` y `motor`.
     let (res_motor, res_modelo, res_repo, res_tope) = (
         motor.id.clone(),
@@ -3845,23 +3848,52 @@ async fn agente_turno(State(st): State<AppState>, Json(body): Json<Value>) -> im
             crate::agente::sistema(&cfg.repo),
             crate::cerebro::briefing_texto(&ctx)
         );
-        // El token del turno se acumula desde afuera: el bucle no sabe de costos, el backend sí.
-        let tokens = std::sync::Arc::new(std::sync::Mutex::new(0u64));
-        let tokens2 = tokens.clone();
-        let (st4, base2, clave2, modelo2) = (st2.clone(), base.clone(), clave.clone(), motor.modelo.clone());
+        // El consumo del turno se acumula desde afuera: el bucle no sabe de costos, el backend sí.
+        // Se guardan las tres cifras que reporta el proveedor —prompt, completion y **cache_hit**—:
+        // sin la tercera, un turno sólo se puede reportar en tokens brutos y el descuento por caché de
+        // prefijo (que es como DeepSeek cobra barato el contexto repetido) queda invisible.
+        // `llamadas` guarda el desglose por vuelta: el prompt crece en cada vuelta y ahí está el costo.
+        let consumo = std::sync::Arc::new(std::sync::Mutex::new(crate::costo::Consumo::default()));
+        let llamadas = std::sync::Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
+        let consumo2 = consumo.clone();
+        let llamadas2 = llamadas.clone();
+        let (st4, base2, clave2, modelo2) = (
+            st2.clone(),
+            base.clone(),
+            clave.clone(),
+            motor.modelo.clone(),
+        );
         let llamar = move |msgs: Vec<Value>, tools: Vec<Value>| {
-            let (st5, base, clave, modelo, acc) = (
+            let (st5, base, clave, modelo, acc, reg) = (
                 st4.clone(),
                 base2.clone(),
                 clave2.clone(),
                 modelo2.clone(),
-                tokens2.clone(),
+                consumo2.clone(),
+                llamadas2.clone(),
             );
             async move {
+                let t0v = std::time::Instant::now();
                 let r = chat_con_tools(&st5, &base, &clave, &modelo, msgs, tools).await?;
-                if let Some(t) = r["usage"]["total_tokens"].as_u64() {
-                    if let Ok(mut g) = acc.lock() {
-                        *g += t;
+                let ms_v = t0v.elapsed().as_millis() as u64;
+                let mut c = crate::costo::consumo_openai(&r).unwrap_or_default();
+                if c.total() == 0 {
+                    // El proveedor no separó prompt/salida: lo que reportó entra entero, sin inventar.
+                    if let Some(t) = r["usage"]["total_tokens"].as_u64() {
+                        c.prompt = t;
+                    }
+                }
+                if let Ok(mut g) = acc.lock() {
+                    g.sumar(&c);
+                }
+                if let Ok(mut v) = reg.lock() {
+                    if v.len() < 128 {
+                        v.push(json!({
+                            "prompt": c.prompt,
+                            "completion": c.completion,
+                            "cache_hit": c.cache_hit,
+                            "ms": ms_v,
+                        }));
                     }
                 }
                 Ok(r)
@@ -3869,6 +3901,17 @@ async fn agente_turno(State(st): State<AppState>, Json(body): Json<Value>) -> im
         };
         let turno = crate::agente::correr(&pedido2, &sistema, &cfg, llamar).await;
         let ms = t0.elapsed().as_millis() as u64;
+        // El consumo del turno, con la parte que el proveedor sirvió desde su caché de prefijo.
+        let consumo_final = consumo.lock().map(|g| g.clone()).unwrap_or_default();
+        let llamadas_final: Vec<Value> = llamadas.lock().map(|g| g.clone()).unwrap_or_default();
+        let (costo, costo_sin_cache) = tarifas
+            .costo_con_cache(&motor.modelo, &motor.id, &consumo_final)
+            .map(|(con, sin)| (Some(con), Some(sin)))
+            .unwrap_or((None, None));
+        let ahorro_cache = match (costo, costo_sin_cache) {
+            (Some(a), Some(b)) => Some(((b - a) * 1_000_000.0).round() / 1_000_000.0),
+            _ => None,
+        };
         // El desenlace trae los pasos en todos los casos: un turno cortado sigue siendo auditable.
         let (ok, texto, error_turno) = (turno.ok, turno.texto.clone(), turno.error.clone());
         let pasos: Vec<Value> = turno
@@ -3893,7 +3936,12 @@ async fn agente_turno(State(st): State<AppState>, Json(body): Json<Value>) -> im
             "ms": ms,
             "motor": motor.id,
             "modelo": motor.modelo,
-            "tokens": tokens.lock().map(|g| *g).unwrap_or(0),
+            "tokens": consumo_final.total(),
+            "consumo": consumo_final.json(),
+            "llamadas": llamadas_final,
+            "costo_usd": costo,
+            "costo_sin_cache_usd": costo_sin_cache,
+            "cache_ahorro_usd": ahorro_cache,
             "error": error_turno,
             "contexto": crate::cerebro::resumen_contexto(&ctx),
             "cuando": sello,
@@ -3923,11 +3971,19 @@ async fn agente_turno(State(st): State<AppState>, Json(body): Json<Value>) -> im
             }
         }
         log::info!(
-            "agente: {} · {} pasos · {} ms · {} tokens · motor {}",
+            "agente: {} · {} pasos · {} ms · {} tokens ({} in / {} out · {} de caché) · {} llamadas · costo {} · motor {}",
             if ok { "listo" } else { "falló" },
             resultado["herramientas_usadas"],
             ms,
-            resultado["tokens"],
+            consumo_final.total(),
+            consumo_final.prompt,
+            consumo_final.completion,
+            consumo_final.cache_hit,
+            llamadas_final.len(),
+            match costo {
+                Some(c) => format!("US$ {c:.6}"),
+                None => "sin tarifa declarada".to_string(),
+            },
             resultado["motor"]
         );
     });
@@ -4007,12 +4063,22 @@ async fn agente_parche_aprobar(State(st): State<AppState>) -> impl IntoResponse 
     let eds = match crate::parche::eds_de_json(&v["ediciones"]) {
         Ok(e) => e,
         Err(e) => {
-            return (StatusCode::BAD_REQUEST, Json(json!({ "success": false, "error": e }))).into_response()
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "success": false, "error": e })),
+            )
+                .into_response()
         }
     };
     let repo = match repo_de_parches(&st) {
         Ok(p) => p,
-        Err(e) => return (StatusCode::BAD_REQUEST, Json(json!({ "success": false, "error": e }))).into_response(),
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "success": false, "error": e })),
+            )
+                .into_response()
+        }
     };
     match crate::parche::aplicar(&repo, &eds) {
         Ok(apl) => {
@@ -4039,7 +4105,9 @@ async fn agente_parche_aprobar(State(st): State<AppState>) -> impl IntoResponse 
                     crate::parche::verificar(&repo2, &archivos, tope)
                 })
                 .await
-                .unwrap_or_else(|e| vec![json!({ "comando": "verificación", "ok": false, "salida": e.to_string() })]);
+                .unwrap_or_else(|e| {
+                    vec![json!({ "comando": "verificación", "ok": false, "salida": e.to_string() })]
+                });
                 if let Some(mut actual) = crate::parche::leer(&st2.data_dir) {
                     let ok = verificacion
                         .iter()
@@ -4071,7 +4139,11 @@ async fn agente_parche_aprobar(State(st): State<AppState>) -> impl IntoResponse 
             v["estado"] = json!("error");
             v["error"] = json!(e);
             let _ = crate::parche::escribir(&st.data_dir, &v);
-            (StatusCode::BAD_REQUEST, Json(json!({ "success": false, "error": e }))).into_response()
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "success": false, "error": e })),
+            )
+                .into_response()
         }
     }
 }
@@ -4079,21 +4151,35 @@ async fn agente_parche_aprobar(State(st): State<AppState>) -> impl IntoResponse 
 /// `POST /api/agente/parche/rechazar` — se descarta sin tocar el disco.
 async fn agente_parche_rechazar(State(st): State<AppState>) -> impl IntoResponse {
     let Some(mut v) = crate::parche::leer(&st.data_dir) else {
-        return (StatusCode::BAD_REQUEST, Json(json!({ "success": false, "error": "No hay propuesta." })))
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "success": false, "error": "No hay propuesta." })),
+        )
             .into_response();
     };
     v["estado"] = json!("rechazado");
     v["cuando_rechazo"] = json!(now_ms());
     match crate::parche::escribir(&st.data_dir, &v) {
-        Ok(_) => (StatusCode::OK, Json(json!({ "success": true, "estado": "rechazado" }))).into_response(),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "success": false, "error": e }))).into_response(),
+        Ok(_) => (
+            StatusCode::OK,
+            Json(json!({ "success": true, "estado": "rechazado" })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "success": false, "error": e })),
+        )
+            .into_response(),
     }
 }
 
 /// `POST /api/agente/parche/revertir` — aplica la **inversa** del parche aplicado (el repo vuelve solo).
 async fn agente_parche_revertir(State(st): State<AppState>) -> impl IntoResponse {
     let Some(v) = crate::parche::leer(&st.data_dir) else {
-        return (StatusCode::BAD_REQUEST, Json(json!({ "success": false, "error": "No hay propuesta." })))
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "success": false, "error": "No hay propuesta." })),
+        )
             .into_response();
     };
     if !matches!(v["estado"].as_str(), Some("aplicado") | Some("error")) {
@@ -4105,11 +4191,23 @@ async fn agente_parche_revertir(State(st): State<AppState>) -> impl IntoResponse
     }
     let eds = match crate::parche::eds_de_json(&v["ediciones"]) {
         Ok(e) => e,
-        Err(e) => return (StatusCode::BAD_REQUEST, Json(json!({ "success": false, "error": e }))).into_response(),
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "success": false, "error": e })),
+            )
+                .into_response()
+        }
     };
     let repo = match repo_de_parches(&st) {
         Ok(p) => p,
-        Err(e) => return (StatusCode::BAD_REQUEST, Json(json!({ "success": false, "error": e }))).into_response(),
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "success": false, "error": e })),
+            )
+                .into_response()
+        }
     };
     match crate::parche::aplicar(&repo, &crate::parche::invertir(&eds)) {
         Ok(apl) => {
@@ -4123,7 +4221,11 @@ async fn agente_parche_revertir(State(st): State<AppState>) -> impl IntoResponse
             )
                 .into_response()
         }
-        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "success": false, "error": e }))).into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "success": false, "error": e })),
+        )
+            .into_response(),
     }
 }
 
