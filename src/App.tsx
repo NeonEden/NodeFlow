@@ -2912,7 +2912,7 @@ export default function App() {
     if (saveStatus === 'unsaved') {
       return { texto: t('hud.estado.sinGuardar'), clase: 'text-rose-300 border-rose-800/60 bg-rose-950/20', punto: 'bg-rose-400' };
     }
-    return { texto: `${t('hud.estado.alDia')} · ${lastSyncText}`, clase: 'text-emerald-200 border-emerald-800/50 bg-emerald-950/20', punto: 'bg-emerald-400' };
+    return { texto: t('hud.estado.alDia'), clase: 'text-emerald-200 border-emerald-800/50 bg-emerald-950/20', punto: 'bg-emerald-400' };
   }, [saveStatus, lastSyncText, t]);
 
   // Saved states actions (todas hablan con la bóveda por el backend, no con el WebView)
@@ -3478,7 +3478,7 @@ export default function App() {
               {/* El guardado, a la vista: el estado se contesta de un vistazo. */}
               <div
                 className={`flex items-center gap-2 px-3 py-2 rounded-xl border ${estadoGuardado.clase}`}
-                title={`${t('hud.estado.ayuda')} · rev ${vaultInfo?.revision ?? '—'}`}
+                title={`${t('hud.estado.ayuda')} · ${lastSyncText} · rev ${vaultInfo?.revision ?? '—'}`}
               >
                 <span className={`w-2 h-2 rounded-full shrink-0 ${estadoGuardado.punto}`} />
                 <span className="text-[11px] font-medium truncate">{estadoGuardado.texto}</span>
