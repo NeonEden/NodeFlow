@@ -20,7 +20,7 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 
-import { FlaskConical,
+import { Bot,  FlaskConical,
   Telescope,
   Sparkles,
   Inbox,
@@ -69,6 +69,7 @@ import { SavedStatesModal } from './components/SavedStatesModal';
 import { NodeEditModal } from './components/NodeEditModal';
 import { SynthesisModal, MapSynthesis } from './components/SynthesisModal';
 import { LinajeModal } from './components/LinajeModal';
+import { AgentePanel } from './components/AgentePanel';
 import { VozPanel } from './components/VozPanel';
 import { EvaluacionPanel } from './components/EvaluacionPanel';
 import { InvestigacionPanel, type EstadoInvestigacion, type PasoInvestigacion } from './components/InvestigacionPanel';
@@ -283,6 +284,7 @@ export default function App() {
   const [isConocimientoOpen, setIsConocimientoOpen] = useState(false);
   const [isJardinOpen, setIsJardinOpen] = useState(false);
   const [isVozOpen, setIsVozOpen] = useState(false);
+  const [isAgenteOpen, setIsAgenteOpen] = useState(false);
   const [isEvaluacionOpen, setIsEvaluacionOpen] = useState(false);
   const [isInvestigacionOpen, setIsInvestigacionOpen] = useState(false);
   const [isCerebroOpen, setIsCerebroOpen] = useState(false);
@@ -3339,6 +3341,18 @@ export default function App() {
                   <span className="truncate">{t('panel.voz')}</span>
                   <span className="ml-auto shrink-0 whitespace-nowrap text-[9px] text-cyan-300 font-mono bg-cyan-900/50 px-1.5 py-0.5 rounded border border-cyan-700/50">hablar</span>
                 </button>
+                {/* Etapas 1+3 del plan «sin Hermes»: el bucle propio, con herramientas de repo */}
+                <button
+                  type="button"
+                  id="btn-panel-agente"
+                  onClick={() => setIsAgenteOpen(true)}
+                  title="El agente propio: mira el repo con herramientas (firmas, buscar, correr los tests) sin depender de otro proceso"
+                  className="w-full flex items-center gap-2 px-3 py-2 bg-slate-900/70 hover:bg-slate-800/70 text-violet-200 border border-slate-800 hover:border-violet-700/60 rounded-xl text-xs font-medium transition-colors cursor-pointer group"
+                >
+                  <Bot size={14} className="text-violet-400 shrink-0" />
+                  <span className="truncate">{t('panel.agente')}</span>
+                  <span className="ml-auto shrink-0 whitespace-nowrap text-[9px] text-violet-300 font-mono bg-violet-900/50 px-1.5 py-0.5 rounded border border-violet-800/60">tools</span>
+                </button>
                 <button
                   type="button"
                   id="btn-panel-investigacion"
@@ -3885,6 +3899,8 @@ export default function App() {
           .filter((x) => x.length >= 4)
           .slice(0, 6)}
       />
+
+      <AgentePanel isOpen={isAgenteOpen} onClose={() => setIsAgenteOpen(false)} />
 
       <VozPanel
         isOpen={isVozOpen}

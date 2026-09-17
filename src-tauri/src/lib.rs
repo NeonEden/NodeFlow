@@ -1,3 +1,4 @@
+mod agente;
 mod artefactos;
 mod borrador;
 mod cerebro;

@@ -123,6 +123,24 @@ const ES = {
   'voz.motorProfundo': 'Motor profundo',
   'voz.pie': 'Realtime del proveedor activo + el motor elegido en la app',
   'voz.idiomaAviso': 'La voz usa el idioma de la interfaz.',
+
+  // --- agente propio (bucle con herramientas de repo, sin Hermes)
+  'panel.agente': 'Agente',
+  'agente.titulo': 'Agente propio',
+  'agente.sinHermes': 'sin Hermes',
+  'agente.ayuda': 'El bucle corre en NodeFlow: mira el repo con herramientas (firmas, buscar, leer, tests).',
+  'agente.pedido': '¿Qué querés que mire o verifique?',
+  'agente.correr': 'Correr turno',
+  'agente.corriendo': 'Trabajando',
+  'agente.pasos': 'Herramientas usadas',
+  'agente.noEscribe': 'Sólo lee: no modifica archivos',
+  'agente.sinHerramientas': 'No usó herramientas en este turno.',
+  'agente.verSalidas': 'Ver las salidas',
+  'agente.ocultarSalidas': 'Ocultar las salidas',
+  'agente.respuesta': 'Respuesta',
+  'agente.ejemplo': 'Ejemplo: «mirá el módulo agente.rs, decime qué hace y comprobá corriendo los tests».',
+  'agente.faltaPedido': 'Escribí qué querés que haga (mínimo unas palabras).',
+  'agente.sinRepo': 'No sé dónde está el repo: poné `cerebro.repo` en la configuración.'
 } as const;
 
 export type Clave = keyof typeof ES;
@@ -222,6 +240,23 @@ const EN: Record<Clave, string> = {
   'voz.motorProfundo': 'Deep engine',
   'voz.pie': 'Realtime from the active provider + the engine chosen in the app',
   'voz.idiomaAviso': 'Voice uses the interface language.',
+
+  'panel.agente': 'Agent',
+  'agente.titulo': 'Own agent',
+  'agente.sinHermes': 'no Hermes',
+  'agente.ayuda': 'The loop runs inside NodeFlow: it inspects the repo with tools (signatures, search, read, tests).',
+  'agente.pedido': 'What should it look at or verify?',
+  'agente.correr': 'Run turn',
+  'agente.corriendo': 'Working',
+  'agente.pasos': 'Tools used',
+  'agente.noEscribe': 'Reads only: it does not modify files',
+  'agente.sinHerramientas': 'It used no tools in this turn.',
+  'agente.verSalidas': 'Show the outputs',
+  'agente.ocultarSalidas': 'Hide the outputs',
+  'agente.respuesta': 'Answer',
+  'agente.ejemplo': 'Example: "look at agente.rs, tell me what it does and verify it by running the tests".',
+  'agente.faltaPedido': 'Write what you want it to do (a few words at least).',
+  'agente.sinRepo': 'I do not know where the repo is: set `cerebro.repo` in the configuration.'
 };
 
 export const CATALOGOS: Record<Idioma, Record<Clave, string>> = { es: ES, en: EN };

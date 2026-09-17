@@ -247,6 +247,8 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
             .route("/api/voz/decir", post(voz_decir))
             .route("/api/voz/dialogo", get(voz_dialogo))
             .route("/api/ai/delegar", post(delegar).get(delegar_estado))
+            .route("/api/agente/turno", post(agente_turno))
+            .route("/api/agente/estado", get(agente_estado))
             .route("/api/ai/evaluar", post(ai_evaluar).get(ai_evaluar_leer))
             .route(
                 "/api/ai/investigar",
@@ -3646,6 +3648,314 @@ async fn delegar_estado(State(st): State<AppState>) -> impl IntoResponse {
             "sesion": st.cerebro.sesion,
             "notas": crate::cerebro::contar_notas(&st.vault.raiz()),
         },
+    }))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// El agente propio (etapas 1+3 del plan «sin Hermes»): bucle con herramientas de repo
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Estado del turno en disco, y su bandera. La bandera guarda el **instante**: una corrida muerta
+/// (kill, apagón) no puede dejar al agente bloqueado para siempre — misma lección que
+/// `investigacion::en_curso` y `IA_TURNO_TTL_S`.
+const AGENTE_JSON: &str = "agente.json";
+const AGENTE_CORRIENDO: &str = "agente.corriendo";
+const AGENTE_TTL_S: u64 = 900;
+
+fn agente_en_curso(data_dir: &std::path::Path) -> bool {
+    let f = data_dir.join(AGENTE_CORRIENDO);
+    let Ok(txt) = std::fs::read_to_string(&f) else {
+        return false;
+    };
+    let sello: u64 = txt.trim().parse().unwrap_or(0);
+    let ahora = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    if sello > 0 && ahora.saturating_sub(sello) > AGENTE_TTL_S {
+        log::warn!("agente: bandera vencida ({sello}), la limpio");
+        let _ = std::fs::remove_file(&f);
+        return false;
+    }
+    true
+}
+
+/// Baja la bandera y guarda el resultado del turno (con **todos** los pasos: es la auditoría).
+fn guardar_agente(data_dir: &std::path::Path, v: Value) -> Result<(), String> {
+    std::fs::write(
+        data_dir.join(AGENTE_JSON),
+        serde_json::to_string_pretty(&v).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    let _ = std::fs::remove_file(data_dir.join(AGENTE_CORRIENDO));
+    Ok(())
+}
+
+/// Llama al motor **con herramientas** (formato OpenAI) y devuelve el JSON crudo: el bucle necesita
+/// `choices[0].message.tool_calls`, no un texto aplanado. El `temperature` se omite a propósito:
+/// los razonadores rechazan cualquier valor que no sea el default.
+async fn chat_con_tools(
+    st: &AppState,
+    base: &str,
+    clave: &str,
+    modelo: &str,
+    messages: Vec<Value>,
+    tools: Vec<Value>,
+) -> Result<Value, String> {
+    let mut body = json!({ "model": modelo, "messages": messages, "tool_choice": "auto" });
+    if !tools.is_empty() {
+        body["tools"] = json!(tools);
+    }
+    let url = format!("{}/chat/completions", base.trim_end_matches('/'));
+    let resp = st
+        .http
+        .post(&url)
+        .bearer_auth(clave)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("error de red hacia {url}: {e}"))?;
+    if !resp.status().is_success() {
+        let code = resp.status();
+        let cuerpo = resp.text().await.unwrap_or_default();
+        return Err(format!(
+            "{modelo}: HTTP {code} — {}",
+            cuerpo.chars().take(300).collect::<String>()
+        ));
+    }
+    resp.json::<Value>()
+        .await
+        .map_err(|e| format!("respuesta ilegible de {modelo}: {e}"))
+}
+
+/// Motor del bucle: **tiene** que ser compatible con OpenAI (se le mandan `tools`) y tener clave. Si el
+/// elegido no sirve, cae al primer proveedor compatible declarado antes que fallar.
+async fn motor_para_agente(
+    st: &AppState,
+    pedido: Option<&str>,
+) -> Result<crate::motores::Motor, String> {
+    let cat = catalogo(st).await;
+    let sel = pedido
+        .map(|s| s.to_string())
+        .or_else(|| crate::motores::seleccionado(&st.data_dir));
+    for m in crate::motores::plan(&cat, sel.as_deref(), None) {
+        if !matches!(m.proveedor.as_str(), "openai" | "ollama") || m.base_url.is_none() {
+            continue;
+        }
+        if clave_del_motor(st, &m).is_none() {
+            continue;
+        }
+        return Ok(m);
+    }
+    Err("ningún motor compatible con OpenAI tiene clave (agregá una, o usá openai:deepseek)".into())
+}
+
+/// `POST /api/agente/turno` — arranca **el bucle de agente propio** (sin Hermes) y vuelve enseguida:
+/// el panel consulta `GET /api/agente/estado` mientras el turno crece. Cuerpo: `{pedido, motor?, repo?}`.
+async fn agente_turno(State(st): State<AppState>, Json(body): Json<Value>) -> impl IntoResponse {
+    let pedido = body["pedido"].as_str().unwrap_or("").trim().to_string();
+    if pedido.chars().count() < 4 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "success": false, "error": "Falta el pedido del turno." })),
+        )
+            .into_response();
+    }
+    if agente_en_curso(&st.data_dir) {
+        return (
+            StatusCode::CONFLICT,
+            Json(json!({ "success": false, "error": "Ya hay un turno del agente en curso." })),
+        )
+            .into_response();
+    }
+    // La raíz del repo: el cuerpo (útil para probar) → `cerebro.repo` del config → la ubicación del exe.
+    let repo = body["repo"]
+        .as_str()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .or_else(|| Some(st.cerebro.repo.clone()).filter(|s| !s.trim().is_empty()))
+        .map(std::path::PathBuf::from);
+    let Some(repo) = repo.filter(|p| p.is_dir()) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "success": false,
+                "error": "No sé dónde está el repo. Poné `cerebro.repo` en nodeflow.config.json (o mandá `repo`)."
+            })),
+        )
+            .into_response();
+    };
+
+    let motor = match motor_para_agente(&st, body["motor"].as_str()).await {
+        Ok(m) => m,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "success": false, "error": e })),
+            )
+                .into_response()
+        }
+    };
+    let clave = clave_del_motor(&st, &motor).unwrap_or_default();
+    let base = motor
+        .base_url
+        .clone()
+        .unwrap_or_else(|| "http://localhost:11434/v1".to_string());
+
+    let sello = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let _ = std::fs::write(st.data_dir.join(AGENTE_CORRIENDO), sello.to_string());
+
+    let cfg_crudo: Option<Value> = std::fs::read_to_string(st.data_dir.join("nodeflow.config.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok());
+    let cfg = crate::agente::Config::desde(
+        cfg_crudo.as_ref().and_then(|c| c.get("agente")),
+        repo.clone(),
+    );
+    // Lo que la respuesta necesita, capturado **antes** de que el `spawn` se lleve `cfg` y `motor`.
+    let (res_motor, res_modelo, res_repo, res_tope) = (
+        motor.id.clone(),
+        motor.modelo.clone(),
+        cfg.repo.clone(),
+        cfg.tope_pasos,
+    );
+    let st2 = st.clone();
+    let pedido2 = pedido.clone();
+    tokio::spawn(async move {
+        let t0 = std::time::Instant::now();
+        // El briefing se arma **desde la bóveda** (visión + camino + recuerdo dirigido + el mapa de la
+        // arquitectura): es lo mismo que recibe el motor profundo, así el agente no arranca a ciegas.
+        let ctx = {
+            let st3 = st2.clone();
+            let p = pedido2.clone();
+            tokio::task::spawn_blocking(move || contexto_del_turno(&st3, &p))
+                .await
+                .unwrap_or_default()
+        };
+        let sistema = format!(
+            "{}\n\n{}",
+            crate::agente::sistema(&cfg.repo),
+            crate::cerebro::briefing_texto(&ctx)
+        );
+        // El token del turno se acumula desde afuera: el bucle no sabe de costos, el backend sí.
+        let tokens = std::sync::Arc::new(std::sync::Mutex::new(0u64));
+        let tokens2 = tokens.clone();
+        let (st4, base2, clave2, modelo2) = (st2.clone(), base.clone(), clave.clone(), motor.modelo.clone());
+        let llamar = move |msgs: Vec<Value>, tools: Vec<Value>| {
+            let (st5, base, clave, modelo, acc) = (
+                st4.clone(),
+                base2.clone(),
+                clave2.clone(),
+                modelo2.clone(),
+                tokens2.clone(),
+            );
+            async move {
+                let r = chat_con_tools(&st5, &base, &clave, &modelo, msgs, tools).await?;
+                if let Some(t) = r["usage"]["total_tokens"].as_u64() {
+                    if let Ok(mut g) = acc.lock() {
+                        *g += t;
+                    }
+                }
+                Ok(r)
+            }
+        };
+        let salida = crate::agente::correr(&pedido2, &sistema, &cfg, llamar).await;
+        let ms = t0.elapsed().as_millis() as u64;
+        // Un solo `match`: los pasos se consumen acá y el resultado sale completo (antes se movía
+        // `salida` en el primer match y el segundo no podía mirarla).
+        let (ok, texto, pasos): (bool, String, Vec<Value>) = match salida {
+            Ok((t, ps)) => {
+                let pasos = ps
+                    .iter()
+                    .map(|p| {
+                        json!({
+                            "herramienta": p.herramienta,
+                            "argumentos": p.argumentos,
+                            "ok": p.ok,
+                            "ms": p.ms,
+                            "salida": p.salida.chars().take(1_200).collect::<String>(),
+                        })
+                    })
+                    .collect();
+                (true, t, pasos)
+            }
+            Err(e) => (false, e, Vec::new()),
+        };
+        let resultado = json!({
+            "pedido": pedido2,
+            "ok": ok,
+            "respuesta": texto,
+            "pasos": pasos,
+            "herramientas_usadas": pasos.len(),
+            "ms": ms,
+            "motor": motor.id,
+            "modelo": motor.modelo,
+            "tokens": tokens.lock().map(|g| *g).unwrap_or(0),
+            "contexto": crate::cerebro::resumen_contexto(&ctx),
+            "cuando": sello,
+        });
+        if let Err(e) = guardar_agente(&st2.data_dir, resultado.clone()) {
+            log::warn!("agente: no pude guardar el resultado: {e}");
+            let _ = std::fs::remove_file(st2.data_dir.join(AGENTE_CORRIENDO));
+        }
+        // Nota episódica: la memoria del proyecto vive en la bóveda, no en el proceso.
+        if st2.cerebro.notas {
+            let utc = now_iso();
+            let local = sello_local((now_ms() / 1000) as i64, st2.cerebro.offset_h);
+            let nota = crate::cerebro::nota_markdown(
+                &resultado["pedido"].as_str().unwrap_or(""),
+                &texto,
+                &format!("agente:{}", resultado["motor"].as_str().unwrap_or("")),
+                ok,
+                ms,
+                &local,
+                &utc,
+            );
+            if let Err(e) = st2
+                .vault
+                .escribir_nota(&crate::cerebro::nombre_nota(&local), &nota)
+            {
+                log::warn!("agente: no pude escribir la nota del turno: {e}");
+            }
+        }
+        log::info!(
+            "agente: {} · {} pasos · {} ms · {} tokens · motor {}",
+            if ok { "listo" } else { "falló" },
+            resultado["herramientas_usadas"],
+            ms,
+            resultado["tokens"],
+            resultado["motor"]
+        );
+    });
+
+    (
+        StatusCode::OK,
+        Json(json!({
+            "success": true,
+            "corriendo": true,
+            "pedido": pedido,
+            "motor": res_motor,
+            "modelo": res_modelo,
+            "repo": res_repo,
+            "tope_pasos": res_tope
+        })),
+    )
+        .into_response()
+}
+
+/// `GET /api/agente/estado` — ¿sigue el turno? ¿qué herramientas usó y qué contestó?
+async fn agente_estado(State(st): State<AppState>) -> impl IntoResponse {
+    let resultado = std::fs::read_to_string(st.data_dir.join(AGENTE_JSON))
+        .ok()
+        .and_then(|t| serde_json::from_str::<Value>(&t).ok());
+    Json(json!({
+        "success": true,
+        "corriendo": agente_en_curso(&st.data_dir),
+        "resultado": resultado,
+        "repo": st.cerebro.repo,
     }))
 }
 
