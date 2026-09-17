@@ -1,0 +1,10 @@
+# Vercel: el proyecto desplegable es `demo/`, no la app de escritorio.
+#
+# El proyecto de Vercel tiene su Root Directory en `demo` (Settings → General), así que el CLI
+# resuelve el root desde la raíz del repo: hay que lanzar `vercel deploy` DESDE acá, no desde
+# `demo/` (desde ahí busca `demo/demo` y falla con «Root Directory does not exist»).
+#
+# Sin este archivo, el CLI sube el repo entero —incluido `src-tauri/target`, ~2 GB— y aborta.
+# Semántica gitignore: se excluye todo lo de primer nivel y se vuelve a incluir `demo/`.
+/*
+!/demo
