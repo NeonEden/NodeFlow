@@ -67,15 +67,6 @@ pub fn es_campo_de_clave(nombre: &str) -> bool {
     n.ends_with("_api_key") || n.ends_with("_apikey") || n == "api_key"
 }
 
-/// Etiqueta legible de un campo (cae al propio nombre si es un proveedor agregado por el usuario).
-pub fn etiqueta(campo: &str) -> String {
-    CAMPOS
-        .iter()
-        .find(|c| c.config.eq_ignore_ascii_case(campo))
-        .map(|c| c.etiqueta.to_string())
-        .unwrap_or_else(|| campo.to_string())
-}
-
 /// Nombres de variable de entorno que se prueban, en orden.
 pub fn env_names(campo: &str) -> Vec<String> {
     let mut v = vec![campo.to_uppercase()];
@@ -92,17 +83,6 @@ pub enum Origen {
     EnvFile,
     Llavero,
     ConfigTextoPlano,
-}
-
-impl Origen {
-    pub fn como_str(self) -> &'static str {
-        match self {
-            Origen::Entorno => "entorno",
-            Origen::EnvFile => "env-file",
-            Origen::Llavero => "llavero",
-            Origen::ConfigTextoPlano => "texto-plano",
-        }
-    }
 }
 
 pub struct Resuelta {

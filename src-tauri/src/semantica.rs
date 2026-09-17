@@ -54,22 +54,6 @@ pub fn normalizar(t: &str) -> String {
     toks.join(" ")
 }
 
-/// Similitud de Jaccard sobre los tokens normalizados (0 = nada en común, 1 = idénticos).
-pub fn jaccard(a: &str, b: &str) -> f32 {
-    let sa: std::collections::HashSet<&str> = a.split_whitespace().collect();
-    let sb: std::collections::HashSet<&str> = b.split_whitespace().collect();
-    if sa.is_empty() || sb.is_empty() {
-        return 0.0;
-    }
-    let inter = sa.intersection(&sb).count() as f32;
-    let union = sa.union(&sb).count() as f32;
-    if union == 0.0 {
-        0.0
-    } else {
-        inter / union
-    }
-}
-
 /// Contención: qué fracción del pedido **más corto** aparece en el más largo (1 = uno contiene al otro).
 pub fn contencion(a: &str, b: &str) -> (f32, f32) {
     let sa: std::collections::HashSet<&str> = a.split_whitespace().collect();
