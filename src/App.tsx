@@ -285,6 +285,11 @@ export default function App() {
   // ── Fase 3: vault en disco (fuente de verdad) ──────────────────────────────
   const [vaultInfo, setVaultInfo] = useState<VaultInfo | null>(null);
   const vaultRevRef = useRef(0);
+  /** Último info del vault conocido: sin él, el polling no puede usar el atajo `since`. */
+  const vaultInfoRef = useRef<VaultInfo | null>(null);
+  useEffect(() => {
+    vaultInfoRef.current = vaultInfo;
+  }, [vaultInfo]);
   const vaultReadyRef = useRef(false);
 
   // Fase 5a: propuestas del agente esperando aprobación (tienen su propia revisión).
@@ -563,8 +568,15 @@ export default function App() {
       pendientesPreviosRef.current = pend.total;
     }
 
-    const snap = await pollVault(vaultRevRef.current);
-    if (!snap || snap.changed === false) return;
+    // Si todavía no hablamos con el vault (el primer fetch cayó mientras el backend levantaba), se pide
+    // una lectura completa: con `since == revision` el backend contesta `changed:false` y el polling
+    // quedaría cortocircuitado para siempre — la app dejaría de escribir en disco **en silencio**.
+    const snap = await pollVault(vaultInfoRef.current ? vaultRevRef.current : -1);
+    if (!snap) return;
+    // El backend contestó: hay disco al alcance, así que el autoguardado puede volver a escribir.
+    vaultReadyRef.current = true;
+    if (!vaultInfoRef.current && snap.info) setVaultInfo(snap.info);
+    if (snap.changed === false) return;
     const externos = snap.cambios_externos || [];
     // Una revisión nueva puede venir de Obsidian o de una propuesta que acabás de aprobar.
     if (snap.state?.nodes?.length) {
@@ -2900,10 +2912,13 @@ export default function App() {
   const firmaActual = useMemo(() => firmaLienzo(nodes, edges), [nodes, edges]);
   const sesionActivaDrift = Boolean(sesionActiva && sesionActiva.firma !== firmaActual);
 
-  // Estado del guardado, a la vista: es la pregunta que el usuario se hace todo el tiempo.
+  // Estado del guardado, a la vista: es la pregunta que el usuario se hace todo el tiempo. Nunca dice
+  // «al día» sin haber hablado con el disco: si el vault no respondió, eso es lo que se muestra.
   const estadoGuardado = useMemo(() => {
-    const error = lastSyncText.startsWith('Vault: error');
-    if (error) {
+    if (!vaultInfo) {
+      return { texto: t('hud.estado.sinVault'), clase: 'text-rose-300 border-rose-800/60 bg-rose-950/20', punto: 'bg-rose-400' };
+    }
+    if (lastSyncText.startsWith('Vault: error')) {
       return { texto: t('hud.estado.error'), clase: 'text-rose-300 border-rose-800/60 bg-rose-950/20', punto: 'bg-rose-400' };
     }
     if (saveStatus === 'saving') {
@@ -2913,7 +2928,7 @@ export default function App() {
       return { texto: t('hud.estado.sinGuardar'), clase: 'text-rose-300 border-rose-800/60 bg-rose-950/20', punto: 'bg-rose-400' };
     }
     return { texto: t('hud.estado.alDia'), clase: 'text-emerald-200 border-emerald-800/50 bg-emerald-950/20', punto: 'bg-emerald-400' };
-  }, [saveStatus, lastSyncText, t]);
+  }, [vaultInfo, saveStatus, lastSyncText, t]);
 
   // Saved states actions (todas hablan con la bóveda por el backend, no con el WebView)
   const handleSaveNewState = useCallback(
