@@ -36,6 +36,7 @@ import { Bot,  FlaskConical,
   Maximize2,
   Compass,
   Keyboard,
+  History,
   Search,
   LayoutTemplate,
   Trash2,
@@ -63,6 +64,7 @@ import { temaVars } from './state/canvasTheme';
 import { useTema } from './state/canvasPrefs';
 import { AparienciaHud } from './components/AparienciaHud';
 import { calcularNiveles, acentoDeNivel } from './utils/zonas';
+import { firmaLienzo, nombreDeSesion } from './utils/sesiones';
 import { Toolbar } from './components/Toolbar';
 import { AuthModal } from './components/AuthModal';
 import { SavedStatesModal } from './components/SavedStatesModal';
@@ -128,6 +130,8 @@ const NODE_TYPES = {
 const EDGE_TYPES = { flowEdge: FlowEdge };
 
 const SAVED_STATES_STORAGE_KEY = 'neuralmind_saved_diagram_states';
+/** Cuál de las sesiones está cargada en el lienzo (sobrevive a la recarga, igual que las sesiones). */
+const SESION_ACTIVA_STORAGE_KEY = 'nodeflow_sesion_activa';
 const ACTIVE_CANVAS_STORAGE_KEY = 'neuralmind_active_canvas_v2';
 
 // Carga inicial persistente de la sesión del usuario para que nunca pierda su trabajo
@@ -325,6 +329,32 @@ export default function App() {
     }
     return [];
   });
+
+  // Sesión cargada en el lienzo: su id y la firma del contenido que tenía al cargarla. Sirve para
+  // marcar «en el lienzo» y avisar cuando el lienzo se movió respecto de la sesión («modificada»).
+  const [sesionActiva, setSesionActiva] = useState<{ id: string; nombre: string; firma: string } | null>(
+    () => {
+      try {
+        const stored = localStorage.getItem(SESION_ACTIVA_STORAGE_KEY);
+        if (stored) return JSON.parse(stored);
+      } catch (e) {
+        console.error('Error reading the active session from localStorage', e);
+      }
+      return null;
+    },
+  );
+
+  useEffect(() => {
+    try {
+      if (sesionActiva) {
+        localStorage.setItem(SESION_ACTIVA_STORAGE_KEY, JSON.stringify(sesionActiva));
+      } else {
+        localStorage.removeItem(SESION_ACTIVA_STORAGE_KEY);
+      }
+    } catch (e) {
+      console.error('Error persisting the active session', e);
+    }
+  }, [sesionActiva]);
 
   const rfInstanceRef = useRef<ReactFlowInstance | null>(null);
   const reactFlowWrapperRef = useRef<HTMLDivElement | null>(null);
@@ -2830,9 +2860,22 @@ export default function App() {
     showToast(`Estilo aplicado a ${selectedEdges.length} conexiones`, 'success');
   }, [selectedEdges, nodes, edges, edgeAppearance, takeSnapshot, showToast]);
 
+  // Firma del lienzo actual: se compara con la de la sesión cargada para saber si se movió.
+  const firmaActual = useMemo(() => firmaLienzo(nodes, edges), [nodes, edges]);
+
+  // Sesiones visibles para el usuario actual (misma regla que el modal: propias + las de 'default').
+  const sesionesVisibles = useMemo(
+    () =>
+      savedStates.filter(
+        (s) => s.userId === (currentUser?.id || 'default') || s.userId === 'default',
+      ),
+    [savedStates, currentUser]
+  );
+
   // Saved states actions
   const handleSaveNewState = useCallback(
     (name: string) => {
+      const firma = firmaLienzo(nodes, edges);
       const newState: SavedState = {
         id: `state-${Date.now()}`,
         name,
@@ -2846,7 +2889,10 @@ export default function App() {
       };
 
       setSavedStates((prev) => [newState, ...prev]);
+      // La sesión recién guardada ES el lienzo actual: queda marcada como la cargada.
+      setSesionActiva({ id: newState.id, nombre: name, firma });
       showToast(`Estado "${name}" guardado correctamente`, 'success');
+      return newState.id;
     },
     [nodes, edges, edgeAppearance, currentUser, showToast]
   );
@@ -2859,14 +2905,47 @@ export default function App() {
       if (state.edgeAppearance) {
         setEdgeAppearance(state.edgeAppearance);
       }
-      showToast(`Estado "${state.name}" restaurado en el lienzo`, 'success');
+      setSesionActiva({
+        id: state.id,
+        nombre: state.name,
+        firma: firmaLienzo(state.nodes, state.edges),
+      });
+      showToast(`Sesión "${state.name}" cargada en el lienzo (Ctrl+Z la revierte)`, 'success');
     },
     [nodes, edges, takeSnapshot, showToast]
+  );
+
+  /** Sobrescribe una sesión con el lienzo actual: evita acumular copias casi iguales. */
+  const handleUpdateState = useCallback(
+    (id: string) => {
+      const firma = firmaLienzo(nodes, edges);
+      const nombre = savedStates.find((s) => s.id === id)?.name || 'Sesión';
+      setSavedStates((prev) =>
+        prev.map((s) =>
+          s.id === id
+            ? {
+                ...s,
+                timestamp: Date.now(),
+                nodeCount: nodes.length,
+                edgeCount: edges.length,
+                nodes,
+                edges,
+                edgeAppearance,
+              }
+            : s
+        )
+      );
+      setSesionActiva({ id, nombre, firma });
+      showToast(`Sesión "${nombre}" actualizada con el lienzo actual`, 'success');
+    },
+    [nodes, edges, edgeAppearance, savedStates, showToast]
   );
 
   const handleDeleteState = useCallback(
     (id: string) => {
       setSavedStates((prev) => prev.filter((s) => s.id !== id));
+      // Si era la cargada, el lienzo sigue ahí: sólo deja de tener sesión de origen.
+      setSesionActiva((prev) => (prev?.id === id ? null : prev));
       showToast('Punto de restauración eliminado', 'info');
     },
     [showToast]
@@ -3022,9 +3101,10 @@ export default function App() {
       localStorage.setItem(ACTIVE_CANVAS_STORAGE_KEY, JSON.stringify(payload));
       setSaveStatus('saved');
       setLastSyncText('Guardado');
-      const snapTitle = `Guardado manual ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+      // El nombre sale del nodo raíz + la hora: «Guardado manual 13:03» no distingue una sesión de otra.
+      const snapTitle = nombreDeSesion(nodes);
       handleSaveNewState(snapTitle);
-      showToast('Progreso y diseño guardados permanentemente en tu navegador', 'success');
+      showToast(`Guardado en disco · sesión «${snapTitle}» en el lienzo`, 'success');
     } catch (e) {
       showToast('Error al persistir el estado en el navegador', 'error');
     }
@@ -3083,6 +3163,10 @@ export default function App() {
         onHybridize={handleHybridize}
         onOpenStatesModal={() => {
           setStatesModalTab('saved');
+          setIsStatesModalOpen(true);
+        }}
+        onOpenJsonModal={() => {
+          setStatesModalTab('export');
           setIsStatesModalOpen(true);
         }}
         onOpenObsidianModal={() => {
@@ -3304,6 +3388,50 @@ export default function App() {
                 </div>
               </div>
 
+              {/* Progreso: las dos mitades de guardar — escribir en disco y volver a otra sesión */}
+              <div className="space-y-1.5 pt-1">
+                <button
+                  type="button"
+                  id="btn-guardar-progreso"
+                  onClick={handleManualSave}
+                  title={t('hud.guardarAhora.ayuda')}
+                  className="w-full flex items-center gap-2 px-3 py-2 bg-slate-900/70 hover:bg-slate-800/70 text-indigo-200 border border-slate-800 hover:border-indigo-700/60 rounded-xl text-xs font-medium transition-colors cursor-pointer group"
+                >
+                  <Save size={14} className="text-indigo-400 shrink-0" />
+                  <span className="truncate">{t('hud.guardarAhora')}</span>
+                  <span className="ml-auto shrink-0 whitespace-nowrap text-[9px] text-indigo-300 font-mono bg-indigo-900/50 px-1.5 py-0.5 rounded border border-indigo-700/50">disco</span>
+                </button>
+                {/* Cargar OTRA sesión de nodos: era la acción que se perdió al reordenar la UI */}
+                <button
+                  type="button"
+                  id="btn-sesiones-lienzo"
+                  onClick={() => {
+                    setStatesModalTab('saved');
+                    setIsStatesModalOpen(true);
+                  }}
+                  title={t('hud.sesiones.ayuda')}
+                  className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium border transition-colors cursor-pointer group ${
+                    sesionActiva && sesionActiva.firma !== firmaActual
+                      ? 'bg-amber-950/40 hover:bg-amber-900/50 text-amber-100 border-amber-700/60'
+                      : 'bg-slate-900/70 hover:bg-slate-800/70 text-amber-200 border-slate-800 hover:border-amber-700/60'
+                  }`}
+                >
+                  <History size={14} className="text-amber-400 shrink-0" />
+                  <span className="truncate">{t('hud.sesiones')}</span>
+                  <span className="ml-auto shrink-0 whitespace-nowrap text-[9px] text-amber-300 font-mono bg-amber-900/50 px-1.5 py-0.5 rounded border border-amber-700/60">
+                    {sesionesVisibles.length ? t('hud.sesiones.n', { n: sesionesVisibles.length }) : t('hud.sesiones.vacio')}
+                  </span>
+                </button>
+                {sesionActiva && (
+                  <p className="text-[10px] text-slate-500 pl-1 truncate" title={sesionActiva.nombre}>
+                    {t('hud.sesiones.cargada')}: <span className="text-slate-300">{sesionActiva.nombre}</span>
+                    {sesionActiva.firma !== firmaActual && (
+                      <span className="ml-1 text-amber-300">·{' '}{t('hud.sesiones.modificada')}</span>
+                    )}
+                  </p>
+                )}
+              </div>
+
               {/* Paneles: mismo lenguaje que las secciones de arriba — icono + etiqueta + chip */}
               <p className="text-[10px] uppercase tracking-widest text-slate-500 font-bold pt-1">{t('hud.paneles')}</p>
               <div className="space-y-1.5">
@@ -3420,15 +3548,6 @@ export default function App() {
                   <WandSparkles size={14} className="text-violet-400 shrink-0" />
                   <span className="truncate">{t('panel.orquestador')}</span>
                   <span className="ml-auto shrink-0 whitespace-nowrap text-[9px] text-violet-300 font-mono bg-violet-900/50 px-1.5 py-0.5 rounded border border-violet-700/50">experto</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleManualSave}
-                  className="w-full flex items-center gap-2 px-3 py-2 bg-slate-900/70 hover:bg-slate-800/70 text-indigo-200 border border-slate-800 hover:border-indigo-700/60 rounded-xl text-xs font-medium transition-colors cursor-pointer group"
-                >
-                  <Save size={14} className="text-indigo-400 shrink-0" />
-                  <span className="truncate">{t('hud.guardarAhora')}</span>
-                  <span className="ml-auto shrink-0 whitespace-nowrap text-[9px] text-indigo-300 font-mono bg-indigo-900/50 px-1.5 py-0.5 rounded border border-indigo-700/50">disco</span>
                 </button>
               </div>
             </section>
@@ -3860,8 +3979,11 @@ export default function App() {
         currentAppearance={edgeAppearance}
         userId={currentUser?.id || 'default'}
         initialTab={statesModalTab}
+        activeStateId={sesionActiva?.id ?? null}
+        activeStateDrift={Boolean(sesionActiva && sesionActiva.firma !== firmaActual)}
         onLoadState={handleLoadState}
         onSaveNewState={handleSaveNewState}
+        onUpdateState={handleUpdateState}
         onDeleteState={handleDeleteState}
         onImportJSON={handleImportJSON}
       />

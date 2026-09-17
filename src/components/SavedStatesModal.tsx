@@ -26,6 +26,7 @@ import {
   downloadObsidianMarkdown,
   downloadObsidianCanvas,
 } from '../utils/obsidianExport';
+import { nombreDeSesion } from '../utils/sesiones';
 
 interface SavedStatesModalProps {
   isOpen: boolean;
@@ -36,8 +37,12 @@ interface SavedStatesModalProps {
   currentAppearance: EdgeAppearance;
   userId: string;
   initialTab?: 'saved' | 'obsidian' | 'export' | 'import';
+  /** Sesión cargada en el lienzo ahora mismo (para marcarla y avisar si el lienzo se movió). */
+  activeStateId?: string | null;
+  activeStateDrift?: boolean;
   onLoadState: (state: SavedState) => void;
   onSaveNewState: (name: string) => void;
+  onUpdateState?: (id: string) => void;
   onDeleteState: (id: string) => void;
   onImportJSON: (importedData: any, options?: { merge?: boolean }) => void;
 }
@@ -51,8 +56,11 @@ export const SavedStatesModal: React.FC<SavedStatesModalProps> = ({
   currentAppearance,
   userId,
   initialTab = 'saved',
+  activeStateId = null,
+  activeStateDrift = false,
   onLoadState,
   onSaveNewState,
+  onUpdateState,
   onDeleteState,
   onImportJSON,
 }) => {
@@ -65,6 +73,10 @@ export const SavedStatesModal: React.FC<SavedStatesModalProps> = ({
   const [obsidianSubTab, setObsidianSubTab] = useState<'md' | 'canvas'>('md');
   const [copiedMd, setCopiedMd] = useState(false);
   const [copiedCanvas, setCopiedCanvas] = useState(false);
+  // Confirmación en línea: cargar una sesión reemplaza el lienzo y borrar no se deshace.
+  const [confirmacion, setConfirmacion] = useState<{ id: string; tipo: 'cargar' | 'borrar' } | null>(null);
+  // Por defecto se guarda lo actual antes de cargar: cambiar de sesión nunca pierde trabajo.
+  const [guardarAntes, setGuardarAntes] = useState(true);
 
   // Derive default map title from root node
   const rootNode = currentNodes.find((n) => n.data.isRoot);
@@ -195,8 +207,8 @@ export const SavedStatesModal: React.FC<SavedStatesModalProps> = ({
               <Layers size={16} />
             </div>
             <div>
-              <h2 className="text-base font-semibold text-white">Estados y Exportación</h2>
-              <p className="text-xs text-slate-400">Guarda puntos de control o exporta tu red conceptual</p>
+              <h2 className="text-base font-semibold text-slate-100">Sesiones del lienzo</h2>
+              <p className="text-xs text-slate-400">Volvé a otro conjunto de nodos, o sacá el mapa de la app</p>
             </div>
           </div>
           <button
@@ -219,7 +231,7 @@ export const SavedStatesModal: React.FC<SavedStatesModalProps> = ({
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            <Save size={14} /> Estados ({userStates.length})
+            <Save size={14} /> Sesiones ({userStates.length})
           </button>
           <button
             type="button"
@@ -265,16 +277,16 @@ export const SavedStatesModal: React.FC<SavedStatesModalProps> = ({
               {/* Quick save box */}
               <form onSubmit={handleSaveSubmit} className="p-3 bg-slate-950/80 rounded-xl border border-slate-800">
                 <label className="text-xs font-medium text-slate-300 block mb-1.5">
-                  Guardar Estado Actual
+                  Guardar la sesión actual
                 </label>
                 <div className="flex gap-2">
                   <input
                     type="text"
                     required
-                    placeholder="Nombre del estado (ej. Arquitectura v1.2)"
+                    placeholder="Nombre de la sesión (ej. Arquitectura v1.2)"
                     value={newSnapshotName}
                     onChange={(e) => setNewSnapshotName(e.target.value)}
-                    className="flex-1 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-indigo-500"
+                    className="flex-1 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-slate-100 focus:outline-none focus:border-indigo-500"
                   />
                   <button
                     type="submit"
@@ -287,64 +299,159 @@ export const SavedStatesModal: React.FC<SavedStatesModalProps> = ({
                   <span>Nodos actuales: <strong className="text-indigo-300">{currentNodes.length}</strong></span>
                   <span>Conexiones: <strong className="text-emerald-300">{currentEdges.length}</strong></span>
                 </div>
+                <p className="text-[10px] text-slate-500 mt-2 leading-relaxed">
+                  Las sesiones viven en esta app: la bóveda ya guarda el lienzo en disco (autoguardado cada
+                  cambio). Para llevarte un conjunto de nodos fuera de la app, usá <strong>Descargar diseño JSON</strong>.
+                </p>
               </form>
 
               {/* Saved list */}
               <div>
                 <label className="text-xs font-medium text-slate-400 block mb-2">
-                  Puntos de Restauración Guardados
+                  Sesiones guardadas ({userStates.length})
                 </label>
                 {userStates.length === 0 ? (
                   <div className="p-6 text-center bg-slate-950/40 rounded-xl border border-dashed border-slate-800 text-xs text-slate-400">
-                    Aún no has guardado ningún estado para este usuario. Guarda tu primer punto de control arriba.
+                    Todavía no hay sesiones guardadas. Guardá la primera arriba y vas a poder volver a este
+                    conjunto de nodos cuando quieras.
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {userStates.map((state) => (
-                      <div
-                        key={state.id}
-                        className="p-3 bg-slate-950/60 hover:bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between transition-colors group"
-                      >
-                        <div className="min-w-0 flex-1 mr-3">
-                          <div className="text-xs font-semibold text-white flex items-center gap-2">
-                            <span>{state.name}</span>
-                            <span
-                              className="w-2.5 h-2.5 rounded-full"
-                              style={{ backgroundColor: state.edgeAppearance?.color || '#6366f1' }}
-                              title="Color de conexiones"
-                            />
-                          </div>
-                          <div className="text-[10px] text-slate-400 flex items-center gap-3 mt-1">
-                            <span className="flex items-center gap-1 font-mono">
-                              <Clock size={11} /> {new Date(state.timestamp).toLocaleDateString()} {new Date(state.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </span>
-                            <span>{state.nodeCount} nodos</span>
-                            <span>{state.edgeCount} conexiones</span>
-                          </div>
-                        </div>
+                    {userStates.map((state) => {
+                      const esActiva = state.id === activeStateId;
+                      const confirmando = confirmacion?.id === state.id ? confirmacion.tipo : null;
+                      return (
+                        <div
+                          key={state.id}
+                          className={`p-3 rounded-xl border transition-colors ${
+                            esActiva
+                              ? 'bg-indigo-950/40 border-indigo-700/60'
+                              : 'bg-slate-950/60 hover:bg-slate-950 border-slate-800'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="min-w-0 flex-1 mr-3">
+                              <div className="text-xs font-semibold text-slate-100 flex items-center gap-2 min-w-0">
+                                <span className="truncate">{state.name}</span>
+                                <span
+                                  className="w-2.5 h-2.5 rounded-full shrink-0"
+                                  style={{ backgroundColor: state.edgeAppearance?.color || '#6366f1' }}
+                                  title="Color de conexiones"
+                                />
+                              </div>
+                              <div className="text-[10px] text-slate-400 flex items-center gap-3 mt-1 flex-wrap">
+                                {esActiva && (
+                                  <span className="shrink-0 text-[9px] font-mono px-1.5 py-0.5 rounded border text-emerald-300 bg-emerald-950/60 border-emerald-800/60">
+                                    {activeStateDrift ? 'en el lienzo · modificada' : 'en el lienzo'}
+                                  </span>
+                                )}
+                                <span className="flex items-center gap-1 font-mono">
+                                  <Clock size={11} /> {new Date(state.timestamp).toLocaleDateString()} {new Date(state.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                                <span>{state.nodeCount} nodos</span>
+                                <span>{state.edgeCount} conexiones</span>
+                              </div>
+                            </div>
 
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              onLoadState(state);
-                              onClose();
-                            }}
-                            className="px-3 py-1.5 bg-indigo-950 text-indigo-300 hover:bg-indigo-900 border border-indigo-700/50 rounded-lg text-xs font-medium transition-colors cursor-pointer"
-                          >
-                            Cargar
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => onDeleteState(state.id)}
-                            className="p-1.5 text-slate-500 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
-                            title="Eliminar estado"
-                          >
-                            <Trash2 size={14} />
-                          </button>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {onUpdateState && (
+                                <button
+                                  type="button"
+                                  onClick={() => onUpdateState(state.id)}
+                                  className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-[11px] font-medium transition-colors cursor-pointer"
+                                  title="Sobrescribir esta sesión con el lienzo actual"
+                                >
+                                  Actualizar
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => setConfirmacion({ id: state.id, tipo: 'cargar' })}
+                                className="px-3 py-1.5 bg-indigo-950 text-indigo-300 hover:bg-indigo-900 border border-indigo-700/50 rounded-lg text-xs font-medium transition-colors cursor-pointer"
+                              >
+                                Cargar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setConfirmacion({ id: state.id, tipo: 'borrar' })}
+                                className="p-1.5 text-slate-500 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+                                title="Eliminar sesión"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Cargar reemplaza el lienzo: se avisa y se ofrece guardar lo actual antes. */}
+                          {confirmando === 'cargar' && (
+                            <div className="mt-3 pt-3 border-t border-indigo-800/40 space-y-2">
+                              <p className="text-[11px] text-slate-300 leading-relaxed">
+                                Cargar «{state.name}» reemplaza el lienzo actual ({currentNodes.length} nodos ·{' '}
+                                {currentEdges.length} conexiones). <span className="text-slate-400">Ctrl+Z lo revierte.</span>
+                              </p>
+                              <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={guardarAntes}
+                                  onChange={(e) => setGuardarAntes(e.target.checked)}
+                                  className="w-3.5 h-3.5 accent-indigo-500"
+                                />
+                                Guardar el lienzo actual como sesión antes de cargar
+                              </label>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (guardarAntes) onSaveNewState(nombreDeSesion(currentNodes));
+                                    onLoadState(state);
+                                    setConfirmacion(null);
+                                    onClose();
+                                  }}
+                                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold shadow transition-colors cursor-pointer"
+                                >
+                                  Cargar sesión
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmacion(null)}
+                                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium transition-colors cursor-pointer"
+                                >
+                                  Cancelar
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Borrar no toca el lienzo, pero no se deshace. */}
+                          {confirmando === 'borrar' && (
+                            <div className="mt-3 pt-3 border-t border-rose-800/40 space-y-2">
+                              <p className="text-[11px] text-slate-300 leading-relaxed">
+                                Borrar «{state.name}» no toca el lienzo, pero la sesión no se recupera.
+                              </p>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    onDeleteState(state.id);
+                                    setConfirmacion(null);
+                                  }}
+                                  className="px-3 py-1.5 bg-rose-600/90 hover:bg-rose-500 text-white rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+                                >
+                                  Borrar sesión
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmacion(null)}
+                                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium transition-colors cursor-pointer"
+                                >
+                                  Cancelar
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -357,7 +464,7 @@ export const SavedStatesModal: React.FC<SavedStatesModalProps> = ({
               {/* Header explanation & Title input */}
               <div className="p-4 bg-purple-950/20 border border-purple-500/30 rounded-2xl space-y-3">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-sm font-bold text-white">
+                  <div className="flex items-center gap-2 text-sm font-bold text-slate-100">
                     <div className="w-6 h-6 rounded-lg bg-purple-600/40 border border-purple-400/50 flex items-center justify-center text-purple-200">
                       <Sparkles size={13} />
                     </div>
@@ -381,7 +488,7 @@ export const SavedStatesModal: React.FC<SavedStatesModalProps> = ({
                     value={mapTitle}
                     onChange={(e) => setMapTitle(e.target.value)}
                     placeholder="Nombre del archivo (ej. Ecosistema IA)"
-                    className="flex-1 px-3 py-1.5 bg-slate-950 border border-slate-700 focus:border-purple-500 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none transition-colors"
+                    className="flex-1 px-3 py-1.5 bg-slate-950 border border-slate-700 focus:border-purple-500 rounded-lg text-xs text-slate-100 placeholder-slate-500 focus:outline-none transition-colors"
                   />
                 </div>
               </div>
@@ -518,7 +625,7 @@ export const SavedStatesModal: React.FC<SavedStatesModalProps> = ({
           {activeTab === 'export' && (
             <div className="space-y-4 text-xs">
               <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-3">
-                <div className="flex items-center gap-2 text-sm font-semibold text-white">
+                <div className="flex items-center gap-2 text-sm font-semibold text-slate-100">
                   <FileJson size={18} className="text-indigo-400" />
                   <span>Exportación de Diseño en JSON</span>
                 </div>
@@ -562,7 +669,7 @@ export const SavedStatesModal: React.FC<SavedStatesModalProps> = ({
                   className="mt-0.5 w-4 h-4 accent-indigo-500"
                 />
                 <span className="text-xs text-slate-300">
-                  <span className="font-semibold text-white">Fusionar con el lienzo actual</span>
+                  <span className="font-semibold text-slate-100">Fusionar con el lienzo actual</span>
                   <span className="block text-slate-400 mt-0.5">
                     Recomendado: agrega solo los nodos y aristas que no existan y descarta los que apunten
                     a nodos ausentes. Nunca borra tu trabajo. Desmarcalo para reemplazar el lienzo por completo
@@ -574,7 +681,7 @@ export const SavedStatesModal: React.FC<SavedStatesModalProps> = ({
               {/* Upload file */}
               <div className="p-4 bg-slate-950 rounded-xl border border-dashed border-slate-700 hover:border-indigo-500 transition-colors text-center">
                 <Upload size={24} className="mx-auto text-indigo-400 mb-2" />
-                <div className="font-semibold text-white mb-1">Cargar archivo JSON desde tu equipo</div>
+                <div className="font-semibold text-slate-100 mb-1">Cargar archivo JSON desde tu equipo</div>
                 <p className="text-slate-400 text-[11px] mb-3">Arrastra o selecciona un archivo exportado previamente</p>
                 <label className="inline-block px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl cursor-pointer font-medium transition-colors">
                   Seleccionar Archivo .json
@@ -600,7 +707,7 @@ export const SavedStatesModal: React.FC<SavedStatesModalProps> = ({
                 <button
                   type="submit"
                   disabled={!importJsonText.trim()}
-                  className="w-full py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-white rounded-xl font-medium transition-colors"
+                  className="w-full py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-100 rounded-xl font-medium transition-colors"
                 >
                   Importar y Cargar en Lienzo
                 </button>

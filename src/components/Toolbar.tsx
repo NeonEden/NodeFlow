@@ -63,6 +63,7 @@ interface ToolbarProps {
   onAutoLayout?: () => void;
   onOpenSynthesis?: () => void;
   onOpenObsidianModal?: () => void;
+  onOpenJsonModal?: () => void;
   onOpenHitlModal?: () => void;
   hitlDecisionsCount?: number;
   onOpenShortcuts?: () => void;
@@ -126,6 +127,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onAutoLayout,
   onOpenSynthesis,
   onOpenObsidianModal,
+  onOpenJsonModal,
   onOpenHitlModal,
   hitlDecisionsCount,
   onOpenShortcuts,
@@ -351,8 +353,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               />
               <MenuItemP
                 icon={Download}
-                label="Diseño JSON y estados"
-                onClick={() => { setMenuAbierto(null); onOpenStatesModal(); }}
+                label="Descargar diseño JSON"
+                hint=".json"
+                onClick={() => { setMenuAbierto(null); (onOpenJsonModal || onOpenStatesModal)(); }}
               />
             </div>
           )}
