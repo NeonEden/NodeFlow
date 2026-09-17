@@ -65,6 +65,13 @@ import { useTema } from './state/canvasPrefs';
 import { AparienciaHud } from './components/AparienciaHud';
 import { calcularNiveles, acentoDeNivel } from './utils/zonas';
 import { firmaLienzo, nombreDeSesion } from './utils/sesiones';
+import {
+  listarSesiones,
+  leerSesion,
+  guardarSesion,
+  borrarSesion,
+  type SesionFicha,
+} from './services/sesionesApi';
 import { Toolbar } from './components/Toolbar';
 import { AuthModal } from './components/AuthModal';
 import { SavedStatesModal } from './components/SavedStatesModal';
@@ -128,6 +135,9 @@ const NODE_TYPES = {
 };
 
 const EDGE_TYPES = { flowEdge: FlowEdge };
+
+/** Cuánto espera la sesión rodante entre escrituras (10 min): es una red de seguridad, no un log. */
+const RODANTE_MS = 10 * 60 * 1000;
 
 const SAVED_STATES_STORAGE_KEY = 'neuralmind_saved_diagram_states';
 /** Cuál de las sesiones está cargada en el lienzo (sobrevive a la recarga, igual que las sesiones). */
@@ -319,16 +329,13 @@ export default function App() {
     });
   }, []);
 
-  // 4. Saved states management
-  const [savedStates, setSavedStates] = useState<SavedState[]>(() => {
-    try {
-      const stored = localStorage.getItem(SAVED_STATES_STORAGE_KEY);
-      if (stored) return JSON.parse(stored);
-    } catch (e) {
-      console.error('Error reading saved states from localStorage', e);
-    }
-    return [];
-  });
+  // 4. Sesiones del lienzo: viven en la bóveda (`.nodeflow/sesiones/`), no en el WebView. El listado
+  // es liviano (sin nodos ni aristas); el contenido se pide al cargar una sesión.
+  const [sesiones, setSesiones] = useState<SesionFicha[]>([]);
+
+  const refrescarSesiones = useCallback(async () => {
+    setSesiones(await listarSesiones());
+  }, []);
 
   // Sesión cargada en el lienzo: su id y la firma del contenido que tenía al cargarla. Sirve para
   // marcar «en el lienzo» y avisar cuando el lienzo se movió respecto de la sesión («modificada»).
@@ -423,14 +430,43 @@ export default function App() {
     return () => window.removeEventListener('nodeflow:aviso', aviso);
   }, [showToast]);
 
-  // Save states to localStorage whenever updated
+  // Las sesiones se cargan de la bóveda al abrir (y se migran las que vivían en el WebView).
   useEffect(() => {
-    try {
-      localStorage.setItem(SAVED_STATES_STORAGE_KEY, JSON.stringify(savedStates));
-    } catch (e) {
-      console.error('Error persisting saved states', e);
-    }
-  }, [savedStates]);
+    let cancelado = false;
+    (async () => {
+      const enDisco = await listarSesiones();
+      if (cancelado) return;
+
+      // Migración única: los estados guardados en el `localStorage` de versiones anteriores pasan a
+      // ser archivos de la bóveda, así dejan de ser invisibles para el respaldo.
+      if (enDisco.length === 0) {
+        try {
+          const crudo = localStorage.getItem(SAVED_STATES_STORAGE_KEY);
+          const previas = crudo ? (JSON.parse(crudo) as SavedState[]) : [];
+          if (previas.length) {
+            for (const s of previas) {
+              await guardarSesion({
+                id: s.id && /^s?-[a-z0-9-]*$/.test(s.id) ? s.id : undefined,
+                nombre: s.name || 'Sesión migrada',
+                nodes: s.nodes || [],
+                edges: s.edges || [],
+                appearance: s.edgeAppearance,
+              });
+            }
+            localStorage.removeItem(SAVED_STATES_STORAGE_KEY);
+            showToast(`Migré ${previas.length} sesión(es) del navegador a la bóveda`, 'success');
+          }
+        } catch (e) {
+          console.warn('sesiones: no pude migrar las del navegador', e);
+        }
+      }
+      setSesiones(await listarSesiones());
+    })();
+    return () => {
+      cancelado = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Al abrir: el vault en disco manda sobre la caché de localStorage.
   useEffect(() => {
@@ -2862,93 +2898,111 @@ export default function App() {
 
   // Firma del lienzo actual: se compara con la de la sesión cargada para saber si se movió.
   const firmaActual = useMemo(() => firmaLienzo(nodes, edges), [nodes, edges]);
+  const sesionActivaDrift = Boolean(sesionActiva && sesionActiva.firma !== firmaActual);
 
-  // Sesiones visibles para el usuario actual (misma regla que el modal: propias + las de 'default').
-  const sesionesVisibles = useMemo(
-    () =>
-      savedStates.filter(
-        (s) => s.userId === (currentUser?.id || 'default') || s.userId === 'default',
-      ),
-    [savedStates, currentUser]
-  );
+  // Estado del guardado, a la vista: es la pregunta que el usuario se hace todo el tiempo.
+  const estadoGuardado = useMemo(() => {
+    const error = lastSyncText.startsWith('Vault: error');
+    if (error) {
+      return { texto: t('hud.estado.error'), clase: 'text-rose-300 border-rose-800/60 bg-rose-950/20', punto: 'bg-rose-400' };
+    }
+    if (saveStatus === 'saving') {
+      return { texto: t('hud.estado.guardando'), clase: 'text-amber-200 border-amber-800/60 bg-amber-950/20', punto: 'bg-amber-400 animate-pulse' };
+    }
+    if (saveStatus === 'unsaved') {
+      return { texto: t('hud.estado.sinGuardar'), clase: 'text-rose-300 border-rose-800/60 bg-rose-950/20', punto: 'bg-rose-400' };
+    }
+    return { texto: `${t('hud.estado.alDia')} · ${lastSyncText}`, clase: 'text-emerald-200 border-emerald-800/50 bg-emerald-950/20', punto: 'bg-emerald-400' };
+  }, [saveStatus, lastSyncText, t]);
 
-  // Saved states actions
+  // Saved states actions (todas hablan con la bóveda por el backend, no con el WebView)
   const handleSaveNewState = useCallback(
-    (name: string) => {
+    async (name: string) => {
       const firma = firmaLienzo(nodes, edges);
-      const newState: SavedState = {
-        id: `state-${Date.now()}`,
-        name,
-        timestamp: Date.now(),
-        userId: currentUser?.id || 'default',
-        nodeCount: nodes.length,
-        edgeCount: edges.length,
+      const ficha = await guardarSesion({
+        nombre: name,
+        mapa: vaultInfo?.mapa,
         nodes,
         edges,
-        edgeAppearance,
-      };
-
-      setSavedStates((prev) => [newState, ...prev]);
-      // La sesión recién guardada ES el lienzo actual: queda marcada como la cargada.
-      setSesionActiva({ id: newState.id, nombre: name, firma });
-      showToast(`Estado "${name}" guardado correctamente`, 'success');
-      return newState.id;
+        appearance: edgeAppearance,
+        templateId: currentTemplateId,
+      });
+      if (!ficha) {
+        showToast('No pude guardar la sesión en la bóveda', 'error');
+        return null;
+      }
+      setSesionActiva({ id: ficha.id, nombre: ficha.nombre, firma });
+      await refrescarSesiones();
+      showToast(`Sesión «${ficha.nombre}» guardada en la bóveda`, 'success');
+      return ficha.id;
     },
-    [nodes, edges, edgeAppearance, currentUser, showToast]
+    [nodes, edges, edgeAppearance, currentTemplateId, vaultInfo?.mapa, refrescarSesiones, showToast]
   );
 
   const handleLoadState = useCallback(
-    (state: SavedState) => {
+    async (sesion: { id: string; nombre: string }) => {
+      const completa = await leerSesion(sesion.id);
+      if (!completa || !Array.isArray(completa.nodes)) {
+        showToast(`No pude leer la sesión «${sesion.nombre}» de la bóveda`, 'error');
+        return;
+      }
       takeSnapshot(nodes, edges);
-      setNodes(state.nodes);
-      setEdges(state.edges);
-      if (state.edgeAppearance) {
-        setEdgeAppearance(state.edgeAppearance);
+      setNodes(completa.nodes);
+      setEdges(completa.edges || []);
+      if (completa.appearance) {
+        setEdgeAppearance(completa.appearance as EdgeAppearance);
+      }
+      if (completa.templateId) {
+        setCurrentTemplateId(completa.templateId);
       }
       setSesionActiva({
-        id: state.id,
-        nombre: state.name,
-        firma: firmaLienzo(state.nodes, state.edges),
+        id: completa.id,
+        nombre: completa.nombre,
+        firma: firmaLienzo(completa.nodes, completa.edges || []),
       });
-      showToast(`Sesión "${state.name}" cargada en el lienzo (Ctrl+Z la revierte)`, 'success');
+      showToast(`Sesión «${completa.nombre}» cargada en el lienzo (Ctrl+Z la revierte)`, 'success');
     },
     [nodes, edges, takeSnapshot, showToast]
   );
 
   /** Sobrescribe una sesión con el lienzo actual: evita acumular copias casi iguales. */
   const handleUpdateState = useCallback(
-    (id: string) => {
+    async (id: string) => {
       const firma = firmaLienzo(nodes, edges);
-      const nombre = savedStates.find((s) => s.id === id)?.name || 'Sesión';
-      setSavedStates((prev) =>
-        prev.map((s) =>
-          s.id === id
-            ? {
-                ...s,
-                timestamp: Date.now(),
-                nodeCount: nodes.length,
-                edgeCount: edges.length,
-                nodes,
-                edges,
-                edgeAppearance,
-              }
-            : s
-        )
-      );
-      setSesionActiva({ id, nombre, firma });
-      showToast(`Sesión "${nombre}" actualizada con el lienzo actual`, 'success');
+      const nombre = sesiones.find((s) => s.id === id)?.nombre || 'Sesión';
+      const ficha = await guardarSesion({
+        id,
+        nombre,
+        mapa: vaultInfo?.mapa,
+        nodes,
+        edges,
+        appearance: edgeAppearance,
+        templateId: currentTemplateId,
+      });
+      if (!ficha) {
+        showToast('No pude actualizar la sesión en la bóveda', 'error');
+        return;
+      }
+      setSesionActiva({ id, nombre: ficha.nombre, firma });
+      await refrescarSesiones();
+      showToast(`Sesión «${ficha.nombre}» actualizada con el lienzo actual`, 'success');
     },
-    [nodes, edges, edgeAppearance, savedStates, showToast]
+    [nodes, edges, edgeAppearance, currentTemplateId, sesiones, vaultInfo?.mapa, refrescarSesiones, showToast]
   );
 
   const handleDeleteState = useCallback(
-    (id: string) => {
-      setSavedStates((prev) => prev.filter((s) => s.id !== id));
+    async (id: string) => {
+      const ok = await borrarSesion(id);
+      if (!ok) {
+        showToast('No pude borrar la sesión', 'error');
+        return;
+      }
       // Si era la cargada, el lienzo sigue ahí: sólo deja de tener sesión de origen.
       setSesionActiva((prev) => (prev?.id === id ? null : prev));
-      showToast('Punto de restauración eliminado', 'info');
+      await refrescarSesiones();
+      showToast('Sesión borrada de la bóveda', 'info');
     },
-    [showToast]
+    [refrescarSesiones, showToast]
   );
 
   const handleImportJSON = useCallback(
@@ -3088,8 +3142,8 @@ export default function App() {
     showToast('Lienzo reiniciado con un nuevo núcleo de idea', 'success');
   }, [nodes, edges, takeSnapshot, showToast]);
 
-  // Manual save trigger
-  const handleManualSave = useCallback(() => {
+  // Manual save trigger: escribe en disco AHORA (no espera el debounce) y deja una sesión con nombre.
+  const handleManualSave = useCallback(async () => {
     try {
       const payload = {
         nodes,
@@ -3099,16 +3153,101 @@ export default function App() {
         updatedAt: Date.now(),
       };
       localStorage.setItem(ACTIVE_CANVAS_STORAGE_KEY, JSON.stringify(payload));
-      setSaveStatus('saved');
-      setLastSyncText('Guardado');
+      setSaveStatus('saving');
+      const raiz = nodes.find((n) => n.data.isRoot)?.data.title;
+      const res = await saveVault({
+        name: raiz || 'nodeflow',
+        nodes,
+        edges,
+        appearance: edgeAppearance,
+        templateId: currentTemplateId,
+        base_revision: vaultRevRef.current,
+      });
+      if (res?.ok) {
+        if (typeof res.revision === 'number') vaultRevRef.current = res.revision;
+        setSaveStatus('saved');
+        setLastSyncText(`Disco ${new Date().toLocaleTimeString('es-AR', { hour12: false })}`);
+        setVaultInfo(await fetchVaultInfo());
+      } else {
+        setSaveStatus('unsaved');
+        setLastSyncText('Vault: error al escribir');
+      }
       // El nombre sale del nodo raíz + la hora: «Guardado manual 13:03» no distingue una sesión de otra.
       const snapTitle = nombreDeSesion(nodes);
-      handleSaveNewState(snapTitle);
-      showToast(`Guardado en disco · sesión «${snapTitle}» en el lienzo`, 'success');
+      await handleSaveNewState(snapTitle);
     } catch (e) {
+      setSaveStatus('unsaved');
       showToast('Error al persistir el estado en el navegador', 'error');
     }
   }, [nodes, edges, edgeAppearance, currentTemplateId, handleSaveNewState, showToast]);
+
+  /** El lienzo más reciente y el último escrito de la rodante, en refs: el intervalo no se rearma. */
+  const lienzoRef = useRef({
+    nodes,
+    edges,
+    appearance: edgeAppearance,
+    templateId: currentTemplateId,
+    firma: firmaActual,
+    mapa: vaultInfo?.mapa,
+  });
+  const rodanteRef = useRef<{ ms: number; firma: string }>({ ms: 0, firma: '' });
+  useEffect(() => {
+    lienzoRef.current = {
+      nodes,
+      edges,
+      appearance: edgeAppearance,
+      templateId: currentTemplateId,
+      firma: firmaActual,
+      mapa: vaultInfo?.mapa,
+    };
+  }, [nodes, edges, edgeAppearance, currentTemplateId, firmaActual, vaultInfo?.mapa]);
+
+  // Sesión rodante: una sola que se sobrescribe, para poder «volver a como estaba hace un rato».
+  // Aprende la línea base al arrancar (sin escribir) y después escribe como mucho cada 10 minutos,
+  // y sólo si el lienzo cambió desde la última vez: no acumula copias ni castiga el disco.
+  useEffect(() => {
+    const id = setInterval(async () => {
+      const l = lienzoRef.current;
+      if (!vaultReadyRef.current || !l.firma) return;
+      const ahora = Date.now();
+      const r = rodanteRef.current;
+      if (r.ms === 0) {
+        // Línea base: la primera pasada sólo aprende cómo está el lienzo.
+        rodanteRef.current = { ms: ahora, firma: l.firma };
+        return;
+      }
+      if (ahora - r.ms < RODANTE_MS || l.firma === r.firma) return;
+      const ficha = await guardarSesion({
+        id: 'auto',
+        nombre: `Automática · ${l.mapa || 'lienzo'}`,
+        mapa: l.mapa,
+        nodes: l.nodes,
+        edges: l.edges,
+        appearance: l.appearance,
+        templateId: l.templateId,
+      });
+      if (!ficha) return;
+      rodanteRef.current = { ms: ahora, firma: l.firma };
+      await refrescarSesiones();
+    }, 60 * 1000);
+    return () => clearInterval(id);
+  }, [refrescarSesiones]);
+
+  // Atajos de guardado: Ctrl+S guarda el progreso ahora; Escape cierra el panel de sesiones.
+  useEffect(() => {
+    const alTeclado = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        void handleManualSave();
+        return;
+      }
+      if (e.key === 'Escape' && isStatesModalOpen) {
+        setIsStatesModalOpen(false);
+      }
+    };
+    window.addEventListener('keydown', alTeclado);
+    return () => window.removeEventListener('keydown', alTeclado);
+  }, [handleManualSave, isStatesModalOpen]);
 
   const handleResetCanvas = useCallback(() => {
     setIsClearModalOpen(true);
@@ -3336,6 +3475,18 @@ export default function App() {
                 </span>
               </button>
 
+              {/* El guardado, a la vista: el estado se contesta de un vistazo. */}
+              <div
+                className={`flex items-center gap-2 px-3 py-2 rounded-xl border ${estadoGuardado.clase}`}
+                title={`${t('hud.estado.ayuda')} · rev ${vaultInfo?.revision ?? '—'}`}
+              >
+                <span className={`w-2 h-2 rounded-full shrink-0 ${estadoGuardado.punto}`} />
+                <span className="text-[11px] font-medium truncate">{estadoGuardado.texto}</span>
+                <span className="ml-auto shrink-0 text-[9px] font-mono text-slate-400 bg-slate-900/60 px-1.5 py-0.5 rounded border border-slate-700/60">
+                  {t('hud.estado.rev')} {vaultInfo?.revision ?? '—'}
+                </span>
+              </div>
+
               <div className="bg-slate-900/70 rounded-xl border border-slate-800 p-3">
                 <div className="flex justify-between items-center mb-1.5">
                   <span className="text-[10px] text-slate-400">{t('hud.almacenamiento')}</span>
@@ -3411,7 +3562,7 @@ export default function App() {
                   }}
                   title={t('hud.sesiones.ayuda')}
                   className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium border transition-colors cursor-pointer group ${
-                    sesionActiva && sesionActiva.firma !== firmaActual
+                    sesionActivaDrift
                       ? 'bg-amber-950/40 hover:bg-amber-900/50 text-amber-100 border-amber-700/60'
                       : 'bg-slate-900/70 hover:bg-slate-800/70 text-amber-200 border-slate-800 hover:border-amber-700/60'
                   }`}
@@ -3419,13 +3570,13 @@ export default function App() {
                   <History size={14} className="text-amber-400 shrink-0" />
                   <span className="truncate">{t('hud.sesiones')}</span>
                   <span className="ml-auto shrink-0 whitespace-nowrap text-[9px] text-amber-300 font-mono bg-amber-900/50 px-1.5 py-0.5 rounded border border-amber-700/60">
-                    {sesionesVisibles.length ? t('hud.sesiones.n', { n: sesionesVisibles.length }) : t('hud.sesiones.vacio')}
+                    {sesiones.length ? t('hud.sesiones.n', { n: sesiones.length }) : t('hud.sesiones.vacio')}
                   </span>
                 </button>
                 {sesionActiva && (
                   <p className="text-[10px] text-slate-500 pl-1 truncate" title={sesionActiva.nombre}>
                     {t('hud.sesiones.cargada')}: <span className="text-slate-300">{sesionActiva.nombre}</span>
-                    {sesionActiva.firma !== firmaActual && (
+                    {sesionActivaDrift && (
                       <span className="ml-1 text-amber-300">·{' '}{t('hud.sesiones.modificada')}</span>
                     )}
                   </p>
@@ -3973,14 +4124,13 @@ export default function App() {
       <SavedStatesModal
         isOpen={isStatesModalOpen}
         onClose={() => setIsStatesModalOpen(false)}
-        savedStates={savedStates}
+        sesiones={sesiones}
         currentNodes={nodes}
         currentEdges={edges}
         currentAppearance={edgeAppearance}
-        userId={currentUser?.id || 'default'}
         initialTab={statesModalTab}
         activeStateId={sesionActiva?.id ?? null}
-        activeStateDrift={Boolean(sesionActiva && sesionActiva.firma !== firmaActual)}
+        activeStateDrift={sesionActivaDrift}
         onLoadState={handleLoadState}
         onSaveNewState={handleSaveNewState}
         onUpdateState={handleUpdateState}

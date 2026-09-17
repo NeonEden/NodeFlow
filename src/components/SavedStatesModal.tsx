@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { SavedState, CustomNode, EdgeAppearance } from '../types';
+import { CustomNode, EdgeAppearance } from '../types';
 import { Edge } from 'reactflow';
 import {
   X,
@@ -27,20 +27,21 @@ import {
   downloadObsidianCanvas,
 } from '../utils/obsidianExport';
 import { nombreDeSesion } from '../utils/sesiones';
+import type { SesionFicha } from '../services/sesionesApi';
 
 interface SavedStatesModalProps {
   isOpen: boolean;
   onClose: () => void;
-  savedStates: SavedState[];
+  /** Sesiones guardadas en la bóveda: el listado liviano, sin nodos ni aristas. */
+  sesiones: SesionFicha[];
   currentNodes: CustomNode[];
   currentEdges: Edge[];
   currentAppearance: EdgeAppearance;
-  userId: string;
   initialTab?: 'saved' | 'obsidian' | 'export' | 'import';
   /** Sesión cargada en el lienzo ahora mismo (para marcarla y avisar si el lienzo se movió). */
   activeStateId?: string | null;
   activeStateDrift?: boolean;
-  onLoadState: (state: SavedState) => void;
+  onLoadState: (sesion: SesionFicha) => void;
   onSaveNewState: (name: string) => void;
   onUpdateState?: (id: string) => void;
   onDeleteState: (id: string) => void;
@@ -50,11 +51,10 @@ interface SavedStatesModalProps {
 export const SavedStatesModal: React.FC<SavedStatesModalProps> = ({
   isOpen,
   onClose,
-  savedStates,
+  sesiones,
   currentNodes,
   currentEdges,
   currentAppearance,
-  userId,
   initialTab = 'saved',
   activeStateId = null,
   activeStateDrift = false,
@@ -190,9 +190,7 @@ export const SavedStatesModal: React.FC<SavedStatesModalProps> = ({
   };
 
   // Filter states for current user or shared
-  const userStates = savedStates.filter(
-    (s) => s.userId === userId || s.userId === 'default'
-  );
+  const userStates = sesiones;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-150">
@@ -300,8 +298,9 @@ export const SavedStatesModal: React.FC<SavedStatesModalProps> = ({
                   <span>Conexiones: <strong className="text-emerald-300">{currentEdges.length}</strong></span>
                 </div>
                 <p className="text-[10px] text-slate-500 mt-2 leading-relaxed">
-                  Las sesiones viven en esta app: la bóveda ya guarda el lienzo en disco (autoguardado cada
-                  cambio). Para llevarte un conjunto de nodos fuera de la app, usá <strong>Descargar diseño JSON</strong>.
+                  Las sesiones se guardan en la <strong>bóveda</strong> (<code>.nodeflow/sesiones/</code>): entran al
+                  respaldo y las ve cualquier superficie. El lienzo activo además se autoguarda en disco en cada
+                  cambio.
                 </p>
               </form>
 
@@ -332,10 +331,15 @@ export const SavedStatesModal: React.FC<SavedStatesModalProps> = ({
                           <div className="flex items-center justify-between">
                             <div className="min-w-0 flex-1 mr-3">
                               <div className="text-xs font-semibold text-slate-100 flex items-center gap-2 min-w-0">
-                                <span className="truncate">{state.name}</span>
+                                <span className="truncate">{state.nombre}</span>
+                                {state.rodante && (
+                                  <span className="shrink-0 text-[9px] font-mono px-1.5 py-0.5 rounded border text-sky-300 bg-sky-950/60 border-sky-800/60">
+                                    automática
+                                  </span>
+                                )}
                                 <span
                                   className="w-2.5 h-2.5 rounded-full shrink-0"
-                                  style={{ backgroundColor: state.edgeAppearance?.color || '#6366f1' }}
+                                  style={{ backgroundColor: state.appearance?.color || '#6366f1' }}
                                   title="Color de conexiones"
                                 />
                               </div>
@@ -346,10 +350,10 @@ export const SavedStatesModal: React.FC<SavedStatesModalProps> = ({
                                   </span>
                                 )}
                                 <span className="flex items-center gap-1 font-mono">
-                                  <Clock size={11} /> {new Date(state.timestamp).toLocaleDateString()} {new Date(state.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  <Clock size={11} /> {new Date(state.creado).toLocaleDateString()} {new Date(state.creado).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                 </span>
-                                <span>{state.nodeCount} nodos</span>
-                                <span>{state.edgeCount} conexiones</span>
+                                <span>{state.nodos} nodos</span>
+                                <span>{state.aristas} conexiones</span>
                               </div>
                             </div>
 
@@ -386,7 +390,7 @@ export const SavedStatesModal: React.FC<SavedStatesModalProps> = ({
                           {confirmando === 'cargar' && (
                             <div className="mt-3 pt-3 border-t border-indigo-800/40 space-y-2">
                               <p className="text-[11px] text-slate-300 leading-relaxed">
-                                Cargar «{state.name}» reemplaza el lienzo actual ({currentNodes.length} nodos ·{' '}
+                                Cargar «{state.nombre}» reemplaza el lienzo actual ({currentNodes.length} nodos ·{' '}
                                 {currentEdges.length} conexiones). <span className="text-slate-400">Ctrl+Z lo revierte.</span>
                               </p>
                               <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer">
@@ -426,7 +430,7 @@ export const SavedStatesModal: React.FC<SavedStatesModalProps> = ({
                           {confirmando === 'borrar' && (
                             <div className="mt-3 pt-3 border-t border-rose-800/40 space-y-2">
                               <p className="text-[11px] text-slate-300 leading-relaxed">
-                                Borrar «{state.name}» no toca el lienzo, pero la sesión no se recupera.
+                                Borrar «{state.nombre}» no toca el lienzo, pero la sesión no se recupera.
                               </p>
                               <div className="flex items-center gap-2">
                                 <button

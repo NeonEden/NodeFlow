@@ -66,6 +66,12 @@ const ES = {
   'hud.sesiones.vacio': 'ninguna',
   'hud.sesiones.cargada': 'Sesión cargada',
   'hud.sesiones.modificada': 'modificada',
+  'hud.estado.alDia': 'Al día en disco',
+  'hud.estado.guardando': 'Guardando en disco…',
+  'hud.estado.sinGuardar': 'Sin guardar en disco',
+  'hud.estado.error': 'Error al escribir en el vault',
+  'hud.estado.rev': 'rev',
+  'hud.estado.ayuda': 'Estado del guardado en disco del lienzo activo (Ctrl+S guarda ahora)',
   'busqueda.sinResultados': 'No se encontraron nodos coincidentes.',
 
   // --- paneles del sidebar
@@ -214,6 +220,12 @@ const EN: Record<Clave, string> = {
   'hud.sesiones.vacio': 'none',
   'hud.sesiones.cargada': 'Loaded session',
   'hud.sesiones.modificada': 'changed',
+  'hud.estado.alDia': 'Up to date on disk',
+  'hud.estado.guardando': 'Saving to disk…',
+  'hud.estado.sinGuardar': 'Not saved to disk',
+  'hud.estado.error': 'Write to the vault failed',
+  'hud.estado.rev': 'rev',
+  'hud.estado.ayuda': 'Disk save state of the active canvas (Ctrl+S saves now)',
   'busqueda.sinResultados': 'No matching nodes found.',
 
   'panel.memoria': 'Vault memory',

@@ -273,6 +273,12 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
             // Fase 7b — métrica de valor (T0 → T1)
             .route("/api/metrics", get(metrics))
             .route("/api/vault/note", get(vault_note))
+            // Sesiones del lienzo en la bóveda: la mitad «volver» de guardar el progreso.
+            // En disco (no en el WebView) viajan en el respaldo y las ve cualquier superficie.
+            .route("/api/sesiones", get(sesiones_listar))
+            .route("/api/sesiones/guardar", post(sesiones_guardar))
+            .route("/api/sesiones/leer", get(sesiones_leer))
+            .route("/api/sesiones/borrar", post(sesiones_borrar))
             // Fase 4 — superficie para el agente (leer y escribir el lienzo)
             .route("/api/graph/summary", get(graph_summary))
             .route("/api/graph/siguiente", get(graph_siguiente))
@@ -2695,6 +2701,66 @@ async fn vault_info(State(st): State<AppState>) -> impl IntoResponse {
     Json(st.vault.info())
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Sesiones del lienzo (`.nodeflow/sesiones/` en la bóveda)
+
+/// Listado liviano (sin nodos ni aristas): es lo que dibuja el panel de sesiones.
+async fn sesiones_listar(State(st): State<AppState>) -> impl IntoResponse {
+    let s = crate::sesiones::Sesiones::nueva(&st.vault.raiz());
+    Json(json!({
+        "ok": true,
+        "carpeta": crate::sesiones::CARPETA,
+        "tope": crate::sesiones::MAX_SESIONES,
+        "sesiones": s.listar(),
+    }))
+}
+
+async fn sesiones_guardar(State(st): State<AppState>, Json(p): Json<Value>) -> impl IntoResponse {
+    match crate::sesiones::Sesiones::nueva(&st.vault.raiz()).guardar(&p) {
+        Ok(v) => {
+            log::info!(
+                "sesiones: guardada «{}» ({} nodos · {} aristas)",
+                v["sesion"]["nombre"],
+                v["sesion"]["nodos"],
+                v["sesion"]["aristas"]
+            );
+            (StatusCode::OK, Json(v))
+        }
+        Err(e) => {
+            log::warn!("sesiones: no pude guardar: {e}");
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "ok": false, "error": e })),
+            )
+        }
+    }
+}
+
+async fn sesiones_leer(
+    State(st): State<AppState>,
+    Query(q): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let id = q.get("id").cloned().unwrap_or_default();
+    match crate::sesiones::Sesiones::nueva(&st.vault.raiz()).leer(&id) {
+        Ok(v) => (StatusCode::OK, Json(json!({ "ok": true, "sesion": v }))),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "ok": false, "error": e })),
+        ),
+    }
+}
+
+async fn sesiones_borrar(State(st): State<AppState>, Json(p): Json<Value>) -> impl IntoResponse {
+    let id = p["id"].as_str().unwrap_or_default();
+    match crate::sesiones::Sesiones::nueva(&st.vault.raiz()).borrar(id) {
+        Ok(v) => (StatusCode::OK, Json(v)),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "ok": false, "error": e })),
+        ),
+    }
+}
+
 /// Lee el grafo canónico. Con `?since=<rev>` responde barato cuando nada cambió (polling).
 /// Clave del motor de voz activo, delegada en `stt`: el catálogo declara dónde puede estar cada clave
 /// (entorno → `.env` del proyecto en dev → `nodeflow.config.json`). Nunca sale del backend y nunca se
@@ -3791,13 +3857,16 @@ fn bloque_hilo(entradas: &[Value]) -> String {
     );
     for e in entradas {
         let mins = ((ahora - e["cuando"].as_i64().unwrap_or(0)) / 60).max(0);
-        let rec = |k: &str, n: usize| -> String {
-            e[k].as_str().unwrap_or("").chars().take(n).collect()
-        };
+        let rec =
+            |k: &str, n: usize| -> String { e[k].as_str().unwrap_or("").chars().take(n).collect() };
         p.push_str(&format!(
             "- hace {mins} min · «{}» → {}, {} pasos, {} recortes · {}\n",
             rec("pedido", 160),
-            if e["ok"].as_bool().unwrap_or(false) { "cerró" } else { "no cerró" },
+            if e["ok"].as_bool().unwrap_or(false) {
+                "cerró"
+            } else {
+                "no cerró"
+            },
             e["pasos"].as_u64().unwrap_or(0),
             e["podas"].as_u64().unwrap_or(0),
             rec("plan", 500)
