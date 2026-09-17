@@ -94,6 +94,8 @@ pub struct Config {
     pub comandos: bool,
     /// Raíz del repo. Sin ella no hay herramientas de código (el turno queda sin manos).
     pub repo: PathBuf,
+    /// Carpeta de datos de la app: ahí vive la cola de parches que el agente propone.
+    pub estado: PathBuf,
 }
 
 impl Default for Config {
@@ -104,14 +106,16 @@ impl Default for Config {
             tope_cmd_s: TOPE_CMD_S,
             comandos: true,
             repo: PathBuf::new(),
+            estado: PathBuf::new(),
         }
     }
 }
 
 impl Config {
-    pub fn desde(cfg: Option<&Value>, repo: PathBuf) -> Config {
+    pub fn desde(cfg: Option<&Value>, repo: PathBuf, estado: PathBuf) -> Config {
         let mut c = Config {
             repo,
+            estado,
             ..Config::default()
         };
         if let Some(s) = cfg {
@@ -310,6 +314,28 @@ pub fn definiciones(comandos: bool) -> Vec<Value> {
             vec!["texto"],
         ),
     ];
+    t.push(fn_def(
+        "proponer_parche",
+        "Propone un cambio en el código del repo: una lista de ediciones ancladas. NO escribe nada: la propuesta queda esperando la aprobación del humano, que después de aplicarla corre los tests. Copiá el texto de `buscar` EXACTAMENTE como lo leíste (con su indentación); si el ancla no está o aparece más de una vez, la propuesta rebota. Máximo 4 archivos.",
+        json!({
+            "motivo": { "type": "string", "description": "Por qué este cambio, en una frase" },
+            "ediciones": {
+                "type": "array",
+                "description": "Una por cambio; `buscar` es el texto exacto a reemplazar",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "ruta": { "type": "string", "description": "Ruta relativa al repo" },
+                        "buscar": { "type": "string", "description": "Texto exacto que hay hoy" },
+                        "reemplazar": { "type": "string", "description": "Texto que queda" },
+                        "todos": { "type": "boolean", "description": "true = reemplazar todas las apariciones" }
+                    },
+                    "required": ["ruta", "buscar", "reemplazar"]
+                }
+            }
+        }),
+        vec!["motivo", "ediciones"],
+    ));
     if comandos {
         t.push(fn_def(
             "correr",
@@ -471,6 +497,22 @@ pub fn ejecutar(raiz: &Path, nombre: &str, args: &Value, cfg: &Config) -> Result
             }
             Ok(recorta(&out.join("\n")))
         }
+        "proponer_parche" => {
+            let motivo = args.get("motivo").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+            let eds = crate::parche::parsear(args.get("ediciones").unwrap_or(&Value::Null))?;
+            // Se valida AHORA (sin escribir): una propuesta que no se puede aplicar no llega al humano.
+            let archivos = crate::parche::validar(raiz, &eds)?;
+            if cfg.estado.as_os_str().is_empty() {
+                return Err("no sé dónde guardar la propuesta (falta la carpeta de datos)".into());
+            }
+            crate::parche::guardar_propuesta(&cfg.estado, &motivo, &eds, &archivos)?;
+            Ok(format!(
+                "PROPUESTA registrada (no se escribió nada todavía): {} edición(es) en {} archivo(s): {}. El humano la aprueba o la rechaza, y al aprobarla corren los tests.",
+                eds.len(),
+                archivos.len(),
+                archivos.iter().map(|(r, n)| format!("{r} ({n})")).collect::<Vec<_>>().join(", ")
+            ))
+        }
         "correr" => {
             if !cfg.comandos {
                 return Err("los comandos están apagados en este turno".into());
@@ -490,6 +532,18 @@ pub fn ejecutar(raiz: &Path, nombre: &str, args: &Value, cfg: &Config) -> Result
         }
         otro => Err(format!("herramienta desconocida: «{otro}»")),
     }
+}
+
+/// El ejecutor enjaulado, expuesto para que la etapa 4 (parche + verificación) corra sus *gates* con
+/// exactamente las mismas reglas: lista blanca, tope de tiempo y salida acotada.
+pub fn correr_comando_publico(repo: &Path, comando: &str, tope_s: u64) -> Result<String, String> {
+    if !comando_autorizado(comando) {
+        return Err(format!(
+            "comando no autorizado. Permitidos: {}",
+            COMANDOS.join(" · ")
+        ));
+    }
+    correr_comando(repo, comando, tope_s)
 }
 
 /// Corre un comando autorizado en la raíz del repo, sin consola, con tope de tiempo y salida acotada.
@@ -580,6 +634,36 @@ fn recorta_cabeza_cola(s: &str) -> String {
 // El bucle
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// El desenlace de un turno.
+///
+/// Los pasos viajan **siempre**: que el turno se corte por tope de vueltas, por presupuesto de tiempo o
+/// porque el motor se cayó **no borra lo que el agente ya hizo**. Antes el tope devolvía un `Err` y se
+/// perdían (el panel mostraba «0 herramientas» en un turno que había usado 32 y hasta propuesto un
+/// parche): un desenlace parcial es información, no basura.
+pub struct Turno {
+    /// El texto con el que cerró, o el motivo por el que no cerró.
+    pub texto: String,
+    pub pasos: Vec<Paso>,
+    /// `true` sólo si el modelo cerró el turno por su cuenta (sin tope, sin corte, sin falla de motor).
+    pub ok: bool,
+    /// La falla de infraestructura (motor, proveedor, respuesta ilegible), si la hubo.
+    pub error: Option<String>,
+}
+
+impl Turno {
+    fn cerrado(texto: String, pasos: Vec<Paso>) -> Turno {
+        Turno { texto, pasos, ok: true, error: None }
+    }
+    /// Se cortó por una regla nuestra (tope de vueltas, presupuesto): no es un error del motor.
+    fn cortado(texto: String, pasos: Vec<Paso>) -> Turno {
+        Turno { texto, pasos, ok: false, error: None }
+    }
+    /// Falla del motor o del proveedor: también conserva los pasos.
+    fn fallado(e: String, pasos: Vec<Paso>) -> Turno {
+        Turno { texto: format!("el motor falló antes de cerrar el turno: {e}"), pasos, ok: false, error: Some(e) }
+    }
+}
+
 /// Corre el turno completo: pide al modelo, ejecuta lo que pida, realimenta y repite.
 ///
 /// `llamar(messages, tools)` es el único acceso al mundo: lo inyecta el backend (proveedor real) y lo
@@ -590,7 +674,7 @@ pub async fn correr<F, Fut>(
     sistema: &str,
     cfg: &Config,
     llamar: F,
-) -> Result<(String, Vec<Paso>), String>
+) -> Turno
 where
     F: Fn(Vec<Value>, Vec<Value>) -> Fut,
     Fut: std::future::Future<Output = Result<Value, String>>,
@@ -605,16 +689,22 @@ where
 
     for vuelta in 1..=cfg.tope_pasos {
         if t0.elapsed() > Duration::from_secs(cfg.tope_s) {
-            return Err(format!(
-                "el turno pasó el presupuesto de {} s (vueltas: {vuelta}, herramientas: {})",
-                cfg.tope_s,
-                pasos.len()
-            ));
+            return Turno::cortado(
+                format!(
+                    "el turno pasó el presupuesto de {} s (vueltas: {vuelta}, herramientas: {})",
+                    cfg.tope_s,
+                    pasos.len()
+                ),
+                pasos,
+            );
         }
-        let r = llamar(messages.clone(), herramientas.clone()).await?;
+        let r = match llamar(messages.clone(), herramientas.clone()).await {
+            Ok(r) => r,
+            Err(e) => return Turno::fallado(e, pasos),
+        };
         let msg = r["choices"][0]["message"].clone();
         if msg.is_null() {
-            return Err(format!("respuesta sin `message`: {}", recorta(&r.to_string())));
+            return Turno::fallado(format!("respuesta sin `message`: {}", recorta(&r.to_string())), pasos);
         }
         let llamadas = msg
             .get("tool_calls")
@@ -630,9 +720,9 @@ where
                 .trim()
                 .to_string();
             if texto.is_empty() {
-                return Err("el modelo no devolvió texto ni herramientas".into());
+                return Turno::cortado("el modelo no devolvió texto ni herramientas".into(), pasos);
             }
-            return Ok((texto, pasos));
+            return Turno::cerrado(texto, pasos);
         }
 
         // El mensaje del asistente con sus tool_calls tiene que ir en el hilo: sin eso el proveedor
@@ -665,11 +755,14 @@ where
         }
     }
 
-    Err(format!(
-        "el agente agotó las {} vueltas sin cerrar el turno (herramientas usadas: {})",
-        cfg.tope_pasos,
-        pasos.len()
-    ))
+    Turno::cortado(
+        format!(
+            "el agente agotó las {} vueltas sin cerrar el turno (herramientas usadas: {})",
+            cfg.tope_pasos,
+            pasos.len()
+        ),
+        pasos,
+    )
 }
 
 /// El sistema del turno: el agente sabe **qué** es, **dónde** está y **qué reglas** tiene. Que sepa que
@@ -855,7 +948,10 @@ mod tests {
                 { "id": "c1", "type": "function", "function": { "name": "firmas", "arguments": "{\"ruta\":\"src-tauri/src\"}" } } ] } } ] }),
             json!({ "choices": [ { "message": { "role": "assistant", "content": "Listo: el módulo tiene 2 funciones públicas." } } ] }),
         ];
-        let (texto, pasos) = correr("¿qué hay en el módulo?", "sys", &cfg, modelo(secuencia)).await.unwrap();
+        let t = correr("¿qué hay en el módulo?", "sys", &cfg, modelo(secuencia)).await;
+        assert!(t.ok, "cerró el turno solo: {}", t.texto);
+        assert!(t.error.is_none());
+        let (texto, pasos) = (t.texto, t.pasos);
         assert!(texto.contains("2 funciones públicas"));
         assert_eq!(pasos.len(), 1, "una herramienta ejecutada");
         assert_eq!(pasos[0].herramienta, "firmas");
@@ -873,7 +969,9 @@ mod tests {
                 { "id": "c1", "type": "function", "function": { "name": "leer_archivo", "arguments": "{\"ruta\":\"no/existe.rs\"}" } } ] } } ] }),
             json!({ "choices": [ { "message": { "content": "No existe ese archivo; probemos otro camino." } } ] }),
         ];
-        let (texto, pasos) = correr("leé lo que no existe", "sys", &cfg, modelo(secuencia)).await.unwrap();
+        let t = correr("leé lo que no existe", "sys", &cfg, modelo(secuencia)).await;
+        assert!(t.ok, "un paso que falla no corta el turno");
+        let (texto, pasos) = (t.texto, t.pasos);
         assert!(pasos[0].ok == false, "el paso se marca como error");
         assert!(pasos[0].salida.starts_with("ERROR:"), "el error viaja como texto");
         assert!(texto.contains("probemos otro camino"), "el turno siguió");
@@ -887,8 +985,13 @@ mod tests {
         // El modelo siempre pide la misma herramienta: sin tope, esto no termina nunca.
         let siempre = (0..10).map(|i| json!({ "choices": [ { "message": { "tool_calls": [
             { "id": format!("c{i}"), "type": "function", "function": { "name": "listar", "arguments": "{}" } } ] } } ] })).collect();
-        let e = correr("dale", "sys", &cfg, modelo(siempre)).await.unwrap_err();
-        assert!(e.contains("agotó las 3 vueltas"), "{e}");
+        let t = correr("dale", "sys", &cfg, modelo(siempre)).await;
+        assert!(!t.ok, "no cerró el turno");
+        assert!(t.texto.contains("agotó las 3 vueltas"), "{}", t.texto);
+        assert!(t.error.is_none(), "un tope no es una falla de motor: es una regla nuestra");
+        // El bug que destapó el turno real: el tope tiraba los pasos a la basura.
+        assert_eq!(t.pasos.len(), 3, "los pasos NO se pierden cuando se agota el tope");
+        assert!(t.pasos.iter().all(|p| p.ok), "y conservan su marca");
         let _ = std::fs::remove_dir_all(&raiz);
     }
 }

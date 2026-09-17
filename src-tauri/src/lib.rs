@@ -16,6 +16,7 @@ mod grafo;
 mod idioma;
 mod investigacion;
 mod memoria;
+mod parche;
 mod motores;
 mod semantica;
 mod server;

@@ -140,7 +140,24 @@ const ES = {
   'agente.respuesta': 'Respuesta',
   'agente.ejemplo': 'Ejemplo: «mirá el módulo agente.rs, decime qué hace y comprobá corriendo los tests».',
   'agente.faltaPedido': 'Escribí qué querés que haga (mínimo unas palabras).',
-  'agente.sinRepo': 'No sé dónde está el repo: poné `cerebro.repo` en la configuración.'
+  'agente.sinRepo': 'No sé dónde está el repo: poné `cerebro.repo` en la configuración.',
+
+  // --- etapa 4: el parche (se propone, se aprueba, se verifica)
+  'parche.titulo': 'Parche propuesto',
+  'parche.motivo': 'Motivo',
+  'parche.aprobar': 'Aprobar y aplicar',
+  'parche.rechazar': 'Rechazar',
+  'parche.revertir': 'Revertir',
+  'parche.aviso': 'Se escribe sólo cuando aprobás. Después corren los tests y el chequeo de tipos.',
+  'parche.verificando': 'Aplicado · corriendo la verificación…',
+  'parche.verde': 'Verificado',
+  'parche.rojo': 'La verificación falló: mirá la salida',
+  'parche.rechazado': 'Rechazado: no se tocó el disco.',
+  'parche.revertido': 'Revertido: el código volvió como estaba.',
+  'parche.error': 'No se pudo aplicar',
+  'parche.sinPendiente': 'No hay parche propuesto. Pedile un cambio al agente y va a aparecer acá para aprobarlo.',
+  'parche.verSalida': 'Ver la salida del gate',
+  'parche.archivosY': 'archivo(s)',
 } as const;
 
 export type Clave = keyof typeof ES;
@@ -256,7 +273,23 @@ const EN: Record<Clave, string> = {
   'agente.respuesta': 'Answer',
   'agente.ejemplo': 'Example: "look at agente.rs, tell me what it does and verify it by running the tests".',
   'agente.faltaPedido': 'Write what you want it to do (a few words at least).',
-  'agente.sinRepo': 'I do not know where the repo is: set `cerebro.repo` in the configuration.'
+  'agente.sinRepo': 'I do not know where the repo is: set `cerebro.repo` in the configuration.',
+
+  'parche.titulo': 'Proposed patch',
+  'parche.motivo': 'Reason',
+  'parche.aprobar': 'Approve and apply',
+  'parche.rechazar': 'Reject',
+  'parche.revertir': 'Revert',
+  'parche.aviso': 'It is written only when you approve. Then the tests and the type check run.',
+  'parche.verificando': 'Applied · running the verification…',
+  'parche.verde': 'Verified',
+  'parche.rojo': 'Verification failed: look at the output',
+  'parche.rechazado': 'Rejected: nothing touched the disk.',
+  'parche.revertido': 'Reverted: the code is back as it was.',
+  'parche.error': 'Could not apply',
+  'parche.sinPendiente': 'No proposed patch. Ask the agent for a change and it will show up here for approval.',
+  'parche.verSalida': 'Show the gate output',
+  'parche.archivosY': 'file(s)',
 };
 
 export const CATALOGOS: Record<Idioma, Record<Clave, string>> = { es: ES, en: EN };

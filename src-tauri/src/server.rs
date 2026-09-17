@@ -249,6 +249,10 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
             .route("/api/ai/delegar", post(delegar).get(delegar_estado))
             .route("/api/agente/turno", post(agente_turno))
             .route("/api/agente/estado", get(agente_estado))
+            .route("/api/agente/parche", get(agente_parche))
+            .route("/api/agente/parche/aprobar", post(agente_parche_aprobar))
+            .route("/api/agente/parche/rechazar", post(agente_parche_rechazar))
+            .route("/api/agente/parche/revertir", post(agente_parche_revertir))
             .route("/api/ai/evaluar", post(ai_evaluar).get(ai_evaluar_leer))
             .route(
                 "/api/ai/investigar",
@@ -3814,6 +3818,7 @@ async fn agente_turno(State(st): State<AppState>, Json(body): Json<Value>) -> im
     let cfg = crate::agente::Config::desde(
         cfg_crudo.as_ref().and_then(|c| c.get("agente")),
         repo.clone(),
+        st.data_dir.clone(),
     );
     // Lo que la respuesta necesita, capturado **antes** de que el `spawn` se lleve `cfg` y `motor`.
     let (res_motor, res_modelo, res_repo, res_tope) = (
@@ -3862,28 +3867,23 @@ async fn agente_turno(State(st): State<AppState>, Json(body): Json<Value>) -> im
                 Ok(r)
             }
         };
-        let salida = crate::agente::correr(&pedido2, &sistema, &cfg, llamar).await;
+        let turno = crate::agente::correr(&pedido2, &sistema, &cfg, llamar).await;
         let ms = t0.elapsed().as_millis() as u64;
-        // Un solo `match`: los pasos se consumen acá y el resultado sale completo (antes se movía
-        // `salida` en el primer match y el segundo no podía mirarla).
-        let (ok, texto, pasos): (bool, String, Vec<Value>) = match salida {
-            Ok((t, ps)) => {
-                let pasos = ps
-                    .iter()
-                    .map(|p| {
-                        json!({
-                            "herramienta": p.herramienta,
-                            "argumentos": p.argumentos,
-                            "ok": p.ok,
-                            "ms": p.ms,
-                            "salida": p.salida.chars().take(1_200).collect::<String>(),
-                        })
-                    })
-                    .collect();
-                (true, t, pasos)
-            }
-            Err(e) => (false, e, Vec::new()),
-        };
+        // El desenlace trae los pasos en todos los casos: un turno cortado sigue siendo auditable.
+        let (ok, texto, error_turno) = (turno.ok, turno.texto.clone(), turno.error.clone());
+        let pasos: Vec<Value> = turno
+            .pasos
+            .iter()
+            .map(|p| {
+                json!({
+                    "herramienta": p.herramienta,
+                    "argumentos": p.argumentos,
+                    "ok": p.ok,
+                    "ms": p.ms,
+                    "salida": p.salida.chars().take(1_200).collect::<String>(),
+                })
+            })
+            .collect();
         let resultado = json!({
             "pedido": pedido2,
             "ok": ok,
@@ -3894,6 +3894,7 @@ async fn agente_turno(State(st): State<AppState>, Json(body): Json<Value>) -> im
             "motor": motor.id,
             "modelo": motor.modelo,
             "tokens": tokens.lock().map(|g| *g).unwrap_or(0),
+            "error": error_turno,
             "contexto": crate::cerebro::resumen_contexto(&ctx),
             "cuando": sello,
         });
@@ -3957,6 +3958,173 @@ async fn agente_estado(State(st): State<AppState>) -> impl IntoResponse {
         "resultado": resultado,
         "repo": st.cerebro.repo,
     }))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Etapa 4 — el parche: se propone, el humano aprueba, se aplica y se verifica
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// El repo para los parches: el mismo que usa el agente (`cerebro.repo` del config).
+fn repo_de_parches(st: &AppState) -> Result<std::path::PathBuf, String> {
+    let p = std::path::PathBuf::from(st.cerebro.repo.trim());
+    if p.is_dir() {
+        Ok(p)
+    } else {
+        Err("no sé dónde está el repo: poné `cerebro.repo` en nodeflow.config.json".into())
+    }
+}
+
+/// `GET /api/agente/parche` — la propuesta pendiente (o la última aplicada) con su verificación.
+async fn agente_parche(State(st): State<AppState>) -> impl IntoResponse {
+    Json(json!({
+        "success": true,
+        "propuesta": crate::parche::leer(&st.data_dir),
+        "repo": st.cerebro.repo,
+        "topes": { "archivos": crate::parche::MAX_ARCHIVOS, "ediciones": crate::parche::MAX_EDICIONES },
+    }))
+}
+
+/// `POST /api/agente/parche/aprobar` — **aplica** lo que estaba en la cola y lanza los *gates* en
+/// segundo plano (aplicar es instantáneo; verificar tarda). La respuesta dice qué gates van a correr.
+async fn agente_parche_aprobar(State(st): State<AppState>) -> impl IntoResponse {
+    let Some(mut v) = crate::parche::leer(&st.data_dir) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "success": false, "error": "No hay ninguna propuesta de parche." })),
+        )
+            .into_response();
+    };
+    if v["estado"].as_str() != Some("pendiente") {
+        return (
+            StatusCode::CONFLICT,
+            Json(json!({
+                "success": false,
+                "error": format!("La propuesta está en estado «{}»: no hay nada que aprobar.", v["estado"].as_str().unwrap_or("?")),
+            })),
+        )
+            .into_response();
+    }
+    let eds = match crate::parche::eds_de_json(&v["ediciones"]) {
+        Ok(e) => e,
+        Err(e) => {
+            return (StatusCode::BAD_REQUEST, Json(json!({ "success": false, "error": e }))).into_response()
+        }
+    };
+    let repo = match repo_de_parches(&st) {
+        Ok(p) => p,
+        Err(e) => return (StatusCode::BAD_REQUEST, Json(json!({ "success": false, "error": e }))).into_response(),
+    };
+    match crate::parche::aplicar(&repo, &eds) {
+        Ok(apl) => {
+            let gates = crate::parche::gates(&apl.archivos);
+            v["estado"] = json!("aplicado");
+            v["aplicado"] = json!({
+                "archivos": apl.archivos,
+                "ediciones": apl.ediciones,
+                "mas": apl.mas,
+                "menos": apl.menos,
+                "cuando": now_ms(),
+            });
+            v["verificacion"] = json!([{ "comando": "(corriendo)", "ok": null, "salida": "" }]);
+            if let Err(e) = crate::parche::escribir(&st.data_dir, &v) {
+                log::warn!("parche: no pude guardar el estado tras aplicar: {e}");
+            }
+            // La verificación no se sostiene en la petición: se corre aparte y el panel la consulta.
+            let st2 = st.clone();
+            let archivos = apl.archivos.clone();
+            let repo2 = repo.clone();
+            tokio::spawn(async move {
+                let tope = crate::agente::TOPE_CMD_S;
+                let verificacion = tokio::task::spawn_blocking(move || {
+                    crate::parche::verificar(&repo2, &archivos, tope)
+                })
+                .await
+                .unwrap_or_else(|e| vec![json!({ "comando": "verificación", "ok": false, "salida": e.to_string() })]);
+                if let Some(mut actual) = crate::parche::leer(&st2.data_dir) {
+                    let ok = verificacion
+                        .iter()
+                        .all(|g| g["ok"].as_bool().unwrap_or(false));
+                    actual["verificacion"] = json!(verificacion);
+                    actual["verificado_ok"] = json!(ok);
+                    if let Err(e) = crate::parche::escribir(&st2.data_dir, &actual) {
+                        log::warn!("parche: no pude guardar la verificación: {e}");
+                    }
+                    log::info!(
+                        "parche: verificación {} — {} gate(s)",
+                        if ok { "verde" } else { "roja" },
+                        verificacion.len()
+                    );
+                }
+            });
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "success": true,
+                    "aplicado": { "archivos": apl.archivos, "ediciones": apl.ediciones, "mas": apl.mas, "menos": apl.menos },
+                    "gates": gates,
+                })),
+            )
+                .into_response()
+        }
+        Err(e) => {
+            // No se escribió nada (o se restauró): el estado queda con el motivo.
+            v["estado"] = json!("error");
+            v["error"] = json!(e);
+            let _ = crate::parche::escribir(&st.data_dir, &v);
+            (StatusCode::BAD_REQUEST, Json(json!({ "success": false, "error": e }))).into_response()
+        }
+    }
+}
+
+/// `POST /api/agente/parche/rechazar` — se descarta sin tocar el disco.
+async fn agente_parche_rechazar(State(st): State<AppState>) -> impl IntoResponse {
+    let Some(mut v) = crate::parche::leer(&st.data_dir) else {
+        return (StatusCode::BAD_REQUEST, Json(json!({ "success": false, "error": "No hay propuesta." })))
+            .into_response();
+    };
+    v["estado"] = json!("rechazado");
+    v["cuando_rechazo"] = json!(now_ms());
+    match crate::parche::escribir(&st.data_dir, &v) {
+        Ok(_) => (StatusCode::OK, Json(json!({ "success": true, "estado": "rechazado" }))).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "success": false, "error": e }))).into_response(),
+    }
+}
+
+/// `POST /api/agente/parche/revertir` — aplica la **inversa** del parche aplicado (el repo vuelve solo).
+async fn agente_parche_revertir(State(st): State<AppState>) -> impl IntoResponse {
+    let Some(v) = crate::parche::leer(&st.data_dir) else {
+        return (StatusCode::BAD_REQUEST, Json(json!({ "success": false, "error": "No hay propuesta." })))
+            .into_response();
+    };
+    if !matches!(v["estado"].as_str(), Some("aplicado") | Some("error")) {
+        return (
+            StatusCode::CONFLICT,
+            Json(json!({ "success": false, "error": "Sólo se revierte lo que se aplicó." })),
+        )
+            .into_response();
+    }
+    let eds = match crate::parche::eds_de_json(&v["ediciones"]) {
+        Ok(e) => e,
+        Err(e) => return (StatusCode::BAD_REQUEST, Json(json!({ "success": false, "error": e }))).into_response(),
+    };
+    let repo = match repo_de_parches(&st) {
+        Ok(p) => p,
+        Err(e) => return (StatusCode::BAD_REQUEST, Json(json!({ "success": false, "error": e }))).into_response(),
+    };
+    match crate::parche::aplicar(&repo, &crate::parche::invertir(&eds)) {
+        Ok(apl) => {
+            let mut v2 = v.clone();
+            v2["estado"] = json!("revertido");
+            v2["revertido"] = json!({ "archivos": apl.archivos, "cuando": now_ms() });
+            let _ = crate::parche::escribir(&st.data_dir, &v2);
+            (
+                StatusCode::OK,
+                Json(json!({ "success": true, "estado": "revertido", "archivos": apl.archivos })),
+            )
+                .into_response()
+        }
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "success": false, "error": e }))).into_response(),
+    }
 }
 
 /// `GET /api/voz/dialogo` — el hilo de la conversación en curso (turnos y foco).
