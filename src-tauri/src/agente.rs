@@ -37,6 +37,21 @@ pub const TOPE_S: u64 = 300;
 pub const TOPE_CMD_S: u64 = 180;
 /// Tope de lo que se le devuelve al modelo por herramienta: entra en el contexto que se paga.
 pub const TOPE_SALIDA: usize = 8_000;
+/// Presupuesto de **entrada** por vuelta, en tokens estimados (≈4 caracteres por token). Es el freno del
+/// contexto, que es lo que de verdad se paga: medido el 17/09, un turno de 19 herramientas mandó 90.594
+/// tokens de entrada e **igual cerró**, así que el volumen no compraba nada — sólo ruido y factura.
+pub const PRESUPUESTO_ENTRADA: usize = 48_000;
+/// Cuántos resultados de herramienta quedan **enteros** al podar. El último par que el modelo acaba de
+/// pedir nunca se recorta: sin eso el modelo no puede razonar sobre lo que pidió hace un segundo.
+pub const CONSERVAR_ULTIMAS: usize = 3;
+/// Cuántos caracteres se guardan de una salida de **una sola línea** demasiado larga (un `listar`, por ej.).
+const TOPE_LINEA: usize = 400;
+/// Marca de una salida ya recortada. Es lo que hace la poda **idempotente y monótona**: una salida
+/// podada no se vuelve a tocar ni se re-expande, así el prefijo sigue siendo idéntico entre vueltas y la
+/// caché del proveedor (medida: 80,8 % de la entrada) sigue pegando. Podar distinto en cada vuelta sería
+/// bajar tokens para pagarlos a precio pleno.
+const MARCA_PODA: &str = "… (recortado por presupuesto: ";
+
 /// Tope de vueltas del recorrido del repo (un árbol con `node_modules` no se recorre entero nunca).
 const TOPE_ARCHIVOS: usize = 4_000;
 
@@ -92,6 +107,10 @@ pub struct Config {
     pub tope_cmd_s: u64,
     /// ¿Puede correr comandos de la lista blanca? Apagarlo deja al agente en sólo-lectura pura.
     pub comandos: bool,
+    /// Presupuesto de entrada por vuelta, en tokens estimados. Al pasarlo, el historial se poda.
+    pub presupuesto_entrada: usize,
+    /// Resultados de herramienta que quedan enteros al podar (el par reciente nunca se toca).
+    pub conservar_ultimas: usize,
     /// Raíz del repo. Sin ella no hay herramientas de código (el turno queda sin manos).
     pub repo: PathBuf,
     /// Carpeta de datos de la app: ahí vive la cola de parches que el agente propone.
@@ -105,6 +124,8 @@ impl Default for Config {
             tope_s: TOPE_S,
             tope_cmd_s: TOPE_CMD_S,
             comandos: true,
+            presupuesto_entrada: PRESUPUESTO_ENTRADA,
+            conservar_ultimas: CONSERVAR_ULTIMAS,
             repo: PathBuf::new(),
             estado: PathBuf::new(),
         }
@@ -130,6 +151,12 @@ impl Config {
             }
             if let Some(v) = s.get("comandos").and_then(|v| v.as_bool()) {
                 c.comandos = v;
+            }
+            if let Some(v) = s.get("presupuesto_entrada").and_then(|v| v.as_u64()) {
+                c.presupuesto_entrada = (v as usize).clamp(4_000, 200_000);
+            }
+            if let Some(v) = s.get("conservar_ultimas").and_then(|v| v.as_u64()) {
+                c.conservar_ultimas = (v as usize).clamp(1, 12);
             }
         }
         c
@@ -648,20 +675,96 @@ pub struct Turno {
     pub ok: bool,
     /// La falla de infraestructura (motor, proveedor, respuesta ilegible), si la hubo.
     pub error: Option<String>,
+    /// Cuántos resultados de herramienta se recortaron por presupuesto de entrada (0 = entró entero).
+    pub podas: usize,
+    /// Estimación de la entrada de la última vuelta (≈4 caracteres por token).
+    pub entrada_estimada: usize,
 }
 
 impl Turno {
     fn cerrado(texto: String, pasos: Vec<Paso>) -> Turno {
-        Turno { texto, pasos, ok: true, error: None }
+        Turno { texto, pasos, ok: true, error: None, podas: 0, entrada_estimada: 0 }
+    }
+
+    /// Le pega la cuenta del presupuesto al desenlace: cuántas salidas se podaron y cuánta entrada
+    /// estimada tenía la última vuelta. Va en todos los finales, incluso los cortados.
+    fn con_cuenta(mut self, podas: usize, entrada_estimada: usize) -> Turno {
+        self.podas = podas;
+        self.entrada_estimada = entrada_estimada;
+        self
     }
     /// Se cortó por una regla nuestra (tope de vueltas, presupuesto): no es un error del motor.
     fn cortado(texto: String, pasos: Vec<Paso>) -> Turno {
-        Turno { texto, pasos, ok: false, error: None }
+        Turno { texto, pasos, ok: false, error: None, podas: 0, entrada_estimada: 0 }
     }
     /// Falla del motor o del proveedor: también conserva los pasos.
     fn fallado(e: String, pasos: Vec<Paso>) -> Turno {
-        Turno { texto: format!("el motor falló antes de cerrar el turno: {e}"), pasos, ok: false, error: Some(e) }
+        Turno {
+            texto: format!("el motor falló antes de cerrar el turno: {e}"),
+            pasos,
+            ok: false,
+            error: Some(e),
+            podas: 0,
+            entrada_estimada: 0,
+        }
     }
+}
+
+/// Estimación de los tokens de **entrada** que va a costar el hilo (≈4 caracteres por token, la misma
+/// regla que `costo::aprox_tokens`). Se serializa el mensaje entero a propósito: las claves, las comillas
+/// y los `tool_call_id` también viajan y también se pagan.
+pub fn estimar_entrada(messages: &[Value]) -> usize {
+    messages
+        .iter()
+        .map(|m| {
+            serde_json::to_string(m)
+                .map(|s| s.chars().count() / 4 + 6)
+                .unwrap_or(6)
+        })
+        .sum()
+}
+
+/// Poda el historial para volver a entrar en el presupuesto: de los resultados de herramienta **viejos**
+/// (nunca los últimos `conservar_ultimas`) deja la primera línea y esconde el resto detrás de la marca.
+///
+/// Es **idempotente y monótona a propósito**: lo ya podado no se vuelve a tocar ni se re-expande, así el
+/// prefijo del hilo queda idéntico entre vueltas y la caché de prefijo del proveedor (medida el 17/09:
+/// 80,8 % de la entrada, a ~1/50 del precio) sigue pegando. Podar distinto en cada vuelta sería bajar
+/// tokens para pagarlos a precio pleno. Devuelve cuántas salidas recortó.
+pub fn podar(messages: &mut [Value], cfg: &Config) -> usize {
+    let idxs: Vec<usize> = messages
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| m.get("role").and_then(|r| r.as_str()) == Some("tool"))
+        .map(|(i, _)| i)
+        .collect();
+    if idxs.len() <= cfg.conservar_ultimas {
+        return 0;
+    }
+    let mut recortadas = 0;
+    for &i in &idxs[..idxs.len() - cfg.conservar_ultimas] {
+        let Some(c) = messages[i].get("content").and_then(|c| c.as_str()) else {
+            continue;
+        };
+        if c.contains(MARCA_PODA) {
+            continue; // ya podada: la marca sobrevive en el texto, así que no se re-toca (monótona)
+        }
+        let lineas: Vec<&str> = c.lines().collect();
+        let nuevo = if lineas.len() > 1 {
+            format!("{}\n{MARCA_PODA}{} líneas)", lineas[0], lineas.len() - 1)
+        } else if c.chars().count() > TOPE_LINEA {
+            format!(
+                "{}\n{MARCA_PODA}1 línea de {} caracteres)",
+                c.chars().take(TOPE_LINEA).collect::<String>(),
+                c.chars().count()
+            )
+        } else {
+            continue; // una línea corta ya es mínima: no hay nada que recortar
+        };
+        messages[i]["content"] = json!(nuevo);
+        recortadas += 1;
+    }
+    recortadas
 }
 
 /// Corre el turno completo: pide al modelo, ejecuta lo que pida, realimenta y repite.
@@ -685,6 +788,8 @@ where
         json!({ "role": "user", "content": pedido }),
     ];
     let mut pasos: Vec<Paso> = Vec::new();
+    let mut podas: usize = 0;
+    let mut entrada_estimada: usize = estimar_entrada(&messages);
     let t0 = Instant::now();
 
     for vuelta in 1..=cfg.tope_pasos {
@@ -696,15 +801,37 @@ where
                     pasos.len()
                 ),
                 pasos,
-            );
+            )
+            .con_cuenta(podas, entrada_estimada);
+        }
+        // Presupuesto de entrada: el hilo se reenvía **entero** en cada vuelta, así que es el único lugar
+        // donde el turno se puede engordar sin que nadie mire. Si no entra, se poda lo viejo; si aun así no
+        // entra, se corta como el tope — conservando los pasos, que es la lección que ya nos costó un bug.
+        entrada_estimada = estimar_entrada(&messages);
+        if entrada_estimada > cfg.presupuesto_entrada {
+            podas += podar(&mut messages, cfg);
+            entrada_estimada = estimar_entrada(&messages);
+            if entrada_estimada > cfg.presupuesto_entrada && !pasos.is_empty() {
+                return Turno::cortado(
+                    format!(
+                        "el turno pasó el presupuesto de {} tokens de entrada (vueltas: {vuelta}, \
+                         herramientas: {}, recortes: {podas})",
+                        cfg.presupuesto_entrada,
+                        pasos.len()
+                    ),
+                    pasos,
+                )
+                .con_cuenta(podas, entrada_estimada);
+            }
         }
         let r = match llamar(messages.clone(), herramientas.clone()).await {
             Ok(r) => r,
-            Err(e) => return Turno::fallado(e, pasos),
+            Err(e) => return Turno::fallado(e, pasos).con_cuenta(podas, entrada_estimada),
         };
         let msg = r["choices"][0]["message"].clone();
         if msg.is_null() {
-            return Turno::fallado(format!("respuesta sin `message`: {}", recorta(&r.to_string())), pasos);
+            return Turno::fallado(format!("respuesta sin `message`: {}", recorta(&r.to_string())), pasos)
+                .con_cuenta(podas, entrada_estimada);
         }
         let llamadas = msg
             .get("tool_calls")
@@ -720,9 +847,10 @@ where
                 .trim()
                 .to_string();
             if texto.is_empty() {
-                return Turno::cortado("el modelo no devolvió texto ni herramientas".into(), pasos);
+                return Turno::cortado("el modelo no devolvió texto ni herramientas".into(), pasos)
+                    .con_cuenta(podas, entrada_estimada);
             }
-            return Turno::cerrado(texto, pasos);
+            return Turno::cerrado(texto, pasos).con_cuenta(podas, entrada_estimada);
         }
 
         // El mensaje del asistente con sus tool_calls tiene que ir en el hilo: sin eso el proveedor
@@ -763,6 +891,7 @@ where
         ),
         pasos,
     )
+    .con_cuenta(podas, entrada_estimada)
 }
 
 /// El sistema del turno: el agente sabe **qué** es, **dónde** está y **qué reglas** tiene. Que sepa que
@@ -975,6 +1104,114 @@ mod tests {
         assert!(pasos[0].ok == false, "el paso se marca como error");
         assert!(pasos[0].salida.starts_with("ERROR:"), "el error viaja como texto");
         assert!(texto.contains("probemos otro camino"), "el turno siguió");
+        let _ = std::fs::remove_dir_all(&raiz);
+    }
+
+    #[test]
+    fn la_poda_deja_la_primera_linea_y_no_toca_las_ultimas() {
+        let cfg = Config { conservar_ultimas: 2, ..Config::default() };
+        let mut msgs: Vec<Value> = vec![
+            json!({ "role": "system", "content": "sys" }),
+            json!({ "role": "user", "content": "pedido" }),
+        ];
+        for i in 0..4 {
+            msgs.push(json!({ "role": "tool", "tool_call_id": format!("c{i}"),
+                              "content": format!("salida {i} de la herramienta\n{}
+fin", "x".repeat(600)) }));
+        }
+        let n = podar(&mut msgs, &cfg);
+        assert_eq!(n, 2, "con conservar_ultimas=2 se recortan las 2 más viejas");
+        let vieja = msgs[2]["content"].as_str().unwrap();
+        assert!(vieja.starts_with("salida 0 de la herramienta"), "{vieja}");
+        assert!(vieja.contains(MARCA_PODA) && vieja.contains("2 líneas"), "{vieja}");
+        assert!(vieja.chars().count() < 200, "lo recortado no viaja");
+        let ultima = msgs[5]["content"].as_str().unwrap();
+        assert_eq!(ultima.lines().count(), 3, "la última queda entera: el modelo la acaba de pedir");
+    }
+
+    #[test]
+    fn la_poda_es_monotona_y_no_se_repite() {
+        let cfg = Config { conservar_ultimas: 1, ..Config::default() };
+        let mut msgs: Vec<Value> = vec![json!({ "role": "system", "content": "sys" })];
+        for i in 0..4 {
+            msgs.push(json!({ "role": "tool", "tool_call_id": format!("c{i}"),
+                              "content": format!("primera {i}\n{}
+fin", "y".repeat(600)) }));
+        }
+        assert_eq!(podar(&mut msgs, &cfg), 3);
+        let despues: Vec<String> = msgs.iter().map(|m| m.to_string()).collect();
+        // Segunda pasada: no recorta nada nuevo y **no re-expande** lo ya recortado.
+        assert_eq!(podar(&mut msgs, &cfg), 0, "idempotente");
+        let ahora: Vec<String> = msgs.iter().map(|m| m.to_string()).collect();
+        assert_eq!(despues, ahora, "monótona: el prefijo no cambia entre vueltas");
+    }
+
+    #[test]
+    fn la_estimacion_de_entrada_sigue_la_regla_de_cuatro_caracteres() {
+        let msgs = vec![json!({ "role": "system", "content": "a".repeat(4_000) })];
+        let est = estimar_entrada(&msgs);
+        assert!((1_000..1_100).contains(&est), "≈1000 tokens para 4000 caracteres, dio {est}");
+        assert!(estimar_entrada(&[]) == 0);
+    }
+
+    #[tokio::test]
+    async fn con_presupuesto_chico_el_turno_corta_y_conserva_los_pasos() {
+        let raiz = repo_temporal("presupuesto");
+        // Un archivo grande: cada lectura devuelve el tope de salida (8.000 caracteres ≈ 2.000 tokens).
+        std::fs::write(
+            raiz.join("src-tauri/src/grande.rs"),
+            (0..1_000).map(|i| format!("// línea {i} con relleno suficiente para pesar\n")).collect::<String>(),
+        )
+        .unwrap();
+        let cfg = Config {
+            repo: raiz.clone(),
+            tope_pasos: 6,
+            presupuesto_entrada: 4_000,
+            conservar_ultimas: 3,
+            ..Config::default()
+        };
+        let siempre = (0..6)
+            .map(|i| {
+                json!({ "choices": [ { "message": { "tool_calls": [
+                    { "id": format!("c{i}"), "type": "function", "function": { "name": "leer_archivo",
+                      "arguments": "{\"ruta\":\"src-tauri/src/grande.rs\",\"desde\":1,\"lineas\":400}" } } ] } } ] })
+            })
+            .collect();
+        let t = correr("dale", "sys", &cfg, modelo(siempre)).await;
+        assert!(!t.ok, "no cerró: {}", t.texto);
+        assert!(t.texto.contains("presupuesto de 4000 tokens"), "{}", t.texto);
+        assert!(t.error.is_none(), "un presupuesto no es una falla de motor: es una regla nuestra");
+        assert!(t.pasos.len() >= 2, "los pasos NO se pierden: {}", t.pasos.len());
+        assert!(t.entrada_estimada > 4_000, "informa cuánta entrada tenía: {}", t.entrada_estimada);
+        let _ = std::fs::remove_dir_all(&raiz);
+    }
+
+    #[tokio::test]
+    async fn la_poda_deja_seguir_el_turno_cuando_lo_viejo_es_lo_que_sobra() {
+        let raiz = repo_temporal("poda-turno");
+        std::fs::write(
+            raiz.join("src-tauri/src/grande.rs"),
+            (0..1_000).map(|i| format!("// línea {i} con relleno suficiente para pesar\n")).collect::<String>(),
+        )
+        .unwrap();
+        let cfg = Config {
+            repo: raiz.clone(),
+            tope_pasos: 5,
+            presupuesto_entrada: 4_000,
+            conservar_ultimas: 1,
+            ..Config::default()
+        };
+        let siempre = (0..5)
+            .map(|i| {
+                json!({ "choices": [ { "message": { "tool_calls": [
+                    { "id": format!("c{i}"), "type": "function", "function": { "name": "leer_archivo",
+                      "arguments": "{\"ruta\":\"src-tauri/src/grande.rs\",\"desde\":1,\"lineas\":400}" } } ] } } ] })
+            })
+            .collect();
+        let t = correr("dale", "sys", &cfg, modelo(siempre)).await;
+        assert!(t.texto.contains("agotó las 5 vueltas"), "el turno siguió hasta el tope: {}", t.texto);
+        assert!(t.podas >= 2, "podó lo viejo en vez de morir por presupuesto: {}", t.podas);
+        assert_eq!(t.pasos.len(), 5);
         let _ = std::fs::remove_dir_all(&raiz);
     }
 

@@ -3663,6 +3663,13 @@ async fn delegar_estado(State(st): State<AppState>) -> impl IntoResponse {
 /// (kill, apagón) no puede dejar al agente bloqueado para siempre — misma lección que
 /// `investigacion::en_curso` y `IA_TURNO_TTL_S`.
 const AGENTE_JSON: &str = "agente.json";
+/// El hilo del agente: los últimos turnos, para que un pedido no arranque en frío. Es la lección medida
+/// del 17/09 —el camino de voz ya tenía hilo (`dialogo.rs`) y el del agente no, así que cada pedido volvía
+/// a explorar lo mismo—. Vive con el conocimiento del usuario (`<bóveda>/.nodeflow/`) y **expira solo**:
+/// un hilo de ayer no debería condicionar el de hoy.
+const AGENTE_HILO: &str = "agente-hilo.json";
+const HILO_TURNOS: usize = 6;
+const HILO_HORAS: i64 = 3;
 const AGENTE_CORRIENDO: &str = "agente.corriendo";
 const AGENTE_TTL_S: u64 = 900;
 
@@ -3754,6 +3761,69 @@ async fn motor_para_agente(
     Err("ningún motor compatible con OpenAI tiene clave (agregá una, o usá openai:deepseek)".into())
 }
 
+/// Lee el hilo del agente, descartando lo que ya venció. Tolerante a propósito: un archivo corrupto o
+/// ausente no puede impedir un turno (el hilo es contexto, no un requisito).
+fn leer_hilo(dir: &std::path::Path) -> Vec<Value> {
+    let Ok(t) = std::fs::read_to_string(dir.join(AGENTE_HILO)) else {
+        return Vec::new();
+    };
+    let Ok(v) = serde_json::from_str::<Value>(&t) else {
+        return Vec::new();
+    };
+    let ahora = (now_ms() / 1000) as i64;
+    v["turnos"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|t| ahora - t["cuando"].as_i64().unwrap_or(0) <= HILO_HORAS * 3600)
+        .collect()
+}
+
+/// El bloque que se le antepone al sistema: qué ya se averiguó, para no volver a mirarlo de cero.
+fn bloque_hilo(entradas: &[Value]) -> String {
+    if entradas.is_empty() {
+        return String::new();
+    }
+    let ahora = (now_ms() / 1000) as i64;
+    let mut p = String::from(
+        "\n\nTurnos anteriores de este agente (lo que YA averiguó: no lo vuelvas a mirar de cero):\n",
+    );
+    for e in entradas {
+        let mins = ((ahora - e["cuando"].as_i64().unwrap_or(0)) / 60).max(0);
+        let rec = |k: &str, n: usize| -> String {
+            e[k].as_str().unwrap_or("").chars().take(n).collect()
+        };
+        p.push_str(&format!(
+            "- hace {mins} min · «{}» → {}, {} pasos, {} recortes · {}\n",
+            rec("pedido", 160),
+            if e["ok"].as_bool().unwrap_or(false) { "cerró" } else { "no cerró" },
+            e["pasos"].as_u64().unwrap_or(0),
+            e["podas"].as_u64().unwrap_or(0),
+            rec("plan", 500)
+        ));
+    }
+    p
+}
+
+/// Guarda el turno en el hilo: pedido, desenlace, el plan con el que cerró y si dejó algo propuesto.
+fn guardar_hilo(dir: &std::path::Path, entrada: Value) {
+    let mut turnos = leer_hilo(dir);
+    turnos.push(entrada);
+    let sobra = turnos.len().saturating_sub(HILO_TURNOS);
+    if sobra > 0 {
+        turnos.drain(0..sobra);
+    }
+    if let Err(e) = std::fs::create_dir_all(dir) {
+        log::warn!("agente: hilo: {e}");
+        return;
+    }
+    let cuerpo = json!({ "ver": 1, "turnos": turnos });
+    if let Err(e) = std::fs::write(dir.join(AGENTE_HILO), cuerpo.to_string()) {
+        log::warn!("agente: no pude guardar el hilo: {e}");
+    }
+}
+
 /// `POST /api/agente/turno` — arranca **el bucle de agente propio** (sin Hermes) y vuelve enseguida:
 /// el panel consulta `GET /api/agente/estado` mientras el turno crece. Cuerpo: `{pedido, motor?, repo?}`.
 async fn agente_turno(State(st): State<AppState>, Json(body): Json<Value>) -> impl IntoResponse {
@@ -3823,6 +3893,11 @@ async fn agente_turno(State(st): State<AppState>, Json(body): Json<Value>) -> im
     );
     // Tarifas declaradas por el usuario (config) — incluye, si está, el precio de la entrada cacheada.
     let tarifas = crate::costo::Tarifas::desde_config(cfg_crudo.as_ref());
+    // El hilo de turnos anteriores: se lee antes de arrancar y viaja en el sistema del turno.
+    let hilo_dir = st.vault.raiz().join(".nodeflow");
+    let hilo_previo = leer_hilo(&hilo_dir);
+    let n_hilo = hilo_previo.len();
+    let hilo = bloque_hilo(&hilo_previo);
     // Lo que la respuesta necesita, capturado **antes** de que el `spawn` se lleve `cfg` y `motor`.
     let (res_motor, res_modelo, res_repo, res_tope) = (
         motor.id.clone(),
@@ -3832,6 +3907,8 @@ async fn agente_turno(State(st): State<AppState>, Json(body): Json<Value>) -> im
     );
     let st2 = st.clone();
     let pedido2 = pedido.clone();
+    let hilo2 = hilo.clone();
+    let hilo_dir2 = hilo_dir.clone();
     tokio::spawn(async move {
         let t0 = std::time::Instant::now();
         // El briefing se arma **desde la bóveda** (visión + camino + recuerdo dirigido + el mapa de la
@@ -3844,9 +3921,10 @@ async fn agente_turno(State(st): State<AppState>, Json(body): Json<Value>) -> im
                 .unwrap_or_default()
         };
         let sistema = format!(
-            "{}\n\n{}",
+            "{}\n\n{}{}",
             crate::agente::sistema(&cfg.repo),
-            crate::cerebro::briefing_texto(&ctx)
+            crate::cerebro::briefing_texto(&ctx),
+            hilo2
         );
         // El consumo del turno se acumula desde afuera: el bucle no sabe de costos, el backend sí.
         // Se guardan las tres cifras que reporta el proveedor —prompt, completion y **cache_hit**—:
@@ -3938,6 +4016,9 @@ async fn agente_turno(State(st): State<AppState>, Json(body): Json<Value>) -> im
             "modelo": motor.modelo,
             "tokens": consumo_final.total(),
             "consumo": consumo_final.json(),
+            "presupuesto_entrada": cfg.presupuesto_entrada,
+            "entrada_estimada": turno.entrada_estimada,
+            "podas": turno.podas,
             "llamadas": llamadas_final,
             "costo_usd": costo,
             "costo_sin_cache_usd": costo_sin_cache,
@@ -3950,6 +4031,19 @@ async fn agente_turno(State(st): State<AppState>, Json(body): Json<Value>) -> im
             log::warn!("agente: no pude guardar el resultado: {e}");
             let _ = std::fs::remove_file(st2.data_dir.join(AGENTE_CORRIENDO));
         }
+        // El turno entra al hilo: el próximo arranca sabiendo qué se averiguó en éste.
+        guardar_hilo(
+            &hilo_dir2,
+            json!({
+                "cuando": sello,
+                "pedido": pedido2,
+                "ok": ok,
+                "pasos": pasos.len(),
+                "podas": turno.podas,
+                "propuso": pasos.iter().any(|p| p["herramienta"] == "proponer_parche"),
+                "plan": if ok { texto.clone() } else { String::new() },
+            }),
+        );
         // Nota episódica: la memoria del proyecto vive en la bóveda, no en el proceso.
         if st2.cerebro.notas {
             let utc = now_iso();
@@ -3971,9 +4065,10 @@ async fn agente_turno(State(st): State<AppState>, Json(body): Json<Value>) -> im
             }
         }
         log::info!(
-            "agente: {} · {} pasos · {} ms · {} tokens ({} in / {} out · {} de caché) · {} llamadas · costo {} · motor {}",
+            "agente: {} · {} pasos ({} recortes) · {} ms · {} tokens ({} in / {} out · {} de caché) · {} llamadas · costo {} · motor {}",
             if ok { "listo" } else { "falló" },
             resultado["herramientas_usadas"],
+            turno.podas,
             ms,
             consumo_final.total(),
             consumo_final.prompt,
@@ -3997,7 +4092,8 @@ async fn agente_turno(State(st): State<AppState>, Json(body): Json<Value>) -> im
             "motor": res_motor,
             "modelo": res_modelo,
             "repo": res_repo,
-            "tope_pasos": res_tope
+            "tope_pasos": res_tope,
+            "hilo_turnos": n_hilo
         })),
     )
         .into_response()
