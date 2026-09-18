@@ -1122,6 +1122,18 @@ export default function App() {
         return;
       }
 
+      if (action === 'linaje') {
+        // Entrada visible al linaje de un macro-nodo (el chip ◈ y el doble clic pasan por acá).
+        const macro = nodes.find((n) => n.id === nodeId);
+        if (!macro?.data?.macro) {
+          showToast('Este nodo no tiene linaje guardado.', 'info');
+          return;
+        }
+        setNodoLinaje(macro);
+        setIsLinajeOpen(true);
+        return;
+      }
+
       if (action === 'investigar') {
         const tema = (targetData.title || '').trim();
         if (tema.length < 4) {

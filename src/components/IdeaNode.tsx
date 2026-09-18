@@ -169,6 +169,8 @@ export const IdeaNode: React.FC<NodeProps<IdeaNodeData>> = memo(({ id, data, sel
     <div
       id={`node-${id}`}
       onDoubleClick={(e) => {
+        // Un macro-nodo deja burbujear el doble clic: el lienzo (React Flow) abre su linaje.
+        if (data.macro) return;
         e.stopPropagation();
         data.onAction?.('edit', id, data);
       }}
@@ -256,13 +258,18 @@ export const IdeaNode: React.FC<NodeProps<IdeaNodeData>> = memo(({ id, data, sel
             {categoryLabel}
           </span>
           {macro && (
-            <span
-              className="ml-auto text-[9px] font-mono shrink-0 px-1.5 py-0.5 rounded-md border"
+            <button
+              type="button"
+              className="ml-auto text-[9px] font-mono shrink-0 px-1.5 py-0.5 rounded-md border nodrag cursor-pointer hover:brightness-125 transition"
               style={{ borderColor: `${accentColor}66`, backgroundColor: `${accentColor}1a`, color: accentColor }}
-              title={`${macro.colapsados} nodos condensados · doble clic para ver el linaje`}
+              title={`${macro.colapsados} nodos condensados · clic para ver el linaje y restaurarlos`}
+              onClick={(e) => {
+                e.stopPropagation();
+                data.onAction?.('linaje', id, data);
+              }}
             >
               ◈ {macro.colapsados}
-            </span>
+            </button>
           )}
           {isHub && !macro && (
             <span
@@ -304,6 +311,7 @@ export const IdeaNode: React.FC<NodeProps<IdeaNodeData>> = memo(({ id, data, sel
         ) : (
           <div
             onDoubleClick={(e) => {
+              if (data.macro) return; // el macro deja pasar el doble clic: abre el linaje
               e.stopPropagation();
               setIsInlineEditing(true);
               data.onAction?.('inline-start', id, { ...data, isEditing: true });
