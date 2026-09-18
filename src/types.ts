@@ -92,6 +92,24 @@ export interface IdeaNodeData {
   /** true si la lente de categoría lo está marcando como miembro. Sólo render. */
   lente?: boolean;
   /** Macro-nodo condensado: guarda el LINaje (poda sin pérdida). */
+  /** Pregunta catalizadora (socratic): se abre, se responde y se cierra. */
+  pregunta?: {
+    estado: 'abierta' | 'respondida';
+    respuestaId?: string;
+    respondidaEn?: string;
+  };
+  /** El nodo es la respuesta a una pregunta: guarda de quién responde. */
+  respuestaDe?: string;
+  /** Decisión humana explícita: aceptar o descartar (descartar NO borra). */
+  decision?: {
+    estado: 'aceptada' | 'descartada';
+    fecha: string;
+    motivo?: string;
+  };
+  /** Por qué cambió de fase: la evidencia que la madurez no guardaba. */
+  evidencia?: { texto: string; fecha: string; nivel: number };
+  /** Cuándo se movió de fase por última vez (lo usa la métrica de valor). */
+  madurezEn?: string;
   macro?: {
     colapsados: number;
     linaje: string[];
@@ -125,6 +143,10 @@ export interface IdeaNodeData {
       | 'inline-save-enter'
       | 'inline-cancel'
       | 'inline-start'
+      | 'responder'
+      | 'decidir-aceptar'
+      | 'decidir-descartar'
+      | 'decidir-limpiar'
       | 'set-maturity',
     nodeIdOrData: string | IdeaNodeData,
     extraData?: IdeaNodeData

@@ -1,7 +1,7 @@
 import React, { memo } from 'react';
 import {
   Handle, Position, NodeProps, useStore } from 'reactflow';
-import { GitBranch, Eye, Edit3, Trash2, Copy, Flame, HelpCircle, Telescope } from 'lucide-react';
+import { GitBranch, Eye, Edit3, Trash2, Copy, Flame, HelpCircle, Telescope, Check, X, FileText, Reply } from 'lucide-react';
 import { IdeaNodeData, IdeaMaturityLevel, MATURITY_CONFIGS } from '../types';
 import { useTarjetas, useTema } from '../state/canvasPrefs';
 
@@ -61,6 +61,43 @@ export const IdeaNode: React.FC<NodeProps<IdeaNodeData>> = memo(({ id, data, sel
   const isSearchMatch = data.isSearchMatch;
   // Macro-nodo (Fase A): nace de condensar N nodos y guarda su linaje.
   const macro = data.macro;
+  // Pregunta catalizadora: se abre, se responde y se cierra (el ciclo del pensamiento).
+  const pregunta = data.pregunta;
+  // Decisión humana: aceptar o descartar. Descartar **no borra**: atenúa y deja rastro.
+  const decision = data.decision?.estado;
+  const descartada = decision === 'descartada';
+  // Por qué está en la fase en la que está (lo que la madurez no guardaba).
+  const evidencia = data.evidencia;
+  // Un solo chip de estado, con prioridad: descartada > pregunta abierta > respondida > aceptada.
+  const estadoChip = descartada
+    ? {
+        texto: '✕ descartada',
+        tono: 'border-slate-600 bg-slate-700/30 text-slate-400 cursor-pointer hover:text-slate-200',
+        accion: 'decidir-limpiar',
+        title: 'Descartada (no borrada) · clic para volver a dejarla activa',
+      }
+    : pregunta?.estado === 'abierta'
+    ? {
+        texto: '? abierta',
+        tono: 'border-amber-500/50 bg-amber-500/15 text-amber-200 hover:bg-amber-500/25 cursor-pointer',
+        accion: 'responder',
+        title: 'Pregunta abierta · clic para responderla',
+      }
+    : pregunta?.estado === 'respondida'
+    ? {
+        texto: '✓ respondida',
+        tono: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300',
+        accion: '',
+        title: 'Pregunta respondida',
+      }
+    : decision === 'aceptada'
+    ? {
+        texto: '✓ aceptada',
+        tono: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300 cursor-pointer',
+        accion: 'decidir-limpiar',
+        title: 'Aceptada · clic para quitar la decisión',
+      }
+    : null;
   const lod = useLod();
   const tarjetas = useTarjetas();
   const tema = useTema();
@@ -185,6 +222,7 @@ export const IdeaNode: React.FC<NodeProps<IdeaNodeData>> = memo(({ id, data, sel
       }`}
       style={{
         ...estiloForma,
+        opacity: descartada ? 0.55 : 1,
         borderColor: selected ? accentColor : isSearchMatch ? '#fbbf24' : `${accentColor}${isHub ? 'cc' : '99'}`,
         boxShadow: data.lente
           ? `0 0 0 3px ${accentColor}40, 0 12px 24px -10px ${accentColor}66`
@@ -269,6 +307,21 @@ export const IdeaNode: React.FC<NodeProps<IdeaNodeData>> = memo(({ id, data, sel
               }}
             >
               ◈ {macro.colapsados}
+            </button>
+          )}
+          {estadoChip && (
+            <button
+              type="button"
+              className={`ml-auto text-[9px] font-mono shrink-0 px-1.5 py-0.5 rounded-md border nodrag transition-colors ${estadoChip.tono}`}
+              title={`${estadoChip.title}${
+                evidencia?.texto ? ` · evidencia: ${evidencia.texto.slice(0, 90)}` : ''
+              }`}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (estadoChip.accion) data.onAction?.(estadoChip.accion as any, id, data);
+              }}
+            >
+              {estadoChip.texto}
             </button>
           )}
           {isHub && !macro && (
@@ -476,6 +529,52 @@ export const IdeaNode: React.FC<NodeProps<IdeaNodeData>> = memo(({ id, data, sel
             className="bg-violet-950/70 text-violet-300 hover:bg-violet-900/80 border-violet-800/60"
           >
             <Telescope size={11} className="text-violet-400" /> Investigar
+          </ToolBtn>
+
+          {pregunta?.estado === 'abierta' && (
+            <ToolBtn
+              title="Responder esta pregunta: la respuesta queda enlazada y la pregunta se cierra"
+              onClick={fire('responder')}
+              className="bg-amber-950/70 text-amber-300 hover:bg-amber-900/80 border-amber-800/60"
+            >
+              <Reply size={11} /> Responder
+            </ToolBtn>
+          )}
+
+          <Separator />
+
+          {decision !== 'aceptada' && (
+            <ToolBtn
+              title="Aceptar esta idea: decide que se queda (y alimenta tu perfil de aprendizaje)"
+              onClick={fire('decidir-aceptar')}
+              className="bg-emerald-950/70 text-emerald-300 hover:bg-emerald-900/80 border-emerald-800/60"
+            >
+              <Check size={11} /> Aceptar
+            </ToolBtn>
+          )}
+          {decision !== 'descartada' && (
+            <ToolBtn
+              title="Descartar sin borrar: la idea queda atenuada, no destruida (se puede volver atrás)"
+              onClick={fire('decidir-descartar')}
+              className="bg-slate-800/70 text-slate-300 hover:bg-slate-700/80 border-slate-600/60"
+            >
+              <X size={11} /> Descartar
+            </ToolBtn>
+          )}
+          <ToolBtn
+            title={
+              evidencia?.texto
+                ? `Evidencia (${evidencia.fecha.slice(0, 10)}): ${evidencia.texto.slice(0, 120)}`
+                : 'Sin evidencia cargada: se pide al subir la madurez a Probada o más'
+            }
+            onClick={fire('edit')}
+            className={
+              evidencia?.texto
+                ? 'bg-sky-950/70 text-sky-300 hover:bg-sky-900/80 border-sky-800/60'
+                : 'text-slate-500 hover:text-white hover:bg-slate-800 border-transparent'
+            }
+          >
+            <FileText size={11} />
           </ToolBtn>
 
           <Separator />

@@ -78,6 +78,9 @@ import { SavedStatesModal } from './components/SavedStatesModal';
 import { NodeEditModal } from './components/NodeEditModal';
 import { SynthesisModal, MapSynthesis } from './components/SynthesisModal';
 import { LinajeModal } from './components/LinajeModal';
+import { ResponderPreguntaModal } from './components/ResponderPreguntaModal';
+import { EvidenciaModal } from './components/EvidenciaModal';
+import { RetomarPanel } from './components/RetomarPanel';
 import { AgentePanel } from './components/AgentePanel';
 import { VozPanel } from './components/VozPanel';
 import { EvaluacionPanel } from './components/EvaluacionPanel';
@@ -387,6 +390,41 @@ export default function App() {
   });
   const [isNorteOpen, setIsNorteOpen] = useState(false);
   const [nodoLinaje, setNodoLinaje] = useState<CustomNode | null>(null);
+  // Pregunta catalizadora que se está respondiendo (cierra el ciclo: pregunta → respuesta → cerrada).
+  const [preguntaParaResponder, setPreguntaParaResponder] = useState<CustomNode | null>(null);
+  // Cambio de fase esperando su porqué (se pide al subir a Probada o más).
+  const [madurezPendiente, setMadurezPendiente] = useState<{ nodoId: string; nivel: IdeaMaturityLevel } | null>(null);
+  const [isRetomarOpen, setIsRetomarOpen] = useState(false);
+  // Memoria de uso: qué nodo miraste y cuándo. Vive en el navegador, no en la bóveda (no es
+  // conocimiento, es dónde estabas parado).
+  const VISTOS_KEY = 'nodeflow_vistos';
+  const [vistos, setVistos] = useState<Record<string, number>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(VISTOS_KEY) || '{}');
+    } catch {
+      return {};
+    }
+  });
+  const ultimoGuardadoVistos = useRef(0);
+  const registrarVisto = useCallback((nodeId: string) => {
+    setVistos((v) => {
+      const nuevo = { ...v, [nodeId]: Date.now() };
+      // Se persiste con calma: escribir en cada clic castiga el hilo de la UI.
+      if (Date.now() - ultimoGuardadoVistos.current > 3000) {
+        ultimoGuardadoVistos.current = Date.now();
+        try {
+          localStorage.setItem(VISTOS_KEY, JSON.stringify(nuevo));
+        } catch {
+          /* almacenamiento restringido */
+        }
+      }
+      return nuevo;
+    });
+  }, []);
+  const preguntasAbiertas = useMemo(
+    () => nodes.filter((n) => n.data.pregunta?.estado === 'abierta').length,
+    [nodes]
+  );
   const [isLinajeOpen, setIsLinajeOpen] = useState(false);
 
   const guardarNorte = (v: string) => {
@@ -1122,6 +1160,66 @@ export default function App() {
         return;
       }
 
+      if (action === 'decidir-aceptar' || action === 'decidir-descartar' || action === 'decidir-limpiar') {
+        const nodoDec = nodes.find((n) => n.id === nodeId);
+        if (!nodoDec) return;
+        const estadoDec: 'aceptada' | 'descartada' | null =
+          action === 'decidir-limpiar' ? null : action === 'decidir-aceptar' ? 'aceptada' : 'descartada';
+        takeSnapshot(nodes, edges);
+        const fechaDec = new Date().toISOString();
+        setNodes((nds) =>
+          nds.map((n) =>
+            n.id === nodeId
+              ? { ...n, data: { ...n.data, decision: estadoDec ? { estado: estadoDec, fecha: fechaDec } : undefined } }
+              : n
+          )
+        );
+        // Decidir sobre una idea que propuso la IA es exactamente lo que el perfil aprende. Antes
+        // esto sólo se registraba si la borrabas o le editabas el título: el 90% del lienzo no
+        // llegaba nunca al aprendizaje.
+        const origenDec = nodoDec.data.aiOrigin;
+        if (estadoDec && origenDec) {
+          void recordHitlFeedback({
+            id: `hitl-dec-${Date.now()}`,
+            timestamp: fechaDec,
+            action: 'AI_ACCEPTED',
+            prompt_original: origenDec.promptOriginal,
+            ai_suggestion: origenDec.allBatchTitles,
+            human_decision: {
+              accepted: estadoDec === 'aceptada' ? [nodoDec.data.title || ''] : [],
+              rejected: estadoDec === 'descartada' ? [nodoDec.data.title || ''] : [],
+              added_manually: [],
+            },
+            contextSnippet:
+              estadoDec === 'aceptada'
+                ? `Aceptó la idea «${nodoDec.data.title}»`
+                : `Descartó (sin borrar) la idea «${nodoDec.data.title}»`,
+          }).then((updated) => {
+            if (updated) setHitlProfile(updated);
+          });
+        }
+        showToast(
+          estadoDec === 'aceptada'
+            ? 'Idea aceptada: se queda.'
+            : estadoDec === 'descartada'
+            ? 'Idea descartada (no borrada): podés recuperarla.'
+            : 'Decisión quitada.',
+          'info'
+        );
+        return;
+      }
+
+      if (action === 'responder') {
+        const p = nodes.find((n) => n.id === nodeId);
+        if (!p) return;
+        if (p.data.pregunta?.estado === 'respondida') {
+          showToast('Esa pregunta ya está respondida.', 'info');
+          return;
+        }
+        setPreguntaParaResponder(p);
+        return;
+      }
+
       if (action === 'linaje') {
         // Entrada visible al linaje de un macro-nodo (el chip ◈ y el doble clic pasan por acá).
         const macro = nodes.find((n) => n.id === nodeId);
@@ -1166,19 +1264,17 @@ export default function App() {
       }
 
       if (action === 'set-maturity') {
-        takeSnapshot(nodes, edges);
-        const newMaturity = (extraData?.maturity || targetData.maturity || 1) as IdeaMaturityLevel;
-        setNodes((nds) =>
-          nds.map((n) =>
-            n.id === nodeId
-              ? { ...n, data: { ...n.data, maturity: newMaturity } }
-              : n
-          )
-        );
-        const cfg = MATURITY_CONFIGS[newMaturity];
-        showToast(`Madurez: ${cfg.icon} ${cfg.label} (Nivel ${newMaturity})`, 'info');
-        return;
-      }
+            const newMaturity = (extraData?.maturity || targetData.maturity || 1) as IdeaMaturityLevel;
+            const actual = nodes.find((n) => n.id === nodeId);
+            // Subir a Probada (3) o más pide el porqué: la madurez sin evidencia no dice nada, y esto es
+            // lo que da materia a la métrica de valor (idea cruda → artefacto).
+            if (newMaturity >= 3 && newMaturity !== actual?.data.maturity) {
+              setMadurezPendiente({ nodoId: nodeId, nivel: newMaturity });
+              return;
+            }
+            aplicarMadurez(nodeId, newMaturity);
+            return;
+          }
 
       if (action === 'inline-save' || action === 'inline-save-tab' || action === 'inline-save-enter') {
         const newTitle = targetData.title?.trim() || 'Nueva Idea';
@@ -1602,6 +1698,8 @@ export default function App() {
                   title: v.title,
                   description: v.description,
                   tags: Array.isArray(v.tags) ? v.tags : ['Socrático', 'Reflexión'],
+                  // Nace abierta: se cierra cuando la respondés (acción `responder`).
+                  pregunta: { estado: 'abierta' },
                   colorAccent: '#06b6d4',
                   aiOrigin: {
                     batchId,
@@ -2247,6 +2345,100 @@ export default function App() {
       clearInterval(t);
     };
   }, [showToast]);
+
+  /**
+   /** Aplica un cambio de fase, con su evidencia y la fecha si la hay. */
+   const aplicarMadurez = useCallback(
+     (nodoId: string, nivel: IdeaMaturityLevel, evidenciaTexto?: string) => {
+       takeSnapshot(nodes, edges);
+       const fecha = new Date().toISOString();
+       const texto = (evidenciaTexto || '').trim();
+       setNodes((nds) =>
+         nds.map((n) =>
+           n.id === nodoId
+             ? {
+                 ...n,
+                 data: {
+                   ...n.data,
+                   maturity: nivel,
+                   madurezEn: fecha,
+                   evidencia: texto ? { texto, fecha, nivel } : n.data.evidencia,
+                 },
+               }
+             : n
+         )
+       );
+       const cfg = MATURITY_CONFIGS[nivel];
+       showToast(
+         `Madurez: ${cfg.icon} ${cfg.label} (Nivel ${nivel})${texto ? ' · con evidencia' : ''}`,
+         'info'
+       );
+     },
+     [nodes, edges, takeSnapshot, showToast]
+   );
+
+   /** Responder una pregunta catalizadora.
+   *
+   * Nace un nodo RESPUESTA con madurez «Probada» y su evidencia cargada (lo que se escribió), enlazado
+   * a la pregunta, y la pregunta queda `respondida`. Es el eslabón que cierra el ciclo del lienzo:
+   * antes se podían generar preguntas y ninguna tenía forma de cerrarse.
+   */
+  const handleResponderPregunta = useCallback(
+    (pregunta: CustomNode, texto: string) => {
+      const limpio = texto.trim();
+      if (limpio.length < 2) return;
+      takeSnapshot(nodes, edges);
+      const fecha = new Date().toISOString();
+      const idResp = `node-resp-${Date.now()}`;
+      const respuesta: CustomNode = {
+        id: idResp,
+        type: 'ideaNode',
+        position: posicionLibre(nodes, { x: pregunta.position.x, y: pregunta.position.y + 230 }),
+        data: {
+          id: idResp,
+          title: limpio.length > 90 ? `${limpio.slice(0, 87)}…` : limpio,
+          description: limpio,
+          category: 'RESPUESTA',
+          label: 'RESPUESTA',
+          tags: ['Respuesta'],
+          colorAccent: '#10b981',
+          maturity: 3,
+          respuestaDe: pregunta.id,
+          evidencia: { texto: limpio, fecha, nivel: 3 },
+          madurezEn: fecha,
+        },
+      };
+      setNodes((nds) => [
+        ...nds.map((n) =>
+          n.id === pregunta.id
+            ? {
+                ...n,
+                data: {
+                  ...n.data,
+                  pregunta: { estado: 'respondida' as const, respuestaId: idResp, respondidaEn: fecha },
+                },
+              }
+            : n
+        ),
+        respuesta,
+      ]);
+      setEdges((eds) => [
+        ...eds,
+        {
+          id: `e-resp-${pregunta.id}-${idResp}`,
+          source: pregunta.id,
+          target: idResp,
+          type: edgeAppearance.type,
+          animated: true,
+          label: 'responde',
+          style: { stroke: '#10b981', strokeWidth: 2 },
+        } as Edge,
+      ]);
+      setPreguntaParaResponder(null);
+      showToast('Respuesta creada: la pregunta quedó cerrada.', 'success');
+    },
+    [nodes, edges, takeSnapshot, showToast, edgeAppearance]
+  );
 
   /** Restaurar el sub-grafo original de un macro-nodo: vuelven sus nodos y sus aristas tal cual. */
   const handleRestaurarLinaje = useCallback(
@@ -3721,6 +3913,21 @@ export default function App() {
                   <span className="truncate">{t('panel.siguiente')}</span>
                   <span className="ml-auto shrink-0 whitespace-nowrap text-[9px] text-amber-300 font-mono bg-amber-900/50 px-1.5 py-0.5 rounded border border-amber-800/60">camino crítico</span>
                 </button>
+                {/* Retomar: por dónde seguir (preguntas abiertas, sin decidir, lo último que miraste) */}
+                <button
+                  type="button"
+                  id="btn-panel-retomar"
+                  onClick={() => setIsRetomarOpen(true)}
+                  title="Retomar: preguntas abiertas, ideas esperando tu decisión y lo que quedó olvidado"
+                  className="w-full flex items-center gap-2 px-3 py-2 bg-slate-900/70 hover:bg-slate-800/70 text-amber-200 border border-slate-800 hover:border-slate-700 rounded-xl text-xs font-medium transition-colors cursor-pointer"
+                >
+                  <History size={14} className="text-amber-400 shrink-0" />
+                  <span className="truncate">Retomar</span>
+                  <span className="ml-auto shrink-0 whitespace-nowrap text-[9px] text-amber-300 font-mono bg-amber-900/50 px-1.5 py-0.5 rounded border border-amber-800/50">
+                    {preguntasAbiertas ? `${preguntasAbiertas} abiertas` : 'al día'}
+                  </span>
+                </button>
+
                 {/* Planilla de evaluación: medir los motores con las tareas reales */}
                 <button
                   type="button"
@@ -3856,6 +4063,7 @@ export default function App() {
             onEdgesChange={onEdgesChange}
             onSelectionChange={onSelectionChange}
             onConnect={onConnect}
+            onNodeClick={(_, node) => registrarVisto(node.id)}
             onNodeMouseEnter={(_, node) => setHoveredNode(node.id)}
             onNodeMouseLeave={() => setHoveredNode(null)}
             onEdgeMouseEnter={(_, edge) => setHoveredEdge(edge.id)}
@@ -4247,6 +4455,42 @@ export default function App() {
         }}
         node={nodoLinaje}
         onRestaurar={handleRestaurarLinaje}
+      />
+
+      <RetomarPanel
+        isOpen={isRetomarOpen}
+        onClose={() => setIsRetomarOpen(false)}
+        nodos={nodes}
+        vistos={vistos}
+        onIr={handleJumpToNode}
+      />
+
+      <EvidenciaModal
+        isOpen={!!madurezPendiente}
+        onClose={() => setMadurezPendiente(null)}
+        nivel={madurezPendiente?.nivel ?? null}
+        titulo={
+          (madurezPendiente && nodes.find((n) => n.id === madurezPendiente.nodoId)?.data.title) || ''
+        }
+        onGuardar={(evidencia) => {
+          if (madurezPendiente) aplicarMadurez(madurezPendiente.nodoId, madurezPendiente.nivel, evidencia);
+        }}
+      />
+
+      <ResponderPreguntaModal
+        isOpen={!!preguntaParaResponder}
+        onClose={() => setPreguntaParaResponder(null)}
+        pregunta={
+          preguntaParaResponder
+            ? {
+                title: preguntaParaResponder.data.title || '',
+                description: preguntaParaResponder.data.description || '',
+              }
+            : null
+        }
+        onResponder={(texto) => {
+          if (preguntaParaResponder) handleResponderPregunta(preguntaParaResponder, texto);
+        }}
       />
 
       <SynthesisModal
