@@ -42,21 +42,23 @@ Medidos en esta máquina, no estimados.
 
 | Métrica | Valor |
 |---|---|
-| Memoria residente del binario nativo | **28,6 MB** (`tasklist` sobre el release en ejecución) |
-| Inferencia repetida (mismo nodo + prompt) | **27,9 s / 9.061 tokens → 0,4 s / 0 tokens** |
-| Tokens evitados por la caché | **23.893** en 17 entradas |
-| Borrador local | 5,1 s en frío · **0,7 s en caliente** |
-| Tests Rust | **60 passed / 0 failed** (`cargo test --lib`) |
-| Grafo en uso diario | 54 nodos · 68 aristas · 0 colgadas |
-| Líneas propias | 23.860 (TSX 9.931 · Rust 8.583 · TS 4.110 · Python 950 · CSS 286) |
+| Memoria residente del binario nativo | **39,8 MB** (`Get-Process app` sobre el release en ejecución) |
+| Inferencia evitada por la caché | **40.567 tokens** (22.216 exactos + 18.351 semánticos) · 173 entradas · 13 aciertos de 305 llamadas |
+| Tests Rust | **272 passed / 0 failed** (`cargo test --lib`) |
+| Rutas HTTP | **79** |
+| Grafo en uso diario | 65 nodos · 99 aristas |
+| Voz local descargada bajo demanda | **405 MB en 75 s** · 4,16 s de audio en **1.706 ms (2,4× tiempo real)**, en una máquina sin Python instalado |
+| Métrica de valor (idea cruda → artefacto aprobado) | **15 conversiones · 24,7 min** de promedio (el objetivo declarado es 3 min) |
+| Líneas propias | ~48.900 (TS/TSX 21,8k · Rust 24,2k · MCP 1,3k · scripts 1,0k · demo 0,7k) |
+| Instalador (v0.3.6) | **4,7 MB** NSIS · **7,1 MB** MSI (la voz es opcional y se descarga, no viaja adentro) |
 
 ## Qué funciona hoy
 
-Canvas de nodos y aristas (React Flow) con auto-organización, lentes por categoría y zonas · borradores locales validados por código · contabilidad de costo y caché por artefacto · corridas de experto sobre nodo o selección · diagnóstico y reparación del grafo (jardín) · integración con Obsidian (Markdown + frontmatter) · human-in-the-loop: el agente **propone** y el cambio se aplica con aprobación explícita.
+Canvas de nodos y aristas (React Flow) con auto-organización, lentes por categoría y zonas · borradores locales validados por código · contabilidad de costo y caché por artefacto · corridas de experto sobre nodo o selección · diagnóstico y reparación del grafo (jardín) · integración con Obsidian (Markdown + frontmatter) · human-in-the-loop: el agente **propone** y el cambio se aplica con aprobación explícita · **voz que opera el lienzo** (crear, enlazar, enfocar, condensar, criticar, delegar, responder, aceptar, descartar) con modo conversación, cuyo guion de pasos guiados es local y cuesta 0 tokens · **voz local (Kokoro) descargable desde la app**, con verificación de SHA-256 y arranque automático (sin ella habla la voz del sistema) · **servidor MCP empaquetado** en el instalador e instalable desde el panel del agente · ciclo de preguntas, decisiones, evidencia y retomar.
 
 ## Qué falta (honesto)
 
-Streaming (SSE) hacia el nodo activo · interruptor visible Local/Cloud por tarea · builds para macOS/Linux · instaladores firmados y updater · entrada de voz.
+Streaming (SSE) hacia el nodo activo · interruptor visible Local/Cloud por tarea · builds para macOS/Linux · certificado Authenticode (la firma del updater y la actualización automática **ya funcionan**) · el resto de la traducción (~254 textos de modales secundarios) · y la métrica de valor: 24,7 min contra los 3 min que declara el dossier.
 
 ## Inicio rápido
 

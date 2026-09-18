@@ -48,7 +48,7 @@ flowchart LR
 
   subgraph CORE["Tauri v2 shell · Rust"]
     IPC[IPC commands]
-    AX["axum :37371 · 58 routes"]
+    AX["axum :37371 · 79 routes"]
     COST["costo.rs · rate table + two-tier cache"]
     SEM["semantica.rs · embeddings + cosine match"]
     BOR["borrador.rs · JSON grammar + validator"]
@@ -99,16 +99,18 @@ All figures below were measured on this machine, not estimated.
 
 | Metric | Value | How it was measured |
 |---|---|---|
-| Resident memory of the native shell | **37.7 MB RSS** | `Get-Process app` on the running v0.3.5 release build (Sep 16 2026) |
-| Inference avoided by the cache | **32,382 tokens** (14,031 exact + 18,351 semantic) | `GET /api/ai/cache` — 112 entries, 5 exact hits, 5 semantic hits, cap 300 |
-| Knowledge graph in daily use | **57 nodes · 89 edges** | `GET /api/graph/state` (57 notes on disk — graph and vault agree) |
-| Brain dump → approved AI artifact (T0→T1) | **10 conversions, 22.8 min average** (last: 0.6 min) | `GET /api/metrics` — timestamps recorded by the app itself |
+| Resident memory of the native shell | **39.8 MB RSS** | `Get-Process app` on the running v0.3.7 release build (Sep 18 2026) |
+| Inference avoided by the cache | **40,567 tokens** (22,216 exact + 18,351 semantic) | `GET /api/ai/cache` — 173 entries, 8 exact hits, 5 semantic hits out of 305 calls |
+| Knowledge graph in daily use | **65 nodes · 99 edges** | `GET /api/graph/state` (the vault and the graph are the same knowledge) |
+| Brain dump → approved AI artifact (T0→T1) | **15 conversions, 24.7 min average** (last: 53.9 min) | `GET /api/metrics` — timestamps recorded by the app itself |
 | Engine planilla, the same 5 real canvas tasks | **Azure `DeepSeek-V4-Flash` 5/5 · `grok-4.6` 4/5 · local `granite3.3:2b` 2/5** | `POST /api/ai/evaluar` — verified in code, not by eye |
 | Plan latency, live cloud motor | **5.5 s average** (DeepSeek-V4-Flash) vs **95 s** (grok-4.6, reasoning) | same planilla |
 | Live speech-to-plan, Spanish | **verified against the real WebSocket** (6.5 s of speech → full transcript → validated plan) | `wss://streaming.assemblyai.com/v3/ws` with a short-lived token from `/api/voz/jwt` |
-| Rust unit tests | **216 passed / 0 failed** | `cargo test --manifest-path src-tauri/Cargo.toml --lib` |
-| Own source lines | **~40,600** (TS/TSX ~19.0k · Rust ~19.5k · scripts/py ~2.1k) | `find` + `wc -l` over `src/`, `src-tauri/src/`, `mcp-server/`, `scripts/`, `demo/` |
-| Installer size (v0.3.5) | **4.4 MB** NSIS · **6.8 MB** MSI | `src-tauri/target/release/bundle/` |
+| Local voice downloaded on demand | **405 MB in 75 s** · 4.16 s of audio in **1,706 ms (2.4× real time)** | `POST /api/voz/motor/instalar` then `POST /api/voz/decir`, on a machine with no Python installed |
+| Rust unit tests | **272 passed / 0 failed** | `cargo test --manifest-path src-tauri/Cargo.toml --lib` |
+| HTTP routes | **79** | `grep -c "\.route(" src-tauri/src/server.rs` |
+| Own source lines | **~48,900** (TS/TSX 21.8k · Rust 24.2k · MCP server 1.3k · scripts 1.0k · demo 0.7k) | `find` + `wc -l` over `src/`, `src-tauri/src/`, `mcp-server/`, `scripts/`, `demo/` |
+| Installer size (v0.3.6) | **4.7 MB** NSIS · **7.1 MB** MSI | `src-tauri/target/release/bundle/` (the voice is optional and downloaded, not bundled) |
 
 ## What works today
 
@@ -118,6 +120,8 @@ All figures below were measured on this machine, not estimated.
 - **Cost accounting and caching** — trace of tokens + USD cost per generated artifact; a **two-tier cache** (exact key with a versioned contract, plus a semantic tier that matches by meaning) and eviction. Measured in normal use: **32,382 tokens of inference avoided**.
 - **T0→T1 metric** — the app times its own value: from the raw brain dump to the first AI proposal *approved* by a human. **10 conversions, 22.8 minutes average** (`GET /api/metrics`).
 - **Voice → operations (AssemblyAI + Speechmatics)** — talk and the canvas acts: the transcript is interpreted as a *plan* of operations (create nodes, link them to what already exists, focus the canvas on one idea and collapse the rest, question a set of nodes, delegate what the canvas cannot answer). The plan is **validated server-side against the real graph** — only existing ids, only allowed actions, hard caps — and shown for approval before anything is touched. AssemblyAI Universal-Streaming v3 runs live (Spanish verified against the real WebSocket), the streaming model is sent explicitly, and the interface language drives the voice you hear. Realtime ASR latency, tokens and cost are measured per dictation.
+- **Local voice as an optional download** — the installer is 4.7 MB on purpose: Kokoro (82M) is a package the app fetches **on demand** (runtime 80 MB from this repo's release + model 325 MB from HuggingFace), verifies with SHA-256, deploys and **starts by itself** — replacing the development script that had an absolute path baked in. Measured: 405 MB in 75 s and 2.4× real-time synthesis on a machine with **no Python installed**. Without it the app is not mute: it speaks with the system voice.
+- **A packaged MCP server** — `mcp-server/nodeflow_mcp.py` (stdlib only, zero dependencies) ships inside the installer as a resource; the agent panel installs it with one button and shows the config to paste. The Python interpreter comes from the voice package when the machine has none, then from `python`/`py`, and when there is neither the app **says so** instead of failing silently.
 - **A public web demo of the same UI** — `demo/` builds this frontend against a simulated API (real responses harvested from the backend, sanitized) and a single serverless function. The voice still goes to AssemblyAI for real; the planner runs live with a token cap, a per-IP rate limit and a **silent fallback to recorded plans** so the demo can never answer "the AI broke".
 - **Bilingual interface (ES/EN)** — typed catalogue with zero dependencies; switching the language also switches the output voice.
 - **Vault integration** — notes live as Markdown + YAML frontmatter in an Obsidian vault; the graph and the vault are the same knowledge, in two views.
@@ -160,7 +164,7 @@ OLLAMA_HOST=http://localhost:11434
 
 Any additional OpenAI-compatible provider is declared as data (`proveedores[]` in `nodeflow.config.json`): base URL, model, and the field name that holds the key.
 
-## API surface (58 routes)
+## API surface (79 routes)
 
 | Group | Endpoints |
 |---|---|

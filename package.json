@@ -1,7 +1,7 @@
 {
   "name": "nodeflow-desktop",
   "private": true,
-  "version": "0.3.6",
+  "version": "0.3.7",
   "description": "Hybrid Edge/Cloud inference orchestrator for knowledge graphs",
   "author": "TOMAS.WAV (Tomas Pieruz)",
   "license": "MIT",
