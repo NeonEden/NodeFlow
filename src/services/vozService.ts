@@ -50,6 +50,8 @@ export interface VozComando {
   titulo?: string;
   descripcion?: string;
   categoria?: string;
+  /** Sólo en `crear`: a qué nodo colgar el nodo dictado (id o título). Sin él se usa el ancla del lienzo. */
+  parent?: string;
   criterio?: string;
   nodos?: string[];
   desde?: string;

@@ -1905,6 +1905,13 @@ export default function App() {
       const enlaces: Edge[] = [];
       const colapsar: string[] = [];
       const criticar: string[] = [];
+      let enlacesFallidos = 0;
+      // Ancla del lienzo: un dictado es un aporte a la estructura que ya existe, no una isla.
+      // Antes, cada nodo creado por voz quedaba flotando (el jardín lo marcaba como huérfano).
+      const ancla =
+        nodes.find((n) => n.data.isRoot)?.id ||
+        nodes.find((n) => !edges.some((e) => e.target === n.id))?.id ||
+        '';
       // Mutaciones a nodos que ya existen (`actualizar`): la evolución por fases de un nodo.
       const cambios: { id: string; campos: Record<string, any> }[] = [];
       let enfocar: { ids: string[]; criterio?: string } | null = null;
@@ -1937,9 +1944,30 @@ export default function App() {
           });
           tituloAId.set((c.titulo || '').trim().toLowerCase(), id);
           creados++;
+          // Se cuelga del padre que el plan declare (id o título) o, si no dice nada, del ancla.
+          // Si el propio plan ya lo enlaza, no se agrega una segunda arista: el plan manda.
+          const refPadre = c.parent || '';
+          const padre = refPadre ? resolver(refPadre) : ancla;
+          const tituloNuevo = (c.titulo || '').trim().toLowerCase();
+          const yaEnlazado = plan.comandos.some(
+            (x) =>
+              x.accion === 'enlazar' &&
+              [x.desde, x.hasta].some((r) => (r || '').trim().toLowerCase() === tituloNuevo)
+          );
+          if (padre && padre !== id && !yaEnlazado) {
+            enlaces.push({
+              id: `e-voz-${Date.now()}-${i}-ancla`,
+              source: padre,
+              target: id,
+              type: 'smoothstep',
+              animated: true,
+              label: 'voz',
+            } as Edge);
+          }
         } else if (c.accion === 'enlazar') {
           const a = resolver(c.desde || '');
           const b = resolver(c.hasta || '');
+          if (!a || !b || a === b) enlacesFallidos++;
           if (a && b && a !== b) {
             enlaces.push({
               id: `e-voz-${Date.now()}-${i}`,
@@ -2034,12 +2062,13 @@ export default function App() {
       setSelectedNodes([]);
 
       criticar.forEach((id) => {
-        const n = nodes.find((x) => x.id === id);
+        // `nds`, no `nodes`: un nodo creado en este mismo dictado también se puede cuestionar.
+        const n = nds.find((x) => x.id === id);
         if (n) handleAIActionRef.current?.('socratic', n.id, n.data);
       });
 
       showToast(
-        `Voz: ${creados} nodo(s) nuevo(s)${cambios.length ? ` · ${cambios.length} actualizado(s)` : ''}${afectados ? ` · ${afectados} colapsado(s)` : ''}${criticar.length ? ` · ${criticar.length} a cuestionar` : ''}.`,
+        `Voz: ${creados} nodo(s) nuevo(s)${cambios.length ? ` · ${cambios.length} actualizado(s)` : ''}${afectados ? ` · ${afectados} colapsado(s)` : ''}${criticar.length ? ` · ${criticar.length} a cuestionar` : ''}${enlacesFallidos ? ` · ${enlacesFallidos} enlace(s) sin destino` : ''}.`,
         'success'
       );
 
