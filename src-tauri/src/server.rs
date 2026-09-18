@@ -295,6 +295,8 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
             // Slice 1 — Expertos y Contrato de Artefactos
             .route("/api/expertos", get(expertos_listar))
         .route("/api/expertos/guardar", post(expertos_guardar))
+        .route("/api/mcp/estado", get(mcp_estado))
+        .route("/api/mcp/instalar", post(mcp_instalar))
             .route("/api/expert/run", post(experto_run))
             .route("/api/knowledge/preview", post(knowledge_preview))
             .route("/api/knowledge/capture", post(knowledge_capture))
@@ -5002,6 +5004,132 @@ async fn export_json(State(st): State<AppState>) -> impl IntoResponse {
 // ─────────────────────────────────────────────────────────────────────────────
 // Slice 1 — Expertos y Contrato de Artefactos
 // ─────────────────────────────────────────────────────────────────────────────
+
+/// Dónde quedó el servidor MCP. El instalador lo copia junto al ejecutable (Tauri respeta la
+/// estructura relativa del proyecto); en desarrollo vive en el repo, un nivel arriba de `src-tauri`.
+fn mcp_server_recurso() -> Option<std::path::PathBuf> {
+    let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
+    let candidatos = [
+        exe_dir.join("mcp-server").join("nodeflow_mcp.py"),
+        exe_dir.join("resources").join("mcp-server").join("nodeflow_mcp.py"),
+        exe_dir.join("_up_").join("mcp-server").join("nodeflow_mcp.py"),
+        exe_dir.join("..").join("..").join("mcp-server").join("nodeflow_mcp.py"),
+    ];
+    if let Some(p) = candidatos.into_iter().find(|p| p.exists()) {
+        return Some(p);
+    }
+    // El instalador puede haberlo dejado en otra profundidad (depende de la versión de Tauri):
+    // se busca el archivo hasta 3 niveles abajo del ejecutable y se declara dónde estaba.
+    fn buscar(dir: &std::path::Path, prof: u8) -> Option<std::path::PathBuf> {
+        if prof == 0 {
+            return None;
+        }
+        let entradas = std::fs::read_dir(dir).ok()?;
+        let mut subdirs = Vec::new();
+        for e in entradas.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                subdirs.push(p);
+            } else if p.file_name().and_then(|n| n.to_str()) == Some("nodeflow_mcp.py") {
+                return Some(p);
+            }
+        }
+        subdirs.iter().find_map(|d| buscar(d, prof - 1))
+    }
+    buscar(&exe_dir, 3)
+}
+
+/// Qué intérprete de Python hay para correr el servidor MCP: el runtime de la voz local (si se
+/// descargó), el Python del sistema, o el lanzador `py`. Sin intérprete no hay MCP: se declara.
+fn mcp_interprete(data_dir: &std::path::Path) -> Option<String> {
+    let portatil = data_dir.join("voz").join("python.exe");
+    if portatil.exists() {
+        return Some(portatil.to_string_lossy().to_string());
+    }
+    for cand in ["python", "python3", "py"] {
+        if std::process::Command::new(cand)
+            .arg("--version")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+        {
+            return Some(cand.to_string());
+        }
+    }
+    None
+}
+
+/// El servidor MCP como dato: dónde está, dónde se instala y con qué comando se conecta.
+///
+/// El bloque `mcp_servers` es el formato del config de Hermes (`~/.hermes/config.yaml`), el mismo
+/// que entienden los demás clientes MCP por stdio.
+async fn mcp_estado(State(st): State<AppState>) -> impl IntoResponse {
+    let recurso = mcp_server_recurso();
+    let destino = st.data_dir.join("mcp").join("nodeflow_mcp.py");
+    let interprete = mcp_interprete(&st.data_dir);
+    let listo = destino.exists() && interprete.is_some();
+    let cmd = interprete.clone().unwrap_or_else(|| "python".into());
+    Json(json!({
+        "success": true,
+        "recurso": recurso.as_ref().map(|p| p.to_string_lossy().to_string()),
+        "instalado": destino.exists(),
+        "ruta": destino.to_string_lossy(),
+        "interprete": interprete,
+        "listo": listo,
+        "snippet": format!(
+            "mcp_servers:\n  nodeflow:\n    command: \"{cmd}\"\n    args: [\"{}\"]",
+            destino.to_string_lossy().replace('\\', "/")
+        ),
+        "registro": format!(
+            "printf 'Y\\n' | hermes mcp add nodeflow --command '{cmd}' --args '{}'",
+            destino.to_string_lossy().replace('\\', "/")
+        ),
+        "nota": if listo {
+            "Reiniciá el agente después de registrarlo: el descubrimiento corre una vez por proceso."
+        } else if !destino.exists() {
+            "El servidor MCP todavía no está copiado: usá «Instalar el servidor MCP»."
+        } else {
+            "Falta un intérprete de Python. Descargá la voz local (trae uno) o instalá Python 3."
+        },
+    }))
+}
+
+/// Copia el servidor MCP a una carpeta estable del usuario y devuelve cómo conectarlo.
+async fn mcp_instalar(State(st): State<AppState>) -> impl IntoResponse {
+    let Some(recurso) = mcp_server_recurso() else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({
+                "success": false,
+                "error": "no encontré el servidor MCP junto a la app (¿binario de desarrollo?)"
+            })),
+        );
+    };
+    let dir = st.data_dir.join("mcp");
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "success": false, "error": format!("no pude crear {dir:?}: {e}") })),
+        );
+    }
+    let destino = dir.join("nodeflow_mcp.py");
+    match std::fs::copy(&recurso, &destino) {
+        Ok(bytes) => (
+            StatusCode::OK,
+            Json(json!({
+                "success": true,
+                "ruta": destino.to_string_lossy(),
+                "bytes": bytes,
+            })),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "success": false, "error": format!("no pude copiarlo: {e}") })),
+        ),
+    }
+}
 
 /// Guarda el **system prompt de un experto** como nota en `<vault>/expertos/<slug>.md`.
 ///

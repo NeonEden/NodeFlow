@@ -40,6 +40,12 @@ cp "$EXE_DEST" "$EXE_DEST.bak-$(date +%d%m-%H%M)" 2>/dev/null || true
 cp "$REPO/src-tauri/target/release/app.exe" "$EXE_DEST" || exit 1
 sha256sum "$REPO/src-tauri/target/release/app.exe" "$EXE_DEST"
 
+# El servidor MCP viaja con la app: sin esto, el instalado a mano no lo encuentra.
+if [ -f "$REPO/mcp-server/nodeflow_mcp.py" ]; then
+  mkdir -p "$(dirname "$EXE_DEST")/mcp-server"
+  cp "$REPO/mcp-server/nodeflow_mcp.py" "$(dirname "$EXE_DEST")/mcp-server/nodeflow_mcp.py"
+fi
+
 echo "[5/5] relanzando…"
 powershell -NoProfile -Command "Start-Process \"\$env:LOCALAPPDATA\NodeFlow\app.exe\"" >/dev/null 2>&1
 sleep 8

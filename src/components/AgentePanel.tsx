@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertTriangle, Bot, CheckCircle2, Loader2, Play, Wrench, X, XCircle } from 'lucide-react';
+import { AlertTriangle, Bot, CheckCircle2, Loader2, Play, Wrench, X, XCircle, Plug } from 'lucide-react';
 import { apiUrl } from '../services/apiBase';
 import { useIdioma } from '../i18n/useIdioma';
 
@@ -74,6 +74,32 @@ export const AgentePanel: React.FC<{ isOpen: boolean; onClose: () => void }> = (
   const [verSalidas, setVerSalidas] = useState(false);
   const [propuesta, setPropuesta] = useState<Propuesta | null>(null);
   const [gatesAbiertos, setGatesAbiertos] = useState('');
+  // Servidor MCP que viaja con la app: estado, ruta y cómo conectarlo (es DATO, se declara).
+  const [mcp, setMcp] = useState<{
+    instalado: boolean;
+    listo: boolean;
+    ruta: string;
+    snippet: string;
+    nota: string;
+  } | null>(null);
+  const cargarMcp = useCallback(async () => {
+    try {
+      setMcp(await (await fetch(apiUrl('/api/mcp/estado'))).json());
+    } catch {
+      /* sin backend no hay nada que decir */
+    }
+  }, []);
+  useEffect(() => {
+    if (isOpen) void cargarMcp();
+  }, [isOpen, cargarMcp]);
+  const instalarMcp = async () => {
+    try {
+      await fetch(apiUrl('/api/mcp/instalar'), { method: 'POST' });
+      await cargarMcp();
+    } catch {
+      /* se reintenta al abrir */
+    }
+  };
   const [accion, setAccion] = useState('');
   const corriendoRef = useRef(false);
 
@@ -399,6 +425,54 @@ export const AgentePanel: React.FC<{ isOpen: boolean; onClose: () => void }> = (
                   </div>
                 ))}
               </div>
+            )}
+          </div>
+
+          {/* Servidor MCP: la app trae el suyo y dice cómo conectarlo. Antes había que tener el
+              repo a mano y configurarlo a mano; ahora viaja en el instalador. */}
+          <div className="mt-3 rounded-xl border border-slate-800 bg-slate-950/40 p-3 space-y-2">
+            <div className="flex items-center gap-2">
+              <Plug size={13} className="text-sky-400" />
+              <span className="text-[11px] font-semibold text-slate-200">
+                Servidor MCP para agentes externos
+              </span>
+              <span
+                className={`ml-auto text-[9px] font-mono px-1.5 py-0.5 rounded border ${
+                  mcp?.listo
+                    ? 'border-emerald-700/50 text-emerald-300'
+                    : 'border-slate-700 text-slate-400'
+                }`}
+              >
+                {mcp?.listo ? 'listo' : mcp?.instalado ? 'falta intérprete' : 'no instalado'}
+              </span>
+            </div>
+            <p className="text-[10px] text-slate-400 leading-relaxed">
+              {mcp?.nota ||
+                'Dejá que otro agente (Hermes, Cursor…) lea y proponga sobre tu lienzo por MCP.'}
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                id="btn-mcp-instalar"
+                onClick={instalarMcp}
+                className="px-2.5 py-1.5 rounded-lg text-[11px] bg-sky-600/20 border border-sky-500/40 text-sky-100 hover:bg-sky-600/30 cursor-pointer"
+              >
+                {mcp?.instalado ? 'Reinstalar el servidor MCP' : 'Instalar el servidor MCP'}
+              </button>
+              {mcp?.snippet && (
+                <button
+                  type="button"
+                  onClick={() => void navigator.clipboard.writeText(mcp.snippet)}
+                  className="px-2.5 py-1.5 rounded-lg text-[11px] border border-slate-700 text-slate-300 hover:text-slate-100 hover:border-slate-600 cursor-pointer"
+                >
+                  Copiar la config
+                </button>
+              )}
+            </div>
+            {mcp?.snippet && (
+              <pre className="text-[10px] text-slate-400 whitespace-pre-wrap bg-slate-950/60 rounded-lg p-2 max-h-32 overflow-y-auto">
+                {mcp.snippet}
+              </pre>
             )}
           </div>
         </div>

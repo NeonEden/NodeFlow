@@ -40,7 +40,10 @@
     "android": {
       "debugApplicationIdSuffix": ".debug"
     },
-    "createUpdaterArtifacts": true
+    "createUpdaterArtifacts": true,
+    "resources": [
+      "../mcp-server/nodeflow_mcp.py"
+    ]
   },
   "plugins": {
     "updater": {
