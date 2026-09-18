@@ -95,3 +95,36 @@ export function ejecutarExperto(
 ): Promise<RespuestaExperto | null> {
   return pedir<RespuestaExperto>('/api/expert/run', { nodo, experto, extra: extra || '' });
 }
+
+export interface GuardarExpertoPayload {
+  /** Si se manda, se reemplaza ese archivo. Si no, el slug se deriva del nombre. */
+  slug?: string;
+  nombre: string;
+  tipo_artefacto: string;
+  descripcion?: string;
+  rol?: string;
+  proveedor?: string;
+  modelo?: string;
+  /** El system prompt completo: es el cuerpo de la nota. */
+  system: string;
+}
+
+export interface GuardarExpertoResultado {
+  success: boolean;
+  slug?: string;
+  ruta?: string;
+  caracteres_system?: number;
+  error?: string;
+}
+
+/**
+ * Escribe el prompt de un experto en `<bóveda>/expertos/<slug>.md`.
+ *
+ * El prompt es identidad del usuario: la app no trae ninguno embebido, esto escribe sólo en su
+ * bóveda y no toca el lienzo (no pasa por la cola de propuestas: es una nota, reversible).
+ */
+export function guardarExperto(
+  payload: GuardarExpertoPayload
+): Promise<GuardarExpertoResultado | null> {
+  return pedir<GuardarExpertoResultado>('/api/expertos/guardar', payload, 20000);
+}

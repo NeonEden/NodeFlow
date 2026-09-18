@@ -294,6 +294,7 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
             // Fase 8 — captura de conocimiento y exportación
             // Slice 1 — Expertos y Contrato de Artefactos
             .route("/api/expertos", get(expertos_listar))
+        .route("/api/expertos/guardar", post(expertos_guardar))
             .route("/api/expert/run", post(experto_run))
             .route("/api/knowledge/preview", post(knowledge_preview))
             .route("/api/knowledge/capture", post(knowledge_capture))
@@ -5001,6 +5002,85 @@ async fn export_json(State(st): State<AppState>) -> impl IntoResponse {
 // ─────────────────────────────────────────────────────────────────────────────
 // Slice 1 — Expertos y Contrato de Artefactos
 // ─────────────────────────────────────────────────────────────────────────────
+
+/// Guarda el **system prompt de un experto** como nota en `<vault>/expertos/<slug>.md`.
+///
+/// El prompt de un experto es **identidad del usuario, no del producto**: la app no trae ninguno
+/// embebido y esto escribe únicamente en su bóveda. Si el slug ya existe, el archivo se reemplaza
+/// (el cuerpo entero es el prompt, así que pegarlo de nuevo es la forma de editarlo).
+async fn expertos_guardar(State(st): State<AppState>, Json(body): Json<Value>) -> impl IntoResponse {
+    let nombre = body["nombre"].as_str().unwrap_or("").trim().to_string();
+    let tipo = body["tipo_artefacto"].as_str().unwrap_or("").trim().to_string();
+    let system = body["system"].as_str().unwrap_or("").trim().to_string();
+    if nombre.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "success": false, "error": "falta el nombre del experto" })),
+        );
+    }
+    if crate::artefactos::schema(&tipo).is_none() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "success": false, "error": format!("tipo de artefacto desconocido: «{tipo}»") })),
+        );
+    }
+    if system.chars().count() < 40 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "success": false, "error": "el prompt es muy corto: pegá el system prompt completo" })),
+        );
+    }
+    // El nombre del archivo sale del slug: minúsculas/números/guiones, 3-60, sin rutas (mismo
+    // camino jaula que los planes del cerebro). Si no lo mandan, se deriva del nombre.
+    let slug = match body["slug"].as_str().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(s) => match crate::cerebro::slug_plan(s) {
+            Ok(v) => v,
+            Err(e) => {
+                return (StatusCode::BAD_REQUEST, Json(json!({ "success": false, "error": e })));
+            }
+        },
+        None => match crate::cerebro::slug_plan(&nombre) {
+            Ok(v) => v,
+            Err(e) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({ "success": false, "error": format!("no pude formar el nombre de archivo: {e}") })),
+                );
+            }
+        },
+    };
+    let rol = body["rol"].as_str().unwrap_or("").to_string();
+    let descripcion = body["descripcion"].as_str().unwrap_or("").to_string();
+    let proveedor = body["proveedor"].as_str().unwrap_or("").to_string();
+    let modelo = body["modelo"].as_str().unwrap_or("").to_string();
+    let txt = crate::expertos::md_desde(
+        &nombre,
+        &tipo,
+        &[
+            ("rol", rol.as_str()),
+            ("descripcion", descripcion.as_str()),
+            ("proveedor", proveedor.as_str()),
+            ("modelo", modelo.as_str()),
+        ],
+        &system,
+    );
+    let rel = format!("{}/{}.md", crate::expertos::CARPETA, slug);
+    match st.vault.escribir_nota(&rel, &txt) {
+        Ok(p) => (
+            StatusCode::OK,
+            Json(json!({
+                "success": true,
+                "slug": slug,
+                "ruta": p.to_string_lossy(),
+                "caracteres_system": system.chars().count(),
+            })),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "success": false, "error": e })),
+        ),
+    }
+}
 
 /// Lista los expertos disponibles (notas en `<vault>/expertos/*.md`) y los tipos de artefacto.
 async fn expertos_listar(State(st): State<AppState>) -> impl IntoResponse {

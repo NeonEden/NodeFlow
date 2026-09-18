@@ -55,6 +55,24 @@ fn campo(pares: &[(String, String)], clave: &str) -> String {
         .unwrap_or_default()
 }
 
+/// Arma el archivo de un experto: frontmatter canónico + cuerpo (el system prompt, tal cual se pegó).
+///
+/// Es pura y se prueba sola: es la única pieza del guardado que puede meter basura en la bóveda.
+/// Los campos opcionales vacíos **no se escriben** (un `rol: ` vacío ensucia el frontmatter).
+pub fn md_desde(nombre: &str, tipo: &str, campos: &[(&str, &str)], system: &str) -> String {
+    let limpiar = |s: &str| s.trim().lines().collect::<Vec<_>>().join(" ").replace('"', "'");
+    let mut txt = String::from("---\n");
+    txt.push_str(&format!("experto: \"{}\"\n", limpiar(nombre)));
+    for (k, v) in campos {
+        let v = limpiar(v);
+        if !v.is_empty() {
+            txt.push_str(&format!("{k}: {v}\n"));
+        }
+    }
+    txt.push_str(&format!("tipo_artefacto: {}\n---\n\n{}\n", limpiar(tipo), system.trim()));
+    txt
+}
+
 /// Lee los expertos de `<vault>/expertos/*.md`. Un archivo sin frontmatter o sin tipo válido se
 /// devuelve igual pero marcado, para que el panel pueda avisar en vez de esconderlo.
 pub fn cargar(dir: &Path) -> Vec<Value> {
@@ -109,6 +127,32 @@ pub fn cargar(dir: &Path) -> Vec<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn el_archivo_que_escribimos_se_vuelve_a_leer_igual() {
+        let md = md_desde(
+            "Prompt Visual",
+            "prompt_visual",
+            &[
+                ("rol", "curador de arte digital"),
+                ("descripcion", ""),
+                ("proveedor", "gemini"),
+            ],
+            "  Sos curador. Regla: no inventes marcas.  ",
+        );
+        let (pares, cuerpo) = frontmatter(&md);
+        assert_eq!(campo(&pares, "experto"), "Prompt Visual");
+        assert_eq!(campo(&pares, "tipo_artefacto"), "prompt_visual");
+        assert_eq!(campo(&pares, "proveedor"), "gemini");
+        // Un campo vacío no se escribe (no deja `descripcion: ` colgado en el frontmatter).
+        assert!(campo(&pares, "descripcion").is_empty());
+        assert!(!md.contains("descripcion:"));
+        // El cuerpo es el prompt, sin los espacios de los bordes.
+        assert_eq!(cuerpo, "Sos curador. Regla: no inventes marcas.");
+        // Las comillas del nombre no rompen el frontmatter.
+        let md2 = md_desde("Mi \"marca\" visual", "critica", &[], "x");
+        assert_eq!(campo(&frontmatter(&md2).0, "experto"), "Mi 'marca' visual");
+    }
 
     #[test]
     fn parsea_frontmatter_y_cuerpo() {

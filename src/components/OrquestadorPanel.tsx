@@ -11,6 +11,8 @@ import {
   Plus,
   RefreshCw,
   Cpu,
+  Pencil,
+  ClipboardPaste,
 } from 'lucide-react';
 import {
   listarExpertos,
@@ -21,6 +23,7 @@ import {
 } from '../services/expertoService';
 import { apiUrl } from '../services/apiBase';
 import { triggerFileDownload } from '../utils/obsidianExport';
+import { ExpertoEditorModal } from './ExpertoEditorModal';
 
 interface NodoOpcion {
   id: string;
@@ -122,6 +125,9 @@ export const OrquestadorPanel: React.FC<OrquestadorPanelProps> = ({
   const [segundos, setSegundos] = useState(0);
   const [res, setRes] = useState<RespuestaExperto | null>(null);
   const [copiado, setCopiado] = useState(false);
+  // Editor del prompt: `null` = pegar uno nuevo; un experto = reemplazar el suyo.
+  const [editorAbierto, setEditorAbierto] = useState(false);
+  const [expertoEditando, setExpertoEditando] = useState<Experto | null>(null);
   const cronometro = useRef<number | null>(null);
 
   const cargar = useCallback(async () => {
@@ -267,38 +273,64 @@ export const OrquestadorPanel: React.FC<OrquestadorPanelProps> = ({
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
           {/* Expertos */}
           <div>
-            <p className="text-[10px] uppercase tracking-wide text-slate-500 mb-1.5">
-              Expertos ({expertos.length}) · se editan como notas en{' '}
-              <span className="font-mono text-slate-600">expertos/</span>
-            </p>
+            <div className="flex items-center justify-between gap-2 mb-1.5">
+              <p className="text-[10px] uppercase tracking-wide text-slate-500">
+                Expertos ({expertos.length}) · tu prompt vive en{' '}
+                <span className="font-mono text-slate-600">expertos/</span>
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setExpertoEditando(null);
+                  setEditorAbierto(true);
+                }}
+                title="Pegar tu propio system prompt: cada uno pega el suyo"
+                className="flex items-center gap-1 px-2 py-1 rounded-lg border border-slate-800 bg-slate-950/40 text-[10px] text-slate-400 hover:text-slate-100 hover:border-slate-700 transition-colors cursor-pointer shrink-0"
+              >
+                <ClipboardPaste size={12} />
+                Pegar mi prompt
+              </button>
+            </div>
             <div className="grid grid-cols-1 gap-1.5">
               {expertos.map((e) => (
-                <button
-                  key={e.slug}
-                  onClick={() => setExperto(e.nombre)}
-                  className={`text-left rounded-xl border px-3 py-2 transition-colors ${
-                    experto === e.nombre
-                      ? 'border-violet-500/60 bg-violet-500/10'
-                      : 'border-slate-800 bg-slate-950/40 hover:border-slate-700'
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-semibold text-slate-100">{e.nombre}</span>
-                    <span
-                      className={`text-[9px] px-1.5 py-0.5 rounded border uppercase ${
-                        COLOR_TIPO[e.tipo_artefacto] || 'text-slate-400 border-slate-700'
-                      }`}
-                    >
-                      {e.tipo_artefacto || 'sin tipo'}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-400 mt-0.5">{e.descripcion}</p>
-                  <p className="text-[10px] text-slate-600 mt-0.5 font-mono">
-                    {e.caracteres_system} car. de prompt
-                    {e.proveedor ? ` · proveedor: ${e.proveedor}` : ''}
-                    {e.valido ? '' : ' · TIPO INVÁLIDO'}
-                  </p>
-                </button>
+                <div key={e.slug} className="flex items-stretch gap-1.5">
+                  <button
+                    onClick={() => setExperto(e.nombre)}
+                    className={`flex-1 text-left rounded-xl border px-3 py-2 transition-colors ${
+                      experto === e.nombre
+                        ? 'border-violet-500/60 bg-violet-500/10'
+                        : 'border-slate-800 bg-slate-950/40 hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-semibold text-slate-100">{e.nombre}</span>
+                      <span
+                        className={`text-[9px] px-1.5 py-0.5 rounded border uppercase ${
+                          COLOR_TIPO[e.tipo_artefacto] || 'text-slate-400 border-slate-700'
+                        }`}
+                      >
+                        {e.tipo_artefacto || 'sin tipo'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-0.5">{e.descripcion}</p>
+                    <p className="text-[10px] text-slate-600 mt-0.5 font-mono">
+                      {e.caracteres_system} car. de prompt
+                      {e.proveedor ? ` · proveedor: ${e.proveedor}` : ''}
+                      {e.valido ? '' : ' · TIPO INVÁLIDO'}
+                    </p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setExpertoEditando(e);
+                      setEditorAbierto(true);
+                    }}
+                    title="Editar o reemplazar este prompt (se guarda en tu bóveda)"
+                    className="shrink-0 px-2.5 rounded-xl border border-slate-800 bg-slate-950/40 text-slate-500 hover:text-slate-100 hover:border-slate-700 transition-colors cursor-pointer flex items-center"
+                  >
+                    <Pencil size={13} />
+                  </button>
+                </div>
               ))}
               {expertos.length === 0 && (
                 <p className="text-[11px] text-slate-500 py-2">
@@ -453,6 +485,16 @@ export const OrquestadorPanel: React.FC<OrquestadorPanelProps> = ({
             Cerrar
           </button>
         </div>
+
+        <ExpertoEditorModal
+          isOpen={editorAbierto}
+          onClose={() => setEditorAbierto(false)}
+          experto={expertoEditando}
+          tipos={tipos}
+          carpeta={carpeta}
+          onGuardado={() => void cargar()}
+          showToast={showToast}
+        />
       </div>
     </div>
   );
