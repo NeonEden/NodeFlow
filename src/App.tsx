@@ -1984,6 +1984,9 @@ export default function App() {
           partes.push(`conservar ${conservar} nodos (los que el motor marcó como la idea y su entorno)`);
         } else if (c.accion === 'condensar') partes.push(`colapsar ${new Set(c.nodos || []).size} nodos`);
         else if (c.accion === 'criticar') partes.push(`cuestionar ${(c.nodos || []).length} nodos`);
+        else if (c.accion === 'responder') partes.push('responder la pregunta');
+        else if (c.accion === 'aceptar') partes.push(`aceptar ${(c.nodos || []).length} idea(s)`);
+        else if (c.accion === 'descartar') partes.push(`descartar ${(c.nodos || []).length} idea(s)`);
       });
       if (conservar) partes.push(`los otros ${Math.max(0, nodes.length - conservar)} pasan a un macro-nodo (se restauran con doble clic)`);
       return partes.join(' · ');
@@ -2024,6 +2027,9 @@ export default function App() {
         '';
       // Mutaciones a nodos que ya existen (`actualizar`): la evolución por fases de un nodo.
       const cambios: { id: string; campos: Record<string, any> }[] = [];
+      // Cierres del ciclo pedidos por voz: responder una pregunta y decidir qué queda.
+      const respuestas: { nodoId: string; texto: string }[] = [];
+      const decisiones: { ids: string[]; estado: 'aceptada' | 'descartada' }[] = [];
       let enfocar: { ids: string[]; criterio?: string } | null = null;
       let creados = 0;
 
@@ -2094,6 +2100,13 @@ export default function App() {
           colapsar.push(...(c.nodos || []));
         } else if (c.accion === 'criticar') {
           criticar.push(...(c.nodos || []));
+        } else if (c.accion === 'responder' && c.nodo) {
+          respuestas.push({ nodoId: c.nodo, texto: c.respuesta || '' });
+        } else if (c.accion === 'aceptar' || c.accion === 'descartar') {
+          decisiones.push({
+            ids: c.nodos || [],
+            estado: c.accion === 'aceptar' ? 'aceptada' : 'descartada',
+          });
         } else if (c.accion === 'actualizar' && c.nodo) {
           const campos: Record<string, any> = {};
           if (c.titulo) campos.title = c.titulo;
@@ -2167,6 +2180,93 @@ export default function App() {
       }
       if (colapsar.length) hacerMacro(colapsar, `Condensado por voz`);
 
+      // Responder por voz: la respuesta nace como nodo enlazado y la pregunta se cierra (es el mismo
+      // cierre que el gesto manual, sin tocar el mouse).
+      let respondidasVoz = 0;
+      respuestas.forEach(({ nodoId, texto }, i) => {
+        const pregunta = nds.find((n) => n.id === nodoId);
+        const limpio = texto.trim();
+        if (!pregunta || limpio.length < 2) return;
+        const fecha = new Date().toISOString();
+        const idResp = `node-resp-${Date.now()}-${i}`;
+        nds = [
+          ...nds.map((n) =>
+            n.id === nodoId
+              ? {
+                  ...n,
+                  data: {
+                    ...n.data,
+                    pregunta: { estado: 'respondida' as const, respuestaId: idResp, respondidaEn: fecha },
+                  },
+                }
+              : n
+          ),
+          {
+            id: idResp,
+            type: 'ideaNode',
+            position: posicionLibre(nds, { x: pregunta.position.x, y: pregunta.position.y + 230 }),
+            data: {
+              id: idResp,
+              title: limpio.length > 90 ? `${limpio.slice(0, 87)}…` : limpio,
+              description: limpio,
+              category: 'RESPUESTA',
+              label: 'RESPUESTA',
+              tags: ['Respuesta', 'Voz'],
+              colorAccent: '#10b981',
+              maturity: 3,
+              respuestaDe: nodoId,
+              evidencia: { texto: limpio, fecha, nivel: 3 },
+              madurezEn: fecha,
+            },
+          } as CustomNode,
+        ];
+        eds = [
+          ...eds,
+          {
+            id: `e-resp-${nodoId}-${idResp}`,
+            source: nodoId,
+            target: idResp,
+            type: edgeAppearance.type,
+            animated: true,
+            label: 'responde',
+            style: { stroke: '#10b981', strokeWidth: 2 },
+          } as Edge,
+        ];
+        respondidasVoz++;
+      });
+
+      // Decidir por voz: aceptar o descartar (descartar NO borra). Y la decisión alimenta el perfil.
+      let decididasVoz = 0;
+      const fechaDec = new Date().toISOString();
+      decisiones.forEach(({ ids, estado }) => {
+        const validos = ids.filter((id) => nds.some((n) => n.id === id));
+        if (!validos.length) return;
+        nds = nds.map((n) =>
+          validos.includes(n.id) ? { ...n, data: { ...n.data, decision: { estado, fecha: fechaDec } } } : n
+        );
+        decididasVoz += validos.length;
+        validos.forEach((id) => {
+          const origen = nodes.find((n) => n.id === id)?.data.aiOrigin;
+          if (!origen) return;
+          const titulo = nodes.find((n) => n.id === id)?.data.title || '';
+          void recordHitlFeedback({
+            id: `hitl-voz-${Date.now()}-${id}`,
+            timestamp: fechaDec,
+            action: 'AI_ACCEPTED',
+            prompt_original: origen.promptOriginal,
+            ai_suggestion: origen.allBatchTitles,
+            human_decision: {
+              accepted: estado === 'aceptada' ? [titulo] : [],
+              rejected: estado === 'descartada' ? [titulo] : [],
+              added_manually: [],
+            },
+            contextSnippet: `Por voz: ${estado === 'aceptada' ? 'aceptó' : 'descartó'} «${titulo}»`,
+          }).then((updated) => {
+            if (updated) setHitlProfile(updated);
+          });
+        });
+      });
+
       setNodes(nds);
       setEdges(eds);
       setSelectedNodes([]);
@@ -2178,7 +2278,7 @@ export default function App() {
       });
 
       showToast(
-        `Voz: ${creados} nodo(s) nuevo(s)${cambios.length ? ` · ${cambios.length} actualizado(s)` : ''}${afectados ? ` · ${afectados} colapsado(s)` : ''}${criticar.length ? ` · ${criticar.length} a cuestionar` : ''}${enlacesFallidos ? ` · ${enlacesFallidos} enlace(s) sin destino` : ''}.`,
+        `Voz: ${creados} nodo(s) nuevo(s)${cambios.length ? ` · ${cambios.length} actualizado(s)` : ''}${afectados ? ` · ${afectados} colapsado(s)` : ''}${criticar.length ? ` · ${criticar.length} a cuestionar` : ''}${respondidasVoz ? ` · ${respondidasVoz} pregunta(s) respondida(s)` : ''}${decididasVoz ? ` · ${decididasVoz} decidida(s)` : ''}${enlacesFallidos ? ` · ${enlacesFallidos} enlace(s) sin destino` : ''}.`,
         'success'
       );
 
@@ -4445,6 +4545,14 @@ export default function App() {
         onAplicarComandos={aplicarComandosDeFase}
         onPrevisualizar={previsualizarPlanVoz}
         tituloNodo={(id) => nodes.find((n) => n.id === id)?.data.title || id}
+        preguntaAbierta={() => {
+          const p = nodes.find((n) => n.data.pregunta?.estado === 'abierta');
+          return p ? { id: p.id, titulo: p.data.title || 'pregunta sin título' } : null;
+        }}
+        onResponder={(id, texto) => {
+          const p = nodes.find((n) => n.id === id);
+          if (p) handleResponderPregunta(p, texto);
+        }}
       />
 
       <LinajeModal

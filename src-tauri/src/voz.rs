@@ -13,7 +13,7 @@
 use serde_json::{json, Value};
 
 /// Lo que la voz puede pedir. Todo lo demás se descarta.
-pub const ACCIONES: [&str; 7] = [
+pub const ACCIONES: [&str; 10] = [
     "crear",
     "enlazar",
     "enfocar",
@@ -21,6 +21,10 @@ pub const ACCIONES: [&str; 7] = [
     "criticar",
     "delegar",
     "actualizar",
+    // El ciclo del pensamiento también se opera hablando: cerrar una pregunta y decidir qué queda.
+    "responder",
+    "aceptar",
+    "descartar",
 ];
 
 /// Hermes como motor profundo de NodeFlow: cuando el pedido necesita lo que el modelo local no
@@ -69,7 +73,9 @@ pub fn debe_hablar(plan: &Value) -> bool {
             cs.iter().any(|c| {
                 matches!(
                     c["accion"].as_str().unwrap_or(""),
-                    "enfocar" | "condensar" | "criticar"
+                    // Estructurales + los cierres del ciclo: responder una pregunta y decidir son
+                    // hallazgos, se dicen. Crear o enlazar se ven en el lienzo: silencio.
+                    "enfocar" | "condensar" | "criticar" | "responder" | "aceptar" | "descartar"
                 )
             })
         })
@@ -162,6 +168,46 @@ mod tests_voz_selectiva {
         let c = &limpio["comandos"][0];
         assert_eq!(c["accion"], "delegar");
         assert!(c["pedido"].as_str().unwrap().contains("SHT31"));
+    }
+
+    #[test]
+    fn responder_necesita_una_pregunta_del_lienzo_y_su_texto() {
+        let ids = vec!["p-1".to_string()];
+        let ok = json!({"comandos": [{"accion": "responder", "nodo": "p-1", "respuesta": "lo probé"}]});
+        let out = super::validar(&ok, &ids);
+        assert_eq!(out["comandos"][0]["nodo"], json!("p-1"));
+        assert_eq!(out["comandos"][0]["respuesta"], json!("lo probé"));
+        // id inventado
+        let fantasma = json!({"comandos": [{"accion": "responder", "nodo": "p-9", "respuesta": "x"}]});
+        assert_eq!(super::validar(&fantasma, &ids)["comandos"].as_array().unwrap().len(), 0);
+        // sin texto
+        let mudo = json!({"comandos": [{"accion": "responder", "nodo": "p-1", "respuesta": " "}]});
+        assert_eq!(super::validar(&mudo, &ids)["comandos"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn aceptar_y_descartar_toman_ids_validos_y_no_borran_nada() {
+        let ids = vec!["n-1".to_string(), "n-2".to_string()];
+        for accion in ["aceptar", "descartar"] {
+            let plan = json!({"comandos": [{"accion": accion, "nodos": ["n-1", "fantasma"]}]});
+            let out = super::validar(&plan, &ids);
+            assert_eq!(out["comandos"][0]["nodos"], json!(["n-1"]), "{accion}");
+            // Ninguna acción nueva se llama «borrar»: el validador no tiene esa palabra.
+            assert!(!out.to_string().contains("borrar"));
+        }
+        // con un solo nodo alcanza (condensar necesita 2; decidir, no)
+        let uno = json!({"comandos": [{"accion": "descartar", "nodos": ["n-1"]}]});
+        assert_eq!(super::validar(&uno, &ids)["comandos"][0]["nodos"], json!(["n-1"]));
+        // sin ids válidos, se cae
+        let nada = json!({"comandos": [{"accion": "aceptar", "nodos": ["x", "y"]}]});
+        assert_eq!(super::validar(&nada, &ids)["comandos"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn los_cierres_del_ciclo_hablan() {
+        for accion in ["responder", "aceptar", "descartar"] {
+            assert!(super::debe_hablar(&json!({"comandos": [{"accion": accion}]})), "{accion}");
+        }
     }
 
     #[test]
@@ -393,6 +439,39 @@ pub fn validar(plan: &Value, ids_validos: &[String]) -> Value {
                 ids.dedup();
                 if ids.len() < 2 {
                     descartados.push(format!("un «{accion}» con menos de 2 nodos válidos"));
+                    continue;
+                }
+                ids.truncate(MAX_NODOS);
+                limpio["nodos"] = json!(ids);
+            }
+            "responder" => {
+                // Cierra una PREGUNTA del lienzo: la respuesta se crea como nodo enlazado y la
+                // pregunta pasa a `respondida`.
+                let nodo = c["nodo"].as_str().unwrap_or("").trim().to_string();
+                if nodo.is_empty() || !existe(&nodo) {
+                    descartados.push(
+                        "un «responder» que apunta a una pregunta que no está en el lienzo".into(),
+                    );
+                    continue;
+                }
+                let respuesta = recorta(c["respuesta"].as_str().unwrap_or(""), 700);
+                if respuesta.chars().count() < 2 {
+                    descartados.push("un «responder» sin el texto de la respuesta".into());
+                    continue;
+                }
+                limpio["nodo"] = json!(nodo);
+                limpio["respuesta"] = json!(respuesta);
+            }
+            "aceptar" | "descartar" => {
+                // Decidir NO borra: el nodo queda con su decisión y se puede volver atrás. Con un
+                // nodo alcanza (a diferencia de condensar, que necesita 2 para tener sentido).
+                let mut ids: Vec<String> = ids_del_comando(&c)
+                    .into_iter()
+                    .filter(|i| existe(i))
+                    .collect();
+                ids.dedup();
+                if ids.is_empty() {
+                    descartados.push(format!("un «{accion}» sin ids válidos del lienzo"));
                     continue;
                 }
                 ids.truncate(MAX_NODOS);

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { X, Mic, Square, Loader2, Sparkles, Check, AlertTriangle, Wand2, Target, Layers, MessageSquarePlus, Link2, Quote, Gauge, Volume2, VolumeX, PenLine } from 'lucide-react';
+import { X, Mic, Square, Loader2, Sparkles, Check, AlertTriangle, Wand2, Target, Layers, MessageSquarePlus, Link2, Quote, Gauge, Volume2, VolumeX, PenLine, CornerDownRight } from 'lucide-react';
 import { type EstadoVoz } from '../services/speechmaticsRt';
 import { crearClienteStt, type ClienteStt } from '../services/sttRt';
 import { apiUrl } from '../services/apiBase';
@@ -21,6 +21,10 @@ interface VozPanelProps {
   /** Aplica los comandos de una fase de investigación (el nodo crece mientras investiga). */
   onAplicarComandos: (comandos: VozComando[], que: string) => Promise<void>;
   tituloNodo: (id: string) => string;
+  /** La primera pregunta abierta del lienzo: se lee en voz alta y se espera la respuesta hablada. */
+  preguntaAbierta: () => { id: string; titulo: string } | null;
+  /** Guarda una respuesta dictada: nace el nodo RESPUESTA enlazado y la pregunta se cierra. */
+  onResponder: (preguntaId: string, texto: string) => void;
 }
 
 const ICONO: Record<VozComando['accion'], React.ReactNode> = {
@@ -31,7 +35,14 @@ const ICONO: Record<VozComando['accion'], React.ReactNode> = {
   criticar: <Quote size={12} />,
   delegar: <Sparkles size={12} />,
   actualizar: <PenLine size={12} />,
+  responder: <CornerDownRight size={12} />,
+  aceptar: <Check size={12} />,
+  descartar: <X size={12} />,
 };
+
+/** «¿qué quedó abierto?» — pedido de estado que se resuelve con regla local, sin motor (0 tokens). */
+const PEDIDO_DE_RETOMAR =
+  /(qu[eé]\s+(qued[oó]|ten[eé]s|hay)\s+(abierto|pendiente))|(preguntas?\s+abiertas?)|(^retom)|(le[eé]me la pregunta)/i;
 
 const EJEMPLOS = [
   'Dictá ideas nuevas: «el orquestador de voz se integra con NodeFlow y con el mapa conceptual por nodos»',
@@ -43,7 +54,7 @@ const EJEMPLOS = [
  * Panel de Voz (Speechmatics). Hablás, la transcripción aparece en vivo y al cortar el motor
  * propone un PLAN de operaciones sobre el lienzo — que se aprueba antes de aplicarse.
  */
-export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, onPrevisualizar, onAplicarComandos, tituloNodo }) => {
+export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, onPrevisualizar, onAplicarComandos, tituloNodo, preguntaAbierta, onResponder }) => {
   // Textos del panel en el idioma activo. La voz (entrada y salida) sigue el mismo idioma desde el
   // backend, así que acá sólo se traduce la interfaz.
   const { t } = useIdioma();
@@ -58,6 +69,8 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
   const [pensando, setPensando] = useState(false);
   const [aplicando, setAplicando] = useState(false);
   const [resultado, setResultado] = useState('');
+  // Cuando la app te leyó una pregunta, lo próximo que digas es su respuesta (no un plan nuevo).
+  const [modoRespuesta, setModoRespuesta] = useState<{ id: string; titulo: string } | null>(null);
   const [delegado, setDelegado] = useState<{ pedido: string; salida: string; ms: number; ok?: boolean } | null>(null);
   const [investigando, setInvestigando] = useState(false);
   const [fases, setFases] = useState<{ fase: string; titulo: string; emoji: string; que: string }[]>([]);
@@ -217,6 +230,34 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
       setEstado('inactivo');
       return;
     }
+    // ── Los cierres del ciclo, sin motor ──────────────────────────────────────────────────────
+    // 1) Si la app te acaba de leer una pregunta, lo que dijiste ES la respuesta: se guarda y se cierra.
+    if (modoRespuesta) {
+      const pregunta = modoRespuesta;
+      setModoRespuesta(null);
+      setResultado(`Respuesta guardada · la pregunta quedó cerrada.`);
+      onResponder(pregunta.id, dictado);
+      if (!silencio) void hablar('Anotado. La pregunta quedó cerrada.');
+      setEstado('inactivo');
+      return;
+    }
+    // 2) «¿Qué quedó abierto?»: regla local. Se lee la primera pregunta y se queda esperando la
+    //    respuesta: es el ciclo del pensamiento con las manos libres y sin gastar un token.
+    if (PEDIDO_DE_RETOMAR.test(dictado)) {
+      const pendiente = preguntaAbierta();
+      if (!pendiente) {
+        setResultado('No hay preguntas abiertas en el lienzo.');
+        void hablar('No hay preguntas abiertas en el lienzo.');
+        setEstado('inactivo');
+        return;
+      }
+      setModoRespuesta(pendiente);
+      setResultado(`Pregunta abierta: ${pendiente.titulo} · apretá el micrófono y respondé.`);
+      void hablar(`Pregunta abierta: ${pendiente.titulo}. Te escucho.`);
+      setEstado('inactivo');
+      return;
+    }
+
     setPensando(true);
     try {
       const { plan: p, modelo, uso } = await pedirPlanVoz(dictado);

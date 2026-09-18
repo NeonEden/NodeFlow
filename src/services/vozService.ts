@@ -43,7 +43,18 @@ export interface ProveedorVoz {
   clave_configurada: boolean;
 }
 
-export type AccionVoz = 'crear' | 'enlazar' | 'enfocar' | 'condensar' | 'criticar' | 'delegar' | 'actualizar';
+export type AccionVoz =
+  | 'crear'
+  | 'enlazar'
+  | 'enfocar'
+  | 'condensar'
+  | 'criticar'
+  | 'delegar'
+  | 'actualizar'
+  // Cierres del ciclo, operables hablando: responder una pregunta y decidir qué queda.
+  | 'responder'
+  | 'aceptar'
+  | 'descartar';
 
 export interface VozComando {
   accion: AccionVoz;
@@ -60,6 +71,8 @@ export interface VozComando {
   pedido?: string;
   /** Sólo en `actualizar`: el nodo que ya existe y los campos que cambian (fase, descripción…). */
   nodo?: string;
+  /** Sólo en `responder`: el texto de la respuesta que cierra la pregunta. */
+  respuesta?: string;
   maturity?: number;
   tags?: string[];
 }
