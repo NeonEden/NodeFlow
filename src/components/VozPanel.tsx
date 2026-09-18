@@ -21,6 +21,16 @@ interface VozPanelProps {
   /** Aplica los comandos de una fase de investigación (el nodo crece mientras investiga). */
   onAplicarComandos: (comandos: VozComando[], que: string) => Promise<void>;
   tituloNodo: (id: string) => string;
+  /**
+   * Modo conversación: la app arranca el turno con una pregunta y encadena ida y vuelta con el
+   * micrófono abierto por turnos. Devuelve la primera frase de la app.
+   */
+  onInicioConversacion: () => string;
+  /**
+   * Un turno hablado en modo conversación. Devuelve qué decir a continuación, si la conversación
+   * termina, y si el pedido no era del guion (hay que pedirle el plan al motor).
+   */
+  onTurnoConversacion: (texto: string) => Promise<{ decir: string; fin?: boolean; alMotor?: boolean }>;
   /** La primera pregunta abierta del lienzo: se lee en voz alta y se espera la respuesta hablada. */
   preguntaAbierta: () => { id: string; titulo: string } | null;
   /** Guarda una respuesta dictada: nace el nodo RESPUESTA enlazado y la pregunta se cierra. */
@@ -41,6 +51,10 @@ const ICONO: Record<VozComando['accion'], React.ReactNode> = {
 };
 
 /** «¿qué quedó abierto?» — pedido de estado que se resuelve con regla local, sin motor (0 tokens). */
+/** «Sí» hablado: sirve para aprobar lo que la app propone en modo conversación. */
+const ES_AFIRMATIVO =
+  /^\s*(s[ií]|dale|ok|okey|aplic\w*|vale|claro|obvio|por supuesto|perfecto|hac[eé]lo|vamos|de una|yes)\b/i;
+
 const PEDIDO_DE_RETOMAR =
   /(qu[eé]\s+(qued[oó]|ten[eé]s|hay)\s+(abierto|pendiente))|(preguntas?\s+abiertas?)|(^retom)|(le[eé]me la pregunta)/i;
 
@@ -54,7 +68,7 @@ const EJEMPLOS = [
  * Panel de Voz (Speechmatics). Hablás, la transcripción aparece en vivo y al cortar el motor
  * propone un PLAN de operaciones sobre el lienzo — que se aprueba antes de aplicarse.
  */
-export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, onPrevisualizar, onAplicarComandos, tituloNodo, preguntaAbierta, onResponder }) => {
+export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, onPrevisualizar, onAplicarComandos, tituloNodo, preguntaAbierta, onResponder, onInicioConversacion, onTurnoConversacion }) => {
   // Textos del panel en el idioma activo. La voz (entrada y salida) sigue el mismo idioma desde el
   // backend, así que acá sólo se traduce la interfaz.
   const { t } = useIdioma();
@@ -71,6 +85,18 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
   const [resultado, setResultado] = useState('');
   // Cuando la app te leyó una pregunta, lo próximo que digas es su respuesta (no un plan nuevo).
   const [modoRespuesta, setModoRespuesta] = useState<{ id: string; titulo: string } | null>(null);
+  // Modo conversación: turnos encadenados. La app pregunta, escucha, actúa, vuelve a preguntar.
+  const [continuo, setContinuo] = useState(false);
+  const [pasoConv, setPasoConv] = useState('idea');
+  // Plan esperando la aprobación hablada («¿lo aplico?» → «dale»).
+  const [planPendiente, setPlanPendiente] = useState(false);
+  const continuoRef = useRef(false);
+  continuoRef.current = continuo;
+  const planPendienteRef = useRef(false);
+  planPendienteRef.current = planPendiente;
+  const cortarRef = useRef<() => void>(() => {});
+  // Último texto escuchado (parcial o final): con esto el modo conversación sabe cuándo te callaste.
+  const fragRef = useRef('');
   const [delegado, setDelegado] = useState<{ pedido: string; salida: string; ms: number; ok?: boolean } | null>(null);
   const [investigando, setInvestigando] = useState(false);
   const [fases, setFases] = useState<{ fase: string; titulo: string; emoji: string; que: string }[]>([]);
@@ -187,6 +213,14 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
     };
   }, [investigando, onAplicarComandos]);
 
+  // Fin de turno por inactividad: en conversación, quedarse callado cierra el turno (1,8 s con texto).
+  useEffect(() => {
+    if (!continuo || estado !== 'escuchando') return;
+    if (!fragRef.current.trim()) return;
+    const t = window.setTimeout(() => void cortarRef.current(), 1800);
+    return () => window.clearTimeout(t);
+  }, [continuo, estado, parcial, texto]);
+
   const empezar = async () => {
     setError('');
     setResultado('');
@@ -204,8 +238,14 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
           setEstado(e);
           if (d) setDetalleEstado(d);
         },
-        onParcial: (t) => setParcial(t),
-        onFinal: (t) => setTexto(t),
+        onParcial: (t) => {
+          fragRef.current = t;
+          setParcial(t);
+        },
+        onFinal: (t) => {
+          fragRef.current = t;
+          setTexto(t);
+        },
         onError: (m) => setError(m),
       });
       rtRef.current = rt;
@@ -228,8 +268,48 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
     if (!dictado) {
       setError('No se escuchó nada. Probá de nuevo hablando más cerca del micrófono.');
       setEstado('inactivo');
+      // En conversación el turno no se corta por un silencio: se vuelve a escuchar.
+      if (continuoRef.current) {
+        void hablar('No te escuché. ¿Me lo repetís?');
+        void empezar();
+      }
       return;
     }
+    // ── Modo conversación ─────────────────────────────────────────────────────────────────────
+    // a) Aprobación hablada: el plan esperaba un «¿lo aplico?» y el contrato sigue siendo el mismo
+    //    (el humano aprueba), sólo que aprobás hablando.
+    if (continuoRef.current && planPendienteRef.current) {
+      if (ES_AFIRMATIVO.test(dictado)) {
+        setPlanPendiente(false);
+        await aplicar();
+        if (!silencio) await hablar('Listo, aplicado. ¿Qué más querés hacer?');
+      } else {
+        setPlanPendiente(false);
+        setPlan(null);
+        setResultado('Lo dejé sin aplicar.');
+        if (!silencio) await hablar('Lo dejo sin aplicar. ¿Qué más querés hacer?');
+      }
+      void empezar();
+      return;
+    }
+    // b) El guion del modo conversación: pasos guiados que no gastan motor (0 tokens).
+    if (continuoRef.current) {
+      const turno = await onTurnoConversacion(dictado);
+      if (!turno?.alMotor) {
+        if (turno?.decir && !silencio) await hablar(turno.decir);
+        if (turno?.fin) {
+          setContinuo(false);
+          continuoRef.current = false;
+          setEstado('inactivo');
+          return;
+        }
+        void empezar();
+        return;
+      }
+      // No era parte del guion: sigue el camino normal (le pide el plan al motor) y al final
+      // retoma la conversación.
+    }
+
     // ── Los cierres del ciclo, sin motor ──────────────────────────────────────────────────────
     // 1) Si la app te acaba de leer una pregunta, lo que dijiste ES la respuesta: se guarda y se cierra.
     if (modoRespuesta) {
@@ -269,6 +349,18 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
         costo: uso?.costo_usd ?? 0,
         cache: uso?.cache ?? 'miss',
       });
+      // En conversación, el plan no se aplica solo: se pide en voz alta y espera un «sí».
+      if (continuoRef.current && p.comandos?.length) {
+        setPlanPendiente(true);
+        await hablar(`Voy a ${onPrevisualizar(p)}. ¿Lo aplico?`);
+        void empezar();
+        return;
+      }
+      if (continuoRef.current) {
+        await hablar(p.respuesta || 'Listo.');
+        void empezar();
+        return;
+      }
       // El backend decidió si esto merece voz; acá sólo se obedece.
       if (p.hablar && !silencio) void hablar(p.respuesta || '');
     } catch (e: any) {
@@ -276,6 +368,27 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
     } finally {
       setPensando(false);
     }
+  };
+
+  cortarRef.current = cortar;
+
+  /** Arranca la conversación: la app pregunta primero y después escucha. */
+  const conversar = async () => {
+    setError('');
+    setPlan(null);
+    if (continuo) {
+      setContinuo(false);
+      continuoRef.current = false;
+      setResultado('Conversación terminada.');
+      return;
+    }
+    setContinuo(true);
+    continuoRef.current = true;
+    const saludo = onInicioConversacion();
+    setPasoConv('idea');
+    setResultado(`Conversación · ${saludo}`);
+    await hablar(saludo);
+    void empezar();
   };
 
   const aplicar = async () => {
@@ -339,6 +452,29 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
 
         {/* Cuerpo */}
         <div className="p-5 overflow-y-auto space-y-4 text-sm flex-1">
+            <button
+              type="button"
+              id="btn-voz-conversar"
+              onClick={conversar}
+              title={
+                continuo
+                  ? 'Terminar la conversación'
+                  : 'Modo conversación: la app te pregunta primero y van por turnos, sin tocar nada'
+              }
+              className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold border transition-colors cursor-pointer ${
+                continuo
+                  ? 'bg-amber-600/90 hover:bg-amber-500 text-white border-amber-400/60'
+                  : 'bg-slate-800/80 hover:bg-slate-700 text-amber-200 border-slate-700'
+              }`}
+            >
+              <MessageSquarePlus size={15} />
+              {continuo ? 'Conversación activa' : 'Conversar'}
+            </button>
+            {continuo && (
+              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded border border-amber-700/50 text-amber-300 whitespace-nowrap">
+                {escuchando ? 'te escucho' : hablando ? 'hablando' : pensando ? 'pensando' : 'turno'}
+              </span>
+            )}
           {servicio && !servicio.configurada && (
             <div className="flex gap-2.5 items-start bg-slate-800 border border-slate-700 rounded-xl p-3.5 text-xs">
               <AlertTriangle size={15} className="shrink-0 mt-0.5 text-amber-400" />

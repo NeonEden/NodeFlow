@@ -2446,8 +2446,85 @@ export default function App() {
     };
   }, [showToast]);
 
-  /**
-   /** Aplica un cambio de fase, con su evidencia y la fecha si la hay. */
+  // ── Modo conversación: el guion ──────────────────────────────────────────────────────────────
+  // La app pregunta primero y encadena turnos. Los pasos guiados NO gastan motor: son reglas
+  // locales sobre el lienzo (0 tokens). Lo que no es del guion cae al motor, como siempre.
+  const [convPaso, setConvPaso] = useState<'idea' | 'ramas' | 'preguntas' | 'libre'>('idea');
+  const convNodoRef = useRef<string | null>(null);
+
+  /** La primera frase de la conversación. */
+  const inicioConversacion = useCallback(() => {
+    setConvPaso('idea');
+    convNodoRef.current = null;
+    return '¿Qué idea querés explorar hoy?';
+  }, []);
+
+  /** Un turno hablado: devuelve qué decir, si termina, y si hay que pedirle el plan al motor. */
+  const turnoConversacion = useCallback(
+    async (texto: string): Promise<{ decir: string; fin?: boolean; alMotor?: boolean }> => {
+      const limpio = texto.trim();
+      const ES_CORTE = /^\s*(cort[aá]|chau|adi[oó]s|gracias|nada m[aá]s|suficiente|terminemos|paramos)\b/i;
+      const ES_SI = /^\s*(s[ií]|dale|ok|okey|vale|claro|obvio|por supuesto|perfecto|de una|vamos|hacelo|hac[eé]lo|yes)\b/i;
+      if (ES_CORTE.test(limpio)) {
+        return { decir: 'Listo. Todo lo que hicimos quedó guardado en tu lienzo.', fin: true };
+      }
+      if (convPaso === 'idea') {
+        // Capturar: la idea nace como nodo del lienzo (visible al instante, sin motor).
+        const id = `node-conv-${Date.now()}`;
+        const titulo = limpio.length > 120 ? `${limpio.slice(0, 117)}…` : limpio;
+        const nuevo: CustomNode = {
+          id,
+          type: 'ideaNode',
+          position: posicionLibre(nodes, { x: 220, y: 160 }),
+          data: {
+            id,
+            title: titulo,
+            description: limpio,
+            category: 'VOZ',
+            label: 'VOZ',
+            tags: ['Voz', 'Conversación'],
+            colorAccent: '#22d3ee',
+            maturity: 1,
+            madurezEn: new Date().toISOString(),
+          },
+        };
+        setNodes((nds) => [...nds, nuevo]);
+        convNodoRef.current = id;
+        setConvPaso('ramas');
+        return { decir: `Idea creada: ${titulo}. ¿Querés que explore ramificaciones para esa idea?` };
+      }
+      const nodoId = convNodoRef.current;
+      const nodo = nodes.find((n) => n.id === nodoId);
+      if (convPaso === 'ramas') {
+        setConvPaso('preguntas');
+        if (ES_SI.test(limpio) && nodoId && nodo) {
+          handleAIActionRef.current?.('branch', nodoId, nodo.data);
+          return {
+            decir: 'Listo, te dejé las ramas conectadas a esa idea. ¿Querés que te haga preguntas para destrabarla?',
+          };
+        }
+        return { decir: 'Dale. ¿Querés que te haga preguntas para destrabarla?' };
+      }
+      if (convPaso === 'preguntas') {
+        setConvPaso('libre');
+        if (ES_SI.test(limpio) && nodoId && nodo) {
+          handleAIActionRef.current?.('socratic', nodoId, nodo.data);
+          return {
+            decir: 'Ahí van las preguntas: quedan abiertas para que las respondas. ¿Qué más querés hacer?',
+          };
+        }
+        return {
+          decir:
+            'Perfecto. Decime qué querés: puedo crear otra idea, responder una pregunta abierta o limpiar el lienzo.',
+        };
+      }
+      // Paso libre: lo que no es del guion se resuelve con el motor, como un dictado normal.
+      return { decir: '', alMotor: true };
+    },
+    [convPaso, nodes]
+  );
+
+  /** Aplica un cambio de fase, con su evidencia y la fecha si la hay. */
    const aplicarMadurez = useCallback(
      (nodoId: string, nivel: IdeaMaturityLevel, evidenciaTexto?: string) => {
        takeSnapshot(nodes, edges);
@@ -4553,6 +4630,8 @@ export default function App() {
           const p = nodes.find((n) => n.id === id);
           if (p) handleResponderPregunta(p, texto);
         }}
+        onInicioConversacion={inicioConversacion}
+        onTurnoConversacion={turnoConversacion}
       />
 
       <LinajeModal
