@@ -27,7 +27,9 @@ tauri-plugin-single-instance = "2"
 axum = "0.8"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"] }
 tower-http = { version = "0.6", features = ["cors"] }
-reqwest = { version = "0.12", features = ["json"] }
+# `stream` habilita `bytes_stream()`: la voz local se baja de a chunks con progreso, en vez de
+# sostener 390 MB en memoria.
+reqwest = { version = "0.12", features = ["json", "stream"] }
 notify = "6"
 tauri-plugin-updater = "2.11.0"
 tauri-plugin-process = "2.3.1"
@@ -36,3 +38,8 @@ tauri-plugin-process = "2.3.1"
 # Así se perdieron 4 claves en la migración del 15/09 — el test `el_llavero_real_persiste_de_verdad`
 # es el candado que impide que vuelva a pasar.
 keyring = { version = "3.6.3", default-features = false, features = ["windows-native"] }
+# Para la voz local descargable: hash del paquete y descarga con progreso. Las tres ya venían en el
+# árbol de dependencias (reqwest/tokio), así que declararlas no agrega descargas.
+sha2 = "0.10"
+hex = "0.4"
+futures-util = "0.3"

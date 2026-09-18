@@ -25,6 +25,7 @@ mod sesiones;
 mod stt;
 mod vault;
 mod voz;
+mod voz_local;
 
 use std::path::PathBuf;
 use tauri::Manager;
@@ -105,6 +106,16 @@ pub fn run() {
                 data_dir.display(),
                 if key.is_some() { "presente" } else { "ausente" }
             );
+
+            // La voz local (Kokoro), si está descargada, se arranca sola: es lo que reemplaza al
+            // `.vbs` de la máquina de desarrollo, que tenía una ruta absoluta dentro y no servía en
+            // ninguna otra PC. Si no está instalada, no pasa nada: el panel usa la voz del sistema.
+            if voz_local::instalada(&data_dir) && !voz_local::corriendo() {
+                match voz_local::arrancar(&data_dir) {
+                    Ok(m) => log::info!("voz local: {m}"),
+                    Err(e) => log::warn!("voz local: {e}"),
+                }
+            }
 
             // Fase 3: el vault en disco es la fuente de verdad (y se observa para cambios externos)
             let vault = vault::Vault::new(&data_dir);

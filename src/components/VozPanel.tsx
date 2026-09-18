@@ -89,6 +89,42 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
   const [continuo, setContinuo] = useState(false);
   // Quién habla: Kokoro local o la voz del sistema (fallback). Es DATO, se declara.
   const [motorVoz, setMotorVoz] = useState<'kokoro' | 'sistema'>('kokoro');
+  // La voz local es un paquete descargable: acá vive su estado y su progreso.
+  const [bajando, setBajando] = useState(false);
+  const [motorLocal, setMotorLocal] = useState<{
+    instalada: boolean;
+    corriendo: boolean;
+    en_curso: boolean;
+    tamano_descarga: string;
+    progreso?: { fase: string; bajado: number; total: number; error?: string | null } | null;
+  } | null>(null);
+  const cargarMotorLocal = useCallback(async () => {
+    try {
+      const r = await (await fetch(apiUrl('/api/voz/motor/estado'))).json();
+      setMotorLocal(r.motor);
+      setBajando(!!r.motor?.en_curso);
+    } catch {
+      /* sin backend no hay estado que mostrar */
+    }
+  }, []);
+  useEffect(() => {
+    if (isOpen) void cargarMotorLocal();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+  useEffect(() => {
+    if (!isOpen || !bajando) return;
+    const t = window.setInterval(() => void cargarMotorLocal(), 2500);
+    return () => window.clearInterval(t);
+  }, [isOpen, bajando, cargarMotorLocal]);
+  const instalarMotorLocal = async () => {
+    setBajando(true);
+    try {
+      await fetch(apiUrl('/api/voz/motor/instalar'), { method: 'POST' });
+    } catch {
+      /* el estado lo dirá */
+    }
+    await cargarMotorLocal();
+  };
   const [pasoConv, setPasoConv] = useState('idea');
   // Plan esperando la aprobación hablada («¿lo aplico?» → «dale»).
   const [planPendiente, setPlanPendiente] = useState(false);
@@ -543,6 +579,76 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
             )}
             <span className="text-[11px] text-slate-500">{servicio?.codec} · latencia objetivo &lt; 1 s</span>
           </div>
+
+          {/* Voz local (Kokoro) como paquete descargable: el instalador es chico a propósito. */}
+          {motorLocal && (
+            <div className="rounded-xl border border-slate-800 bg-slate-950/40 px-3.5 py-3 space-y-2">
+              <div className="flex items-center gap-2">
+                <Volume2 size={13} className="text-cyan-400" />
+                <span className="text-[11px] font-semibold text-slate-200">Voz local (Kokoro)</span>
+                <span
+                  className={`ml-auto text-[9px] font-mono px-1.5 py-0.5 rounded border ${
+                    motorLocal.corriendo
+                      ? 'border-emerald-700/50 text-emerald-300'
+                      : motorLocal.instalada
+                      ? 'border-amber-700/50 text-amber-300'
+                      : 'border-slate-700 text-slate-400'
+                  }`}
+                >
+                  {motorLocal.corriendo ? 'sonando' : motorLocal.instalada ? 'instalada' : 'no instalada'}
+                </span>
+              </div>
+              {motorLocal.en_curso && motorLocal.progreso ? (
+                <div>
+                  <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                    <div
+                      className="h-full bg-cyan-500 transition-[width]"
+                      style={{
+                        width: `${
+                          motorLocal.progreso.total
+                            ? Math.min(
+                                100,
+                                Math.round((motorLocal.progreso.bajado / motorLocal.progreso.total) * 100)
+                              )
+                            : 8
+                        }%`,
+                      }}
+                    />
+                  </div>
+                  <p className="text-[10px] text-slate-500 mt-1">
+                    {motorLocal.progreso.fase} ·{' '}
+                    {(motorLocal.progreso.bajado / 1024 / 1024).toFixed(0)} MB de{' '}
+                    {motorLocal.progreso.total
+                      ? `${(motorLocal.progreso.total / 1024 / 1024).toFixed(0)} MB`
+                      : '—'}
+                  </p>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    id="btn-voz-motor-instalar"
+                    onClick={instalarMotorLocal}
+                    className="px-2.5 py-1.5 rounded-lg text-[11px] bg-cyan-600/20 border border-cyan-500/40 text-cyan-100 hover:bg-cyan-600/30 cursor-pointer"
+                  >
+                    {motorLocal.instalada
+                      ? 'Arrancar y verificar'
+                      : `Descargar e instalar (${motorLocal.tamano_descarga})`}
+                  </button>
+                  <span className="text-[10px] text-slate-500 leading-tight">
+                    {motorLocal.instalada
+                      ? 'Kokoro corre en tu placa: sin cuotas y sin que el texto salga de la máquina.'
+                      : 'Opcional. Mientras tanto habla la voz del sistema, que ya está en Windows.'}
+                  </span>
+                </div>
+              )}
+              {motorLocal.progreso?.error && (
+                <p className="text-[10px] text-amber-300">
+                  La descarga falló: {motorLocal.progreso.error}. Podés reintentar.
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Transcripción viva */}
           <div className="bg-slate-900/70 border border-slate-700 rounded-xl p-3.5 min-h-[110px] max-h-[200px] overflow-y-auto">

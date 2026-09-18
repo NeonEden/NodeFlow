@@ -297,6 +297,9 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
         .route("/api/expertos/guardar", post(expertos_guardar))
         .route("/api/mcp/estado", get(mcp_estado))
         .route("/api/mcp/instalar", post(mcp_instalar))
+        .route("/api/voz/motor/estado", get(voz_motor_estado))
+        .route("/api/voz/motor/instalar", post(voz_motor_instalar))
+        .route("/api/voz/motor/arrancar", post(voz_motor_arrancar))
             .route("/api/expert/run", post(experto_run))
             .route("/api/knowledge/preview", post(knowledge_preview))
             .route("/api/knowledge/capture", post(knowledge_capture))
@@ -5004,6 +5007,57 @@ async fn export_json(State(st): State<AppState>) -> impl IntoResponse {
 // ─────────────────────────────────────────────────────────────────────────────
 // Slice 1 — Expertos y Contrato de Artefactos
 // ─────────────────────────────────────────────────────────────────────────────
+
+    /// `GET /api/voz/motor/estado` — la voz local (Kokoro): si está instalada, si está corriendo y
+    /// cuánto lleva la descarga. Arranca el servidor si hace falta (es idempotente y barato).
+    async fn voz_motor_estado(State(st): State<AppState>) -> impl IntoResponse {
+        if crate::voz_local::instalada(&st.data_dir) && !crate::voz_local::corriendo() {
+            let _ = crate::voz_local::arrancar(&st.data_dir);
+        }
+        Json(json!({ "success": true, "motor": crate::voz_local::estado(&st.data_dir) }))
+    }
+
+    /// `POST /api/voz/motor/instalar` — baja el runtime (80 MB) y el modelo (325 MB), verifica el
+    /// hash, despliega y arranca. **No bloquea**: la descarga corre en segundo plano y el panel sigue
+    /// el progreso con `voz.instalacion.json` (una petición abierta cinco minutos no es una opción).
+    async fn voz_motor_instalar(State(st): State<AppState>) -> impl IntoResponse {
+        if crate::voz_local::corriendo() && crate::voz_local::instalada(&st.data_dir) {
+            return (
+                StatusCode::OK,
+                Json(json!({ "success": true, "ya_estaba": true, "motor": crate::voz_local::estado(&st.data_dir) })),
+            );
+        }
+        if crate::voz_local::en_curso(&st.data_dir) {
+            return (
+                StatusCode::CONFLICT,
+                Json(json!({
+                    "success": false,
+                    "ocupado": true,
+                    "error": "ya hay una descarga de la voz local en curso"
+                })),
+            );
+        }
+        let (zip_url, modelo_url) = crate::voz_local::urls(&st.data_dir);
+        let data_dir = st.data_dir.clone();
+        tokio::spawn(async move {
+            match crate::voz_local::instalar(data_dir, zip_url, modelo_url).await {
+                Ok(m) => log::info!("voz local: instalada · {m}"),
+                Err(e) => log::warn!("voz local: la instalación falló · {e}"),
+            }
+        });
+        (
+            StatusCode::OK,
+            Json(json!({ "success": true, "iniciada": true, "motor": crate::voz_local::estado(&st.data_dir) })),
+        )
+    }
+
+    /// `POST /api/voz/motor/arrancar` — arranca el servidor de voz ya instalado (sin ventana).
+    async fn voz_motor_arrancar(State(st): State<AppState>) -> impl IntoResponse {
+        match crate::voz_local::arrancar(&st.data_dir) {
+            Ok(m) => (StatusCode::OK, Json(json!({ "success": true, "mensaje": m }))),
+            Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "success": false, "error": e }))),
+        }
+    }
 
 /// Dónde quedó el servidor MCP. El instalador lo copia junto al ejecutable (Tauri respeta la
 /// estructura relativa del proyecto); en desarrollo vive en el repo, un nivel arriba de `src-tauri`.
