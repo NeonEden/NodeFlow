@@ -52,7 +52,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/estado":
             self._json(200, {"ok": True, "modelo": os.path.basename(MODELO), "voz": VOZ, "idioma": IDIOMA,
-                             "voces_es": ["ef_dora", "em_alex", "em_santa"]})
+                             "voces_es": ["ef_dora", "em_alex", "em_santa"],
+                             "voces_en": ["af_bella", "af_heart", "am_michael"],
+                             "idiomas": {"es": "es", "en": "en-us"}})
         else:
             self.send_error(404)
 
@@ -73,11 +75,17 @@ class Handler(BaseHTTPRequestHandler):
         try:
             import soundfile as sf
 
+            # La app manda el idioma como lo conoce ("en", "es"); espeak-ng —el fonemizador de
+            # Kokoro— pide el dialecto ("en-us"). Sin este puente, con la app en inglés TODA síntesis
+            # falla con «language "en" is not supported by the espeak backend» (medido 18/09: el
+            # backend lo convertía en 502 y la voz parecía desconectada).
+            lang = (pedido.get("idioma") or IDIOMA).strip().lower()
+            lang = {"en": "en-us", "en-gb": "en-gb", "es": "es", "es-419": "es"}.get(lang, lang)
             muestras, sr = KOKORO.create(
                 texto,
                 voice=pedido.get("voz") or VOZ,
                 speed=float(pedido.get("velocidad", 1.0)),
-                lang=pedido.get("idioma") or IDIOMA,
+                lang=lang,
             )
             buf = io.BytesIO()
             sf.write(buf, muestras, sr, format="WAV")
