@@ -141,6 +141,36 @@ export async function pedirPlanVoz(texto: string): Promise<PlanVozRespuesta> {
   return { plan, modelo: d.modelUsed || '', uso: d.uso || {} };
 }
 
+/**
+ * Voz del sistema (WebView2 → voces SAPI de Windows): **cero bytes, siempre disponible**.
+ *
+ * Es la red de seguridad para que la app hable en una PC recién instalada, donde Kokoro no existe.
+ * Suena peor que Kokoro, pero hablar con voz prestada es mejor que no hablar: el fallback se usa
+ * sólo si la voz local no responde, y el panel lo declara.
+ */
+export function hablarConElSistema(texto: string, idioma: string): Promise<void> {
+  return new Promise((resolve) => {
+    try {
+      const s = window.speechSynthesis;
+      if (!s) {
+        resolve();
+        return;
+      }
+      s.cancel();
+      const u = new SpeechSynthesisUtterance(texto);
+      u.lang = idioma === 'en' ? 'en-US' : 'es-AR';
+      u.rate = 1.02;
+      const voz = s.getVoices().find((x) => (x.lang || '').toLowerCase().startsWith(u.lang.slice(0, 2)));
+      if (voz) u.voice = voz;
+      u.onend = () => resolve();
+      u.onerror = () => resolve();
+      s.speak(u);
+    } catch {
+      resolve();
+    }
+  });
+}
+
 /** Pide la voz local (Kokoro) y devuelve el audio listo para reproducir. */
 export async function decir(texto: string): Promise<Blob> {
   const r = await fetch(apiUrl('/api/voz/decir'), {

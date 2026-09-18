@@ -3,7 +3,7 @@ import { X, Mic, Square, Loader2, Sparkles, Check, AlertTriangle, Wand2, Target,
 import { type EstadoVoz } from '../services/speechmaticsRt';
 import { crearClienteStt, type ClienteStt } from '../services/sttRt';
 import { apiUrl } from '../services/apiBase';
-import { getVozEstado, getVozJwt, pedirPlanVoz, describirComando, decir, VozEstado, PlanVoz, VozComando } from '../services/vozService';
+import { getVozEstado, getVozJwt, pedirPlanVoz, describirComando, decir, hablarConElSistema, VozEstado, PlanVoz, VozComando } from '../services/vozService';
 import { useIdioma } from '../i18n/useIdioma';
 
 interface VozPanelProps {
@@ -87,6 +87,8 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
   const [modoRespuesta, setModoRespuesta] = useState<{ id: string; titulo: string } | null>(null);
   // Modo conversación: turnos encadenados. La app pregunta, escucha, actúa, vuelve a preguntar.
   const [continuo, setContinuo] = useState(false);
+  // Quién habla: Kokoro local o la voz del sistema (fallback). Es DATO, se declara.
+  const [motorVoz, setMotorVoz] = useState<'kokoro' | 'sistema'>('kokoro');
   const [pasoConv, setPasoConv] = useState('idea');
   // Plan esperando la aprobación hablada («¿lo aplico?» → «dale»).
   const [planPendiente, setPlanPendiente] = useState(false);
@@ -166,11 +168,19 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
     if (!texto.trim()) return;
     setHablando(true);
     try {
-      const audio = await decir(texto);
-      const url = URL.createObjectURL(audio);
-      const el = new Audio(url);
-      el.onended = () => URL.revokeObjectURL(url);
-      await el.play();
+      // Primero la voz local (Kokoro). Si esa PC no la tiene —una instalación limpia nunca la
+      // tiene—, habla la voz del sistema: la app no queda muda en ninguna máquina.
+      const audio = await decir(texto).catch(() => null);
+      if (audio) {
+        if (motorVoz !== 'kokoro') setMotorVoz('kokoro');
+        const url = URL.createObjectURL(audio);
+        const el = new Audio(url);
+        el.onended = () => URL.revokeObjectURL(url);
+        await el.play();
+      } else {
+        if (motorVoz !== 'sistema') setMotorVoz('sistema');
+        await hablarConElSistema(texto, servicio?.idioma || 'es');
+      }
     } catch (e: any) {
       // Que la voz falle no rompe nada: el lienzo ya cambió y el texto está en pantalla.
       setError((previo) => previo || `Voz: ${e?.message || 'no pude reproducir'}`);
@@ -524,7 +534,11 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
             </button>
             {servicio?.tts && (
               <span className={`text-[11px] ${servicio.tts.disponible ? 'text-slate-400' : 'text-amber-300'}`}>
-                {servicio.tts.disponible ? `${servicio.tts.motor} ✓` : 'voz local no disponible'}
+                {servicio.tts.disponible
+                  ? `${servicio.tts.motor} ✓`
+                  : motorVoz === 'sistema'
+                  ? 'voz del sistema (Kokoro no está en esta PC)'
+                  : 'Kokoro no disponible · habla la voz del sistema'}
               </span>
             )}
             <span className="text-[11px] text-slate-500">{servicio?.codec} · latencia objetivo &lt; 1 s</span>
