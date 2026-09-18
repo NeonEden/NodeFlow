@@ -356,6 +356,13 @@ pub async fn listar(
         mensaje: format!("la respuesta de ARM no tiene la forma esperada: {e}"),
     })?;
 
+    Ok(modelos_de_pagina(&pagina))
+}
+
+/// Parte **pura** del listado: `value[]` se parsea entrada por entrada, así un despliegue con forma
+/// rara se cuenta como ignorado en vez de tirar abajo la lista completa. Vive aparte para poder
+/// probarla sin red y sin token.
+fn modelos_de_pagina(pagina: &Pagina) -> (Vec<Modelo>, usize, Option<String>) {
     let mut modelos = Vec::with_capacity(pagina.value.len());
     let mut ignorados = 0usize;
     for entrada in &pagina.value {
@@ -369,9 +376,10 @@ pub async fn listar(
     }
     let siguiente = pagina
         .siguiente
+        .as_ref()
         .filter(|s| !s.trim().is_empty())
         .map(|s| s.trim().to_string());
-    Ok((modelos, ignorados, siguiente))
+    (modelos, ignorados, siguiente)
 }
 
 /// Traduce el fallo de ARM a algo accionable (y sin filtrar el token, que no viaja en el cuerpo).
@@ -656,4 +664,265 @@ pub async fn consultar(
         siguiente,
         modelos,
     }))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tests — todo lo puro: armado de URL, cascada de configuración, parseo tolerante
+// de ARM y traducción de errores. Sin red, sin token y sin CLI de Azure.
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn destino() -> Destino {
+        Destino::nuevo("sub-1", "rg-x", "cuenta-y").expect("destino válido")
+    }
+
+    /// ¿Esta máquina tiene las variables de entorno que pisan al config? Si las tiene, el entorno
+    /// gana **por diseño** y los tests de cascada no aplican: no es un fallo del código.
+    fn el_entorno_pisa() -> bool {
+        [
+            "AZURE_SUBSCRIPTION_ID",
+            "NODEFLOW_AZURE_SUBSCRIPTION",
+            "AZURE_RESOURCE_GROUP",
+            "NODEFLOW_AZURE_RG",
+            "AZURE_COGNITIVE_ACCOUNT",
+            "NODEFLOW_AZURE_ACCOUNT",
+        ]
+        .iter()
+        .any(|k| std::env::var(k).map(|v| !v.trim().is_empty()).unwrap_or(false))
+    }
+
+    // ── Destino ──────────────────────────────────────────────────────────────
+
+    #[test]
+    fn un_destino_vacio_dice_que_falta_y_donde_ponerlo() {
+        let e = Destino::nuevo("  ", "\"\"", "").unwrap_err();
+        let texto = e.to_string();
+        for campo in ["suscripcion", "grupo", "cuenta"] {
+            assert!(texto.contains(campo), "el error tiene que nombrar «{campo}»: {texto}");
+        }
+        assert!(
+            texto.contains("nodeflow.config.json"),
+            "tiene que decir dónde configurarlo: {texto}"
+        );
+        assert_eq!(e.codigo(), 400, "lo que le falta al usuario es 400, no 502");
+    }
+
+    #[test]
+    fn el_destino_saca_espacios_y_comillas_de_lo_pegado() {
+        // Pegar desde el portal arrastra comillas y espacios: no puede romper la ruta.
+        let d = Destino::nuevo("  \"sub-1\" ", "\trg-x\n", " cuenta-y ").unwrap();
+        assert_eq!(d.suscripcion, "sub-1");
+        assert_eq!(d.grupo, "rg-x");
+        assert_eq!(d.cuenta, "cuenta-y");
+    }
+
+    #[test]
+    fn la_url_arma_la_ruta_de_arm_con_la_version_pedida() {
+        assert_eq!(
+            destino().url("2024-10-01"),
+            "https://management.azure.com/subscriptions/sub-1/resourceGroups/rg-x/providers/\
+             Microsoft.CognitiveServices/accounts/cuenta-y/deployments?api-version=2024-10-01"
+        );
+    }
+
+    #[test]
+    fn un_nombre_con_espacios_o_acentos_no_rompe_la_url() {
+        let d = Destino::nuevo("s", "mi grupo", "cuenta ñ").unwrap();
+        let url = d.url(API_VERSION);
+        assert!(
+            url.contains("resourceGroups/mi%20grupo"),
+            "el espacio va percent-encoded: {url}"
+        );
+        assert!(
+            url.contains("/accounts/cuenta%20%C3%B1"),
+            "el acento va percent-encoded: {url}"
+        );
+        assert!(!url.contains(' '), "no puede quedar un espacio crudo en la URL");
+    }
+
+    #[test]
+    fn codificar_deja_los_caracteres_seguros_y_escapa_el_resto() {
+        assert_eq!(codificar("aZ0-._~"), "aZ0-._~", "los seguros no se tocan");
+        assert_eq!(codificar("a/b"), "a%2Fb", "la barra se escapa: no puede cambiar la ruta");
+        assert_eq!(codificar("a:b"), "a%3Ab");
+        assert_eq!(codificar("a b"), "a%20b");
+    }
+
+    // ── Cascada de configuración ─────────────────────────────────────────────
+
+    #[test]
+    fn la_query_gana_sobre_todo_lo_demas() {
+        // Determinista: no depende de lo que haya configurado en esta máquina.
+        let dir = std::env::temp_dir().join("nf-azure-test-query");
+        let mut q = HashMap::new();
+        q.insert("suscripcion".to_string(), "  sub-q  ".to_string());
+        q.insert("grupo".to_string(), "rg-q".to_string());
+        q.insert("cuenta".to_string(), "cuenta-q".to_string());
+        let d = destino_desde(&dir, &q).unwrap();
+        assert_eq!(
+            (d.suscripcion.as_str(), d.grupo.as_str(), d.cuenta.as_str()),
+            ("sub-q", "rg-q", "cuenta-q")
+        );
+    }
+
+    #[test]
+    fn sin_query_cae_al_config_del_usuario() {
+        if el_entorno_pisa() {
+            return;
+        }
+        let dir = std::env::temp_dir().join("nf-azure-test-config");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("nodeflow.config.json"),
+            r#"{"azure":{"suscripcion":"sub-cfg","grupo":"rg-cfg","cuenta":"cuenta-cfg"}}"#,
+        )
+        .unwrap();
+        let d = destino_desde(&dir, &HashMap::new()).unwrap();
+        assert_eq!(
+            (d.suscripcion.as_str(), d.grupo.as_str(), d.cuenta.as_str()),
+            ("sub-cfg", "rg-cfg", "cuenta-cfg")
+        );
+    }
+
+    #[test]
+    fn sin_nada_configurado_el_error_lo_explica() {
+        if el_entorno_pisa() {
+            return;
+        }
+        let dir = std::env::temp_dir().join("nf-azure-test-vacio");
+        let _ = std::fs::create_dir_all(&dir);
+        let _ = std::fs::remove_file(dir.join("nodeflow.config.json"));
+        let e = destino_desde(&dir, &HashMap::new()).unwrap_err();
+        assert!(e.to_string().contains("faltan datos de Azure"), "{e}");
+    }
+
+    // ── Parseo tolerante de la respuesta de ARM ──────────────────────────────
+
+    /// Forma real del listado de ARM (recortada), más tres entradas que NO tienen que entrar.
+    const PAGINA_REAL: &str = r#"{
+      "value": [
+        {
+          "id": "/subscriptions/s/resourceGroups/rg/providers/Microsoft.CognitiveServices/accounts/a/deployments/gpt-5-mini",
+          "name": "gpt-5-mini",
+          "sku": { "name": "GlobalStandard", "capacity": 50 },
+          "properties": {
+            "provisioningState": "Succeeded",
+            "model": { "format": "OpenAI", "name": "gpt-5-mini", "version": "2025-08-07" },
+            "raiPolicyName": "Microsoft.Default"
+          }
+        },
+        {
+          "name": "text-embedding-3-small",
+          "sku": { "name": "Standard", "capacity": "120" }
+        },
+        { "name": "   " },
+        { "sin": "nombre" }
+      ],
+      "nextLink": "https://management.azure.com/.../deployments?$skipToken=abc"
+    }"#;
+
+    fn leer(cuerpo: &str) -> (Vec<Modelo>, usize, Option<String>) {
+        let pagina: Pagina = serde_json::from_str(cuerpo).expect("la página tiene que parsear");
+        modelos_de_pagina(&pagina)
+    }
+
+    #[test]
+    fn la_pagina_real_de_arm_se_lee_entera() {
+        let (modelos, ignorados, siguiente) = leer(PAGINA_REAL);
+        assert_eq!(modelos.len(), 2, "los dos despliegues con nombre entran");
+        assert_eq!(modelos[0].despliegue, "gpt-5-mini");
+        assert_eq!(modelos[0].modelo, "gpt-5-mini");
+        assert_eq!(modelos[0].version.as_deref(), Some("2025-08-07"));
+        assert_eq!(modelos[0].formato.as_deref(), Some("OpenAI"));
+        assert_eq!(modelos[0].estado.as_deref(), Some("Succeeded"));
+        assert_eq!(modelos[0].sku.as_deref(), Some("GlobalStandard"));
+        assert_eq!(modelos[0].capacidad, Some(50));
+        assert_eq!(modelos[0].politica.as_deref(), Some("Microsoft.Default"));
+        assert!(modelos[0]
+            .recurso
+            .as_deref()
+            .unwrap()
+            .ends_with("/gpt-5-mini"));
+        assert_eq!(
+            ignorados, 2,
+            "sin nombre (o en blanco) se cuenta como ignorado, no se inventa"
+        );
+        assert!(siguiente.is_some(), "ARM pagina: hay que reportarlo");
+    }
+
+    #[test]
+    fn una_entrada_deforme_no_tira_abajo_la_lista() {
+        // El invariante del módulo: `value[]` se parsea entrada por entrada.
+        let (modelos, ignorados, _) = leer(r#"{"value":[{"name":"bueno"}, 42, {"name":"otro"}]}"#);
+        assert_eq!(modelos.len(), 2, "las buenas sobreviven");
+        assert_eq!(ignorados, 1, "la deforme se cuenta");
+    }
+
+    #[test]
+    fn capacity_como_texto_o_numero_da_lo_mismo() {
+        // Medido: algún backend manda la capacidad como string.
+        let (modelos, _, _) = leer(PAGINA_REAL);
+        assert_eq!(modelos[1].capacidad, Some(120), "capacity \"120\" tiene que leerse como 120");
+    }
+
+    #[test]
+    fn una_capacidad_ilegible_no_convierte_el_despliegue_en_ignorado() {
+        let (modelos, ignorados, _) = leer(r#"{"value":[{"name":"x","sku":{"capacity":"muchos"}}]}"#);
+        assert_eq!(modelos.len(), 1);
+        assert_eq!(ignorados, 0, "un campo raro no borra un despliegue que sí tiene nombre");
+        assert_eq!(modelos[0].capacidad, None);
+    }
+
+    #[test]
+    fn un_value_vacio_es_una_lista_vacia_y_no_un_error() {
+        let (modelos, ignorados, siguiente) = leer(r#"{"value":[]}"#);
+        assert!(modelos.is_empty());
+        assert_eq!(ignorados, 0);
+        assert!(siguiente.is_none());
+    }
+
+    #[test]
+    fn un_nextlink_en_blanco_no_afirma_que_haya_mas() {
+        let (_, _, siguiente) = leer(r#"{"value":[],"nextLink":"   "}"#);
+        assert!(siguiente.is_none(), "un nextLink en blanco no es paginación");
+    }
+
+    // ── Traducción de errores ────────────────────────────────────────────────
+
+    #[test]
+    fn el_401_dice_que_hacer_y_trae_el_detalle() {
+        let m = mensaje_de_arm(
+            401,
+            r#"{"error":{"code":"InvalidAuthenticationToken","message":"token vencido"}}"#,
+        );
+        assert!(m.contains("az login"), "tiene que decir qué correr: {m}");
+        assert!(m.contains("InvalidAuthenticationToken"), "y traer el detalle: {m}");
+    }
+
+    #[test]
+    fn cada_estado_de_arm_se_traduce_a_algo_accionable() {
+        assert!(mensaje_de_arm(403, "{}").contains("Lector"));
+        assert!(mensaje_de_arm(404, "{}").contains("no existe"));
+        assert!(mensaje_de_arm(429, "{}").contains("limitando"));
+        assert!(mensaje_de_arm(500, "{}").contains("500"));
+    }
+
+    #[test]
+    fn un_error_sin_json_igual_da_un_mensaje_legible() {
+        // Medido: una puerta corporativa puede contestar HTML en vez de JSON.
+        let m = detalle_arm("<html><body>502 Bad Gateway</body></html>");
+        assert!(m.contains("502 Bad Gateway"));
+    }
+
+    #[test]
+    fn el_recorte_corta_el_html_largo_y_lo_marca() {
+        let html = "x".repeat(4000);
+        let r = recorte(&html);
+        assert_eq!(r.chars().count(), 301, "300 + el carácter de corte");
+        assert!(r.ends_with('…'));
+        assert_eq!(recorte("  corto  "), "corto", "lo corto se recorta de espacios, no de largo");
+    }
 }
