@@ -329,6 +329,7 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
             .route("/api/cerebro/gateway/parar", post(cerebro_gateway_parar))
             .route("/api/agent/approve", post(agent_approve))
             .route("/api/agent/reject", post(agent_reject))
+            .route("/api/azure/modelos", get(azure_modelos))
             .with_state(state)
             .layer(cors);
 
@@ -2814,6 +2815,27 @@ async fn claves_migrar(State(st): State<AppState>) -> impl IntoResponse {
         Err(e) => (
             StatusCode::BAD_REQUEST,
             Json(json!({ "ok": false, "error": e })),
+        ),
+    }
+}
+
+/// `GET /api/azure/modelos` — qué modelos hay **desplegados** en la cuenta de Azure AI (plano de
+/// gestión ARM). Query: `suscripcion`, `grupo`, `cuenta` (si no vienen, se resuelven del entorno o de
+/// `nodeflow.config.json`) y `refrescar` para descartar el token cacheado tras un `az login`.
+///
+/// El token nunca sale de acá: lo resuelve `azure` (caché → token pegado → CLI) y sólo se devuelve el
+/// catálogo. Falla con `ok:false` y el motivo cuando falta config o credencial, en vez de devolver una
+/// lista vacía que parezca «no hay modelos».
+async fn azure_modelos(
+    State(st): State<AppState>,
+    Query(q): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let refrescar = q.contains_key("refrescar");
+    match crate::azure::consultar(&st.http, &st.data_dir, &q, refrescar).await {
+        Ok(v) => (StatusCode::OK, Json(v)),
+        Err(e) => (
+            StatusCode::from_u16(e.codigo()).unwrap_or(StatusCode::BAD_GATEWAY),
+            Json(json!({ "ok": false, "error": e.to_string() })),
         ),
     }
 }

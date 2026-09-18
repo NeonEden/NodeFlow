@@ -1,5 +1,6 @@
 mod agente;
 mod artefactos;
+mod azure;
 mod borrador;
 mod cerebro;
 mod cerebro_arquitectura;
