@@ -275,12 +275,6 @@ pub fn prompt_turno(pedido: &str, c: &Contexto) -> String {
     p.push_str("Sos el motor profundo de NodeFlow, un lienzo visual de ideas que vive en la bóveda del usuario.\n");
     p.push_str(&format!("Pedido del usuario: {pedido}\n\n"));
     p.push_str(&briefing_texto(c));
-    // El estado de ahora (nodos, aristas, pendientes) va **acá**, no dentro del briefing: el briefing es
-    // el bloque estable que el agente manda en el `system` (el prefijo que el proveedor cachea) y un
-    // contador que se mueve en cada turno tira esa caché. Este prompt es un mensaje de usuario, así que
-    // puede llevarlo sin costo.
-    p.push_str(&estado_volatil(c));
-    p.push('\n');
     if !c.memoria.is_empty() {
         p.push_str(
             "\nRecuerdo dirigido (notas de la bóveda que la memoria consideró relevantes):\n",
@@ -318,10 +312,10 @@ pub fn briefing_texto(c: &Contexto) -> String {
     if let Some(n) = c.norte.as_deref().filter(|n| !n.trim().is_empty()) {
         p.push_str(&format!("Visión del proyecto (Norte Estratégico): {n}\n"));
     }
-    // OJO: acá **no** va nada que cambie entre turnos. El briefing viaja en el `system`, que es el
-    // prefijo que el proveedor cachea: un contador que se mueve (nodos, aristas, pendientes) invalida
-    // la caché de todo lo que viene detrás. El estado de ahora lo arma `estado_volatil()` y va al
-    // final del mensaje del usuario.
+    p.push_str(&format!(
+        "Lienzo ahora: {} nodos · {} aristas · {} propuesta(s) esperando aprobación del humano.\n",
+        c.nodos, c.aristas, c.pendientes
+    ));
     let linea = |p: &mut String, rotulo: &str, xs: &[String], tope: usize| {
         if xs.is_empty() {
             return;
@@ -356,19 +350,7 @@ pub fn briefing_texto(c: &Contexto) -> String {
     p
 }
 
-/// El **estado de ahora**, que sí cambia entre turnos: tamaño del lienzo y propuestas en cola.
-///
-/// Va al **final del mensaje del usuario**, nunca en el `system`: el system es el prefijo que el
-/// proveedor cachea y todo lo que cambie dentro de él tira la caché de lo que venga después (medido el
-/// 17/09: 80,8 % de la entrada venía de caché, a ~1/50 del precio).
-pub fn estado_volatil(c: &Contexto) -> String {
-    format!(
-        "Lienzo ahora: {} nodos · {} aristas · {} propuesta(s) esperando aprobación del humano.",
-        c.nodos, c.aristas, c.pendientes
-    )
-}
-
-/// Resumen del contexto usado, para guardarlo en `delegacion.json` y que el panel pueda mostrar **qué**
+/// Resumen del contexto usado, para guardarlo en `delegacion.json` y que el panel pueda mostrar **qué
 /// se le mandó** (transparencia: el prompt no es una caja negra).
 pub fn resumen_contexto(c: &Contexto) -> String {
     format!(
@@ -512,37 +494,6 @@ mod tests {
     }
 
     #[test]
-    fn el_briefing_no_lleva_nada_que_cambie_entre_turnos() {
-        // El briefing viaja en el `system`: es el prefijo que el proveedor cachea. Un contador que se
-        // mueve entre turnos (nodos, aristas, pendientes) invalidaba la caché de todo lo que venía
-        // después —y la caché era el 80,8 % de la entrada medida, a ~1/50 del precio—.
-        let a = Contexto {
-            norte: Some("Norte Estratégico · NodeFlow".into()),
-            nodos: 10,
-            aristas: 12,
-            pendientes: 0,
-            ..Contexto::default()
-        };
-        let b = Contexto {
-            nodos: 99,
-            aristas: 120,
-            pendientes: 7,
-            ..a.clone()
-        };
-        assert_eq!(
-            briefing_texto(&a),
-            briefing_texto(&b),
-            "el system tiene que ser byte a byte igual aunque el lienzo cambie"
-        );
-        assert!(
-            estado_volatil(&a).contains("10 nodos") && estado_volatil(&b).contains("99 nodos"),
-            "el estado de ahora sí dice el tamaño del lienzo: {} / {}",
-            estado_volatil(&a),
-            estado_volatil(&b)
-        );
-    }
-
-    #[test]
     fn el_prompt_lleva_vision_recuerdo_y_el_puntero_a_las_herramientas() {
         let c = Contexto {
             norte: Some("Norte Estratégico · NodeFlow".into()),
@@ -647,15 +598,7 @@ mod tests {
             b.contains("Arquitectura de la app") && b.contains("22 módulos"),
             "el mapa de la arquitectura viaja en el turno: {b}"
         );
-        assert!(
-            estado_volatil(&c).contains("42 nodos · 72 aristas · 2 propuesta(s)"),
-            "el estado de ahora viaja aparte: {}",
-            estado_volatil(&c)
-        );
-        assert!(
-            !b.contains("nodos ·"),
-            "el briefing tiene que quedar estable (sin contadores): {b}"
-        );
+        assert!(b.contains("42 nodos · 72 aristas · 2 propuesta(s)"));
         assert!(b.contains("- Caché semántica (nodos/cache.md)"));
         assert!(b.contains("Foco del hilo de diálogo: Fase 4 [n-ag-fase-4]"));
 

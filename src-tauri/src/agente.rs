@@ -779,12 +779,10 @@ pub async fn correr<F, Fut>(
     llamar: F,
 ) -> Turno
 where
-    F: Fn(Vec<Value>, std::sync::Arc<Vec<Value>>) -> Fut,
+    F: Fn(Vec<Value>, Vec<Value>) -> Fut,
     Fut: std::future::Future<Output = Result<Value, String>>,
 {
-    // Las definiciones se arman **una vez** por turno y viajan en un `Arc`: `tools` es constante, así que
-    // reconstruirlas y clonarlas enteras en cada vuelta (16 herramientas × 12 vueltas) era trabajo tirado.
-    let herramientas = std::sync::Arc::new(definiciones(cfg.comandos));
+    let herramientas = definiciones(cfg.comandos);
     let mut messages = vec![
         json!({ "role": "system", "content": sistema }),
         json!({ "role": "user", "content": pedido }),
@@ -1056,14 +1054,9 @@ mod tests {
     }
 
     /// Modelo de mentira: devuelve una secuencia de respuestas. El bucle no sabe de HTTP.
-    fn modelo(
-        respuestas: Vec<Value>,
-    ) -> impl Fn(
-        Vec<Value>,
-        std::sync::Arc<Vec<Value>>,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, String>>>> {
+    fn modelo(respuestas: Vec<Value>) -> impl Fn(Vec<Value>, Vec<Value>) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, String>>>> {
         let celda = std::sync::Arc::new(std::sync::Mutex::new(respuestas));
-        move |_m: Vec<Value>, _t: std::sync::Arc<Vec<Value>>| {
+        move |_m: Vec<Value>, _t: Vec<Value>| {
             let c = celda.clone();
             Box::pin(async move {
                 let mut g = c.lock().unwrap();

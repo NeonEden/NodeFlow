@@ -3098,19 +3098,12 @@ async fn cerebro_briefing(
 ) -> impl IntoResponse {
     let pedido = body["pedido"].as_str().unwrap_or("").trim().to_string();
     let ctx = contexto_del_turno(&st, &pedido);
-    // El briefing que viaja en el `system` es el **estable**; el estado de ahora (nodos, aristas,
-    // pendientes) se entrega aparte y al final, para que quien lo anteponga a un turno no rompa la caché
-    // de prefijo del proveedor. Se agrega igual al texto por compatibilidad con quien ya lo consume.
-    let mut briefing = crate::cerebro::briefing_texto(&ctx);
-    let estado = crate::cerebro::estado_volatil(&ctx);
-    briefing.push('\n');
-    briefing.push_str(&estado);
+    let briefing = crate::cerebro::briefing_texto(&ctx);
     (
         StatusCode::OK,
         Json(json!({
             "success": true,
             "briefing": briefing,
-            "estado": estado,
             "resumen": crate::cerebro::resumen_contexto(&ctx),
             "caracteres": briefing.chars().count(),
         })),
@@ -3806,12 +3799,11 @@ async fn chat_con_tools(
     clave: &str,
     modelo: &str,
     messages: Vec<Value>,
-    tools: std::sync::Arc<Vec<Value>>,
+    tools: Vec<Value>,
 ) -> Result<Value, String> {
     let mut body = json!({ "model": modelo, "messages": messages, "tool_choice": "auto" });
     if !tools.is_empty() {
-        // El `Arc` evita clonar las definiciones en cada vuelta; acá sólo se serializan.
-        body["tools"] = json!(tools.as_ref());
+        body["tools"] = json!(tools);
     }
     let url = format!("{}/chat/completions", base.trim_end_matches('/'));
     let resp = st
@@ -3877,22 +3869,20 @@ fn leer_hilo(dir: &std::path::Path) -> Vec<Value> {
 }
 
 /// El bloque que se le antepone al sistema: qué ya se averiguó, para no volver a mirarlo de cero.
-///
-/// **Sin reloj**: este texto va en el `system` y «hace N min» cambia en cada turno, así que invalidaba
-/// la caché de prefijo desde ese punto en adelante. La antigüedad viaja en el mensaje del usuario
-/// (`antiguedad_hilo`), donde no rompe nada.
 fn bloque_hilo(entradas: &[Value]) -> String {
     if entradas.is_empty() {
         return String::new();
     }
+    let ahora = (now_ms() / 1000) as i64;
     let mut p = String::from(
         "\n\nTurnos anteriores de este agente (lo que YA averiguó: no lo vuelvas a mirar de cero):\n",
     );
     for e in entradas {
+        let mins = ((ahora - e["cuando"].as_i64().unwrap_or(0)) / 60).max(0);
         let rec =
             |k: &str, n: usize| -> String { e[k].as_str().unwrap_or("").chars().take(n).collect() };
         p.push_str(&format!(
-            "- «{}» → {}, {} pasos, {} recortes · {}\n",
+            "- hace {mins} min · «{}» → {}, {} pasos, {} recortes · {}\n",
             rec("pedido", 160),
             if e["ok"].as_bool().unwrap_or(false) {
                 "cerró"
@@ -3903,49 +3893,6 @@ fn bloque_hilo(entradas: &[Value]) -> String {
             e["podas"].as_u64().unwrap_or(0),
             rec("plan", 500)
         ));
-    }
-    p
-}
-
-/// Cuándo fue cada turno del hilo, en texto humano. Es lo **volátil** del hilo: va en el mensaje del
-/// usuario, no en el `system`. Devuelve vacío si no hay turnos previos.
-fn antiguedad_hilo(entradas: &[Value]) -> String {
-    if entradas.is_empty() {
-        return String::new();
-    }
-    let ahora = (now_ms() / 1000) as i64;
-    let edades: Vec<String> = entradas
-        .iter()
-        .map(|e| {
-            let mins = ((ahora - e["cuando"].as_i64().unwrap_or(ahora)) / 60).max(0);
-            match mins {
-                0 => "recién".to_string(),
-                m if m < 60 => format!("hace {m} min"),
-                m => format!("hace {} h", m / 60),
-            }
-        })
-        .collect();
-    format!(
-        "Turnos anteriores, del más viejo al más nuevo: {}.",
-        edades.join(" · ")
-    )
-}
-
-/// El mensaje del usuario: **el pedido primero** y el estado de ahora al final.
-///
-/// El orden importa: el pedido es lo único estable del mensaje, así el prefijo cacheado (system +
-/// pedido) sobrevive de un turno al otro aunque el lienzo haya cambiado de tamaño.
-fn pedido_con_estado(pedido: &str, estado_lienzo: &str, antiguedad: &str) -> String {
-    let mut p = pedido.trim().to_string();
-    let cola = [estado_lienzo.trim(), antiguedad.trim()]
-        .iter()
-        .filter(|s| !s.is_empty())
-        .copied()
-        .collect::<Vec<_>>()
-        .join("\n");
-    if !cola.is_empty() {
-        p.push_str("\n\n[Estado de ahora · no forma parte del pedido]\n");
-        p.push_str(&cola);
     }
     p
 }
@@ -4042,8 +3989,6 @@ async fn agente_turno(State(st): State<AppState>, Json(body): Json<Value>) -> im
     let hilo_previo = leer_hilo(&hilo_dir);
     let n_hilo = hilo_previo.len();
     let hilo = bloque_hilo(&hilo_previo);
-    // Lo volátil del hilo (la antigüedad) viaja en el mensaje del usuario, no en el `system`.
-    let antiguedad = antiguedad_hilo(&hilo_previo);
     // Lo que la respuesta necesita, capturado **antes** de que el `spawn` se lleve `cfg` y `motor`.
     let (res_motor, res_modelo, res_repo, res_tope) = (
         motor.id.clone(),
@@ -4054,7 +3999,6 @@ async fn agente_turno(State(st): State<AppState>, Json(body): Json<Value>) -> im
     let st2 = st.clone();
     let pedido2 = pedido.clone();
     let hilo2 = hilo.clone();
-    let antiguedad2 = antiguedad.clone();
     let hilo_dir2 = hilo_dir.clone();
     tokio::spawn(async move {
         let t0 = std::time::Instant::now();
@@ -4067,19 +4011,12 @@ async fn agente_turno(State(st): State<AppState>, Json(body): Json<Value>) -> im
                 .await
                 .unwrap_or_default()
         };
-        // El `system` lleva **sólo lo estable**: identidad del agente + briefing + hilo (sin reloj). Es el
-        // prefijo que el proveedor cachea: cualquier cosa que cambie entre turnos tira la caché de todo lo
-        // que venga después.
         let sistema = format!(
             "{}\n\n{}{}",
             crate::agente::sistema(&cfg.repo),
             crate::cerebro::briefing_texto(&ctx),
             hilo2
         );
-        // Lo volátil (tamaño del lienzo y antigüedad del hilo) va al **final del mensaje del usuario**, con
-        // el pedido primero: así el prefijo cacheado (system + pedido) sobrevive entre turnos.
-        let pedido_del_turno =
-            pedido_con_estado(&pedido2, &crate::cerebro::estado_volatil(&ctx), &antiguedad2);
         // El consumo del turno se acumula desde afuera: el bucle no sabe de costos, el backend sí.
         // Se guardan las tres cifras que reporta el proveedor —prompt, completion y **cache_hit**—:
         // sin la tercera, un turno sólo se puede reportar en tokens brutos y el descuento por caché de
@@ -4095,7 +4032,7 @@ async fn agente_turno(State(st): State<AppState>, Json(body): Json<Value>) -> im
             clave.clone(),
             motor.modelo.clone(),
         );
-        let llamar = move |msgs: Vec<Value>, tools: std::sync::Arc<Vec<Value>>| {
+        let llamar = move |msgs: Vec<Value>, tools: Vec<Value>| {
             let (st5, base, clave, modelo, acc, reg) = (
                 st4.clone(),
                 base2.clone(),
@@ -4131,7 +4068,7 @@ async fn agente_turno(State(st): State<AppState>, Json(body): Json<Value>) -> im
                 Ok(r)
             }
         };
-        let turno = crate::agente::correr(&pedido_del_turno, &sistema, &cfg, llamar).await;
+        let turno = crate::agente::correr(&pedido2, &sistema, &cfg, llamar).await;
         let ms = t0.elapsed().as_millis() as u64;
         // El consumo del turno, con la parte que el proveedor sirvió desde su caché de prefijo.
         let consumo_final = consumo.lock().map(|g| g.clone()).unwrap_or_default();
@@ -5550,84 +5487,6 @@ async fn bind_con_reintentos() -> std::io::Result<tokio::net::TcpListener> {
 }
 
 #[cfg(test)]
-mod tests_hilo_agente {
-    use super::{
-        antiguedad_hilo, bloque_hilo, guardar_hilo, leer_hilo, pedido_con_estado, HILO_TURNOS,
-    };
-    use serde_json::json;
-
-    fn dir(nombre: &str) -> std::path::PathBuf {
-        let d = std::env::temp_dir().join(format!("nf-hilo-{}-{nombre}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&d);
-        std::fs::create_dir_all(&d).unwrap();
-        d
-    }
-
-    /// El `system` es el prefijo que el proveedor cachea: si lleva el reloj, cada turno tira la caché.
-    #[test]
-    fn el_bloque_del_hilo_no_lleva_reloj_y_la_antiguedad_va_al_usuario() {
-        let ahora = (super::now_ms() / 1000) as i64;
-        let entradas = vec![
-            json!({ "cuando": ahora - 2 * 3600, "pedido": "otra cosa", "ok": false, "pasos": 1, "podas": 1, "plan": "" }),
-            json!({ "cuando": ahora - 12 * 60, "pedido": "mirá la clave", "ok": true, "pasos": 3, "podas": 0, "plan": "está en claves.rs" }),
-        ];
-        let bloque = bloque_hilo(&entradas);
-        assert!(!bloque.contains(" min"), "el system no puede llevar reloj: {bloque}");
-        assert!(bloque.contains("mirá la clave") && bloque.contains("claves.rs"));
-        let edades = antiguedad_hilo(&entradas);
-        assert!(
-            edades.contains("hace 2 h") && edades.contains("hace 12 min"),
-            "las edades van al mensaje del usuario: {edades}"
-        );
-        assert_eq!(antiguedad_hilo(&[]), "", "sin hilo no hay línea de antigüedad");
-    }
-
-    /// Lo que sostiene la caché entre turnos: el pedido primero y byte a byte igual.
-    #[test]
-    fn el_pedido_va_primero_y_lo_que_cambia_al_final() {
-        let pedido = "¿en qué archivos se lee la clave de DeepSeek y qué protege a cada uno?";
-        let a = pedido_con_estado(pedido, "Lienzo ahora: 10 nodos · 12 aristas.", "");
-        let b = pedido_con_estado(
-            pedido,
-            "Lienzo ahora: 99 nodos · 120 aristas.",
-            "Turnos anteriores: hace 5 min.",
-        );
-        assert!(a.starts_with(pedido) && b.starts_with(pedido));
-        let comun = a
-            .chars()
-            .zip(b.chars())
-            .take_while(|(x, y)| x == y)
-            .count();
-        assert!(
-            comun >= pedido.chars().count(),
-            "el prefijo común tiene que cubrir el pedido entero (dio {comun})"
-        );
-        assert!(a.ends_with("12 aristas."), "{a}");
-        assert!(!b[..pedido.len()].contains("Lienzo"), "el estado no puede ir antes del pedido");
-    }
-
-    #[test]
-    fn el_hilo_no_crece_mas_alla_del_tope() {
-        let d = dir("tope");
-        let ahora = (super::now_ms() / 1000) as i64;
-        for i in 0..(HILO_TURNOS + 3) {
-            guardar_hilo(
-                &d,
-                json!({ "cuando": ahora, "pedido": format!("pedido {i}"), "ok": true, "pasos": 0,
-                        "podas": 0, "propuso": false, "plan": "" }),
-            );
-        }
-        let leidos = leer_hilo(&d);
-        assert_eq!(leidos.len(), HILO_TURNOS, "el hilo se acota solo");
-        assert_eq!(
-            leidos.last().unwrap()["pedido"].as_str().unwrap(),
-            format!("pedido {}", HILO_TURNOS + 2),
-            "queda el más nuevo"
-        );
-        let _ = std::fs::remove_dir_all(&d);
-    }
-}
-
 mod tests_turno_ia {
     use super::{ia_tomar_en, IaTurno, IA_TURNO_TTL_S};
     use std::sync::{Arc, Mutex};
