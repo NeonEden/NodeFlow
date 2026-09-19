@@ -17,13 +17,14 @@ bóveda Obsidian, voz (STT AssemblyAI/Speechmatics + TTS local Kokoro en `127.0.
 | Para qué | Comando | Tiempo |
 |---|---|---|
 | Tipos del frontend | `npx tsc --noEmit` | ~15 s |
-| Tests de Rust (281) | `cd src-tauri && cargo test --lib` | ~1 min |
+| Tests de Rust (282) | `cd src-tauri && cargo test --lib` | ~1 min |
 | Compilar el frontend | `npm run build` | ~10 s |
 | Compilar Rust en release | `cd src-tauri && cargo build --release --lib` | 1-2 min |
 | Instalar la app en la máquina (dev) | `bash scripts/instalar.sh` | 2-3 min |
 | Armar el instalador de Windows | `bash scripts/instalador.sh` | 3-4 min |
 | **Diagnóstico: ¿por qué la ventana está vacía?** | `bash scripts/verificar-app.sh` | 10 s |
 | Nueva versión publicada | `bash scripts/release.sh patch` (bump + tests + tag + GitHub) | 5 min |
+| **Poda de disco** (worktrees mergeados + builds) | `bash scripts/limpiar-worktrees.sh` (y `--ver` para sólo informar) | ~5 s |
 
 **Los tres árbitros de cualquier cambio: `npx tsc --noEmit`, `npm run build` y `cargo test --lib`.** El CI
 (`.github/workflows/ci.yml`) corre exactamente esos tres en `windows-latest`. Un cambio sin los tres en verde no
@@ -94,6 +95,14 @@ está terminado, y no hay excepción por «es un cambio chico».
   «temporarily unavailable». No construyas nada sobre ese endpoint.
 - **Un solo modelo grande por vez en la GPU** (`OLLAMA_MAX_LOADED_MODELS=1`) y 16 GB de RAM en total: no lances
   cinco procesos con modelos locales en paralelo.
+- **Cada worktree arrastra su propio `src-tauri/target/`, y crece sin techo.** Medido el 19/09/2026: tres
+  worktrees de ramas **ya mergeadas** sumaban 17,2 GB (6,7 + 5,6 + 4,8) y eran lo único que estaba llenando el
+  disco. El `limpiar-builds.sh` no los veía porque sólo miraba el repo donde corría. **Cuando tu PR se mergea, tu
+  worktree es basura: se limpia solo con `scripts/limpiar-worktrees.sh`** (que corre de fondo junto al punto de
+  guardado), pero no cuentes con eso: un worktree que dejás abierto es un `target/` de ~2-4 GB que nadie mira.
+- **Los programas nativos no traducen los paths estilo MSYS de este host.** `git -C /c/Users/...` falla con
+  «cannot change to»: entrá al directorio con `cd` y llamá a git sin `-C`. Para comparar rutas usá `pwd -W`
+  (da el path nativo `C:/...`) contra lo que devuelve `git worktree list`, que ya viene nativo.
 
 ## Mapa del proyecto
 

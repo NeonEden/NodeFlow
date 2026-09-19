@@ -21,6 +21,10 @@ if ! netstat -ano 2>/dev/null | grep -qE "127\.0\.0\.1:8125 .*(LISTENING|ESCUCHA
   fi
 fi
 
+# Poda de agentes terminados: un worktree cuya rama ya se mergeó es basura de varios GB (medido:
+# 17,2 GB en tres worktrees, 19/09/2026). Va ANTES de limpiar-builds porque se lleva el worktree
+# entero — no tiene sentido topear el target de algo que está por desaparecer.
+bash "$REPO/scripts/limpiar-worktrees.sh" >> "$REPO/.git/checkpoint.log" 2>&1
 bash "$REPO/scripts/limpiar-builds.sh"
 bash "$REPO/scripts/backup.sh"  >> "$REPO/.git/checkpoint.log" 2>&1
 bash "$REPO/scripts/checkpoint.sh" >> "$REPO/.git/checkpoint.log" 2>&1
