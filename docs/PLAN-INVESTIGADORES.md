@@ -49,13 +49,30 @@ nodo. Nada de «fuentes» inventadas: una fuente sin URL no entra al lienzo.
 
 ## Decidido (19/09/2026)
 
-- **Copilot → GitHub Models** con el token de `gh` (`gh auth token`): API HTTP, se llama desde Rust,
-  no hace falta instalar ni suscribir nada. El rol es *recaudador / segunda opinión*: contraste del
-  material y armado del artefacto, que es lo que hoy se pide a mano (`prompt_para_copilot`).
 - **Gemini → por investigación completa**: una tanda de consultas al empezar la investigación y las
-  fuentes se reparten entre los nodos de la fase Fricción. No una búsqueda por idea (gastaría una
-  llamada por nodo). El reparto lo hace `comandos_de_fuentes`, que ya existe.
+  fuentes se reparten entre los nodos de la fase Fricción. El reparto lo hace `comandos_de_fuentes`.
+
+## Medido el 19/09 (lo que cambió el plan)
+
+- **GitHub Models está retirado desde el 30/07/2026** (changelog oficial: «the playground, model
+  catalog, inference API, and BYOK are no longer available to any customer»). El endpoint todavía
+  resuelve y contesta `410 Gone` con un cuerpo que dice «temporarily unavailable… brownout»: es copy
+  viejo. **Nada que se construya sobre `models.github.ai` funciona.** Y el Copilot CLI no está
+  instalado en esta máquina. → El rol de Copilot no se puede hacer por ese canal.
+- **La cuota de búsqueda de Gemini (grounding) es chica y se agota**: el 19/09 la primera corrida real
+  terminó en `429 RESOURCE_EXHAUSTED` con **todos** los modelos; sin la herramienta de búsqueda, el
+  mismo modelo contesta 200. O sea: el modelo tiene cuota, la **búsqueda** no.
+- La cadena quedó probada de punta a punta en vivo: Gemini (429) → Tavily (sin clave) → Hermes (tardó
+  más de los 300 s y se cortó). La investigación terminó en `ok: false` **diciendo el motivo**, sin
+  inventar fuentes. Para que traiga fuentes reales hoy hace falta una de las dos cosas: **clave de
+  Tavily** (tiene plan gratis) o **cuota de grounding** (habilitar facturación en la clave de Gemini).
+- El **contraste** no depende de la búsqueda: verificado el 19/09 con material real, `gemini-flash-lite-latest`
+  devolvió una crítica correcta (marcó la afirmación que no se sostenía con las fuentes).
 
 ## Preguntas abiertas
 
-- ¿El tope de consultas por investigación? Propuesta: 3 (una por tema del pedido), configurable.
+- ¿El tope de consultas por investigación? Hoy 3 (`CONSULTAS_POR_INVESTIGACION`), configurable.
+- El día que haya **clave de Foundry** (los proveedores `foundry` y `foundry-grok` ya están en el
+  catálogo, sin clave), el contraste se apunta a `grok-4.6` y la segunda opinión pasa a ser de otro
+  proveedor. Es el reemplazo natural de Copilot: Azure AI Foundry es a donde GitHub manda a los que
+  usaban Models.

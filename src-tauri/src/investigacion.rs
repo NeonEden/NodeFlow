@@ -153,10 +153,21 @@ pub fn comandos_de_fuentes(pedido: &str, fuentes: &[Value]) -> Vec<Value> {
     let _ = pedido;
     for f in fuentes {
         let titulo = f["titulo"].as_str().unwrap_or("");
+        // Quién la trajo: el nodo lo dice (Gemini con búsqueda real, Tavily o Hermes). Un dato más para
+        // saber cuánto confiar en la fuente.
+        let via = match f["motor"].as_str() {
+            Some(m) if !m.trim().is_empty() => format!("\n· traída por {m}"),
+            _ => String::new(),
+        };
         comandos.push(json!({
             "accion": "crear",
             "titulo": titulo,
-            "descripcion": format!("{}\n{}", f["url"].as_str().unwrap_or(""), f["por_que"].as_str().unwrap_or("")),
+            "descripcion": format!(
+                "{}\n{}{}",
+                f["url"].as_str().unwrap_or(""),
+                f["por_que"].as_str().unwrap_or(""),
+                via
+            ),
             "categoria": "FUENTE",
             "maturity": 2,
         }));
@@ -170,16 +181,26 @@ pub fn comandos_de_fuentes(pedido: &str, fuentes: &[Value]) -> Vec<Value> {
 }
 
 /// La mutación de la fase Cápsula: el nodo central queda con la síntesis y sube de fase.
+/// `contraste` es la revisión crítica del material (vacía = no hubo) y va pegada a la descripción.
 pub fn comandos_de_sintesis(
     titulo_nodo: &str,
     resumen: &str,
     principio: &str,
     descartar: &[String],
+    contraste: Option<&str>,
 ) -> Vec<Value> {
+    let mut descripcion = format!(
+        "{}\n\nPrincipio: {}",
+        recorta(resumen, 700),
+        recorta(principio, 200)
+    );
+    if let Some(c) = contraste.filter(|c| !c.trim().is_empty()) {
+        descripcion.push_str(&format!("\n\nContraste: {}", recorta(c, 600)));
+    }
     let mut comandos = vec![json!({
         "accion": "actualizar",
         "titulo": titulo_nodo,
-        "descripcion": format!("{}\n\nPrincipio: {}", recorta(resumen, 700), recorta(principio, 200)),
+        "descripcion": descripcion,
         "maturity": 3,
         "tags": ["investigación", "síntesis"],
     })];
@@ -273,27 +294,51 @@ pub async fn correr(st: &AppState, pedido: String) {
         })],
     );
 
-    // ── ⚔️ Fricción: el mundo (Hermes busca; es el único con herramientas) ────────────────────
+    // ── ⚔️ Fricción: el mundo ────────────────────────────────────────────────────────────────
+    // Orden del que busca: **Gemini con búsqueda real** (las URL vienen del índice de Google, no del
+    // modelo) → Tavily, si hay clave → Hermes, que tiene herramientas y es el último recurso.
     let prompt_fuentes = format!(
         "Buscá en la web 3 a 5 fuentes REALES sobre: {pedido}\n\n\
          Devolvé SOLO un objeto JSON, sin explicaciones ni markdown:\n\
          {{\"fuentes\":[{{\"titulo\":\"…\",\"url\":\"https://…\",\"por_que\":\"…por qué sirve…\"}}]}}\n\
          Las URL tienen que existir de verdad: son la evidencia de esta investigación."
     );
-    let fuentes: Vec<Value> = match buscar_con_tavily(st, &pedido).await {
-        Ok(f) => {
-            log::info!("investigación: {} fuentes de Tavily", f.len());
+    let mut panorama = String::new();
+    let fuentes: Vec<Value> = match buscar_con_gemini(st, &pedido, CONSULTAS_POR_INVESTIGACION).await {
+        Ok((f, resumen_busqueda)) => {
+            log::info!(
+                "investigación: {} fuentes del investigador (Gemini con grounding)",
+                f.len()
+            );
+            panorama = resumen_busqueda;
             f
         }
-        Err(motivo) => {
-            log::info!("investigación: Tavily no está disponible ({motivo}); salgo con Hermes");
-            match correr_hermes(st, &prompt_fuentes, 300).await {
-                Ok(texto) => primer_json(&texto)
-                    .map(|v| fuentes_validas(&v))
-                    .unwrap_or_default(),
-                Err(e) => {
-                    terminar(&dir, &format!("No pude salir a buscar: {e}"), false);
-                    return;
+        Err(motivo_gemini) => {
+            log::info!("investigación: el investigador no trajo fuentes ({motivo_gemini}); sigue Tavily");
+            match buscar_con_tavily(st, &pedido).await {
+                Ok(f) => {
+                    log::info!("investigación: {} fuentes de Tavily", f.len());
+                    f
+                }
+                Err(motivo) => {
+                    log::info!("investigación: Tavily tampoco ({motivo}); salgo con Hermes");
+                    match correr_hermes(st, &prompt_fuentes, 300).await {
+                        Ok(texto) => primer_json(&texto)
+                            .map(|v| {
+                                fuentes_validas(&v)
+                                    .into_iter()
+                                    .map(|mut f| {
+                                        f["motor"] = json!("hermes");
+                                        f
+                                    })
+                                    .collect()
+                            })
+                            .unwrap_or_default(),
+                        Err(e) => {
+                            terminar(&dir, &format!("No pude salir a buscar: {e}"), false);
+                            return;
+                        }
+                    }
                 }
             }
         }
@@ -341,12 +386,20 @@ pub async fn correr(st: &AppState, pedido: String) {
         .collect::<Vec<_>>()
         .join("\n\n");
     let prompt_sintesis = format!(
-        "Investigación: {pedido}\n\nFuentes encontradas:\n{listado}\n\n\
+        "Investigación: {pedido}\n\n{panorama}Fuentes encontradas:\n{listado}\n\n\
          Con eso, devolvé SOLO un JSON. Apoyate en los extractos reales cuando estén, y si algo no está en\n\
          las fuentes, no lo afirmes.\n\
-         {{\"resumen\":\"3 o 4 frases con el hallazgo concreto\",\"principio\":\"una oración: el principio sólido que queda\",\
+         {{\"resumen\":\"3 o 4 frases con el hallazgo concreto\",\"principio\":\"una oración: el principio sólido que queda\",\n\
          \"descartar\":[\"títulos de fuentes que no aportan, si hay\"]}}\n\
-         Si una fuente no aporta al hallazgo, decila en 'descartar'."
+         Si una fuente no aporta al hallazgo, decila en 'descartar'.",
+        panorama = if panorama.trim().is_empty() {
+            String::new()
+        } else {
+            format!(
+                "Lo que encontró el investigador (búsqueda real, no memoria):\n{}\n\n",
+                recorta(&panorama, 1500)
+            )
+        }
     );
     let (resumen, principio, descartar) = match sintetizar(st, &prompt_sintesis).await {
         Ok(t) => t,
@@ -359,18 +412,45 @@ pub async fn correr(st: &AppState, pedido: String) {
             return;
         }
     };
+    // Contraste: la segunda pasada crítica sobre el material (ver `contraste`). Si no responde, la
+    // investigación NO se cae: cristaliza sin contraste y queda dicho en el paso.
+    let revision = match contraste(st, &pedido, &listado, &resumen).await {
+        Ok(t) => {
+            log::info!("investigación: contraste listo ({} caracteres)", t.chars().count());
+            t
+        }
+        Err(e) => {
+            log::info!("investigación: sin contraste ({e})");
+            String::new()
+        }
+    };
     anotar(
         &dir,
         "capsula",
         &format!(
-            "Sintetizó el hallazgo{}",
+            "Sintetizó el hallazgo{}{}",
             if descartar.len() > 1 {
                 format!(" y descartó {} fuentes", descartar.len())
             } else {
                 String::new()
+            },
+            if revision.is_empty() {
+                ""
+            } else {
+                ", con contraste del revisor"
             }
         ),
-        comandos_de_sintesis(&nodo_central, &resumen, &principio, &descartar),
+        comandos_de_sintesis(
+            &nodo_central,
+            &resumen,
+            &principio,
+            &descartar,
+            if revision.trim().is_empty() {
+                None
+            } else {
+                Some(revision.as_str())
+            },
+        ),
     );
 
     // ── 🚀 Hexágono: cristaliza (la bóveda guarda la nota del nodo sola) ─────────────────────
@@ -447,6 +527,7 @@ pub async fn buscar_con_tavily(st: &AppState, consulta: &str) -> Result<Vec<Valu
                 "url": url.chars().take(300).collect::<String>(),
                 "por_que": x["content"].as_str().unwrap_or("").chars().take(240).collect::<String>(),
                 "contenido": contenido.chars().take(2000).collect::<String>(),
+                "motor": "tavily",
             }))
         })
         .collect();
@@ -454,6 +535,277 @@ pub async fn buscar_con_tavily(st: &AppState, consulta: &str) -> Result<Vec<Valu
         return Err("Tavily no devolvió resultados usables".into());
     }
     Ok(fuentes)
+}
+
+// ── El investigador: Gemini con búsqueda real (Google Search grounding) ───────────────────────────
+//
+// Por qué Gemini: es el motor con clave en el llavero que puede **buscar de verdad**. Con la
+// herramienta `google_search`, las URL no las escribe el modelo: vienen del índice de Google y llegan
+// en `groundingMetadata`. Eso respeta la regla de la casa (ADR 0005): una fuente sin URL real no
+// entra al lienzo, y el modelo no inventa bibliografía.
+
+/// Cuántas búsquedas distintas se le piden al investigador al empezar cada investigación.
+pub const CONSULTAS_POR_INVESTIGACION: usize = 3;
+
+/// Cuántas horas se considera «sin cuota» al investigador después de un 429.
+///
+/// Medido el 19/09: la cuota de **búsqueda** de Gemini (el grounding) es chica y se agota; cuando se
+/// agota, cada intento cuesta minutos de espera para terminar en el mismo error. La cuota se repone
+/// sola, así que la marca caduca sola — mismo criterio que la bandera de `en_curso`.
+const HORAS_TOPE_CUOTA: u64 = 8;
+
+/// Modelos que se prueban, en orden (el flash es el que mejor combina grounding, latencia y costo).
+/// `gemini-flash-lite-latest` está medido: respondió 200 el 19/09 cuando el 3.6 devolvía 503.
+const MODELOS_GEMINI: [&str; 5] = [
+    "gemini-3.6-flash",
+    "gemini-flash-latest",
+    "gemini-flash-lite-latest",
+    "gemini-3.1-flash-lite",
+    "gemini-3.8-flash",
+];
+
+/// La clave de Gemini por la resolución central (entorno → `.env` → llavero → config).
+fn clave_gemini(st: &AppState) -> Option<String> {
+    crate::claves::obtener("gemini_api_key", &st.data_dir)
+}
+
+fn archivo_cuota(data_dir: &Path) -> std::path::PathBuf {
+    data_dir.join("investigador.cuota")
+}
+
+/// ¿El investigador está sin cuota de búsqueda (429 reciente)?
+pub fn cuota_agotada(data_dir: &Path) -> bool {
+    let Ok(t) = std::fs::read_to_string(archivo_cuota(data_dir)) else {
+        return false;
+    };
+    let Ok(cuando) = t.trim().parse::<u64>() else {
+        return false;
+    };
+    ahora_s().saturating_sub(cuando) < HORAS_TOPE_CUOTA * 3600
+}
+
+fn marcar_cuota_agotada(data_dir: &Path) {
+    let _ = std::fs::write(archivo_cuota(data_dir), ahora_s().to_string());
+}
+
+/// **El investigador.** Devuelve `(fuentes, panorama)`:
+///   · `fuentes`: sólo las que traen URL real del grounding, con **qué dice cada una**.
+///   · `panorama`: el resumen que el modelo escribió sobre lo que encontró (no de memoria). Viaja al
+///     sintetizador como contexto, igual que el `raw_content` de Tavily.
+pub async fn buscar_con_gemini(
+    st: &AppState,
+    pedido: &str,
+    consultas: usize,
+) -> Result<(Vec<Value>, String), String> {
+    let clave = clave_gemini(st).ok_or("sin clave de Gemini")?;
+    // Sin cuota de búsqueda no se intenta: la espera cuesta minutos y termina en el mismo 429.
+    if cuota_agotada(&st.data_dir) {
+        return Err("la cuota de búsqueda de Gemini está agotada (se repone sola)".into());
+    }
+    let prompt = format!(
+        "Sos el investigador de este pedido: {pedido}\n\n\
+         Hacé {consultas} búsquedas DISTINTAS (una técnica, una de implementaciones o casos reales y \
+         una de límites, riesgos o críticas) y resumí lo que encuentres en 4 o 5 frases, con lo \
+         concreto a la vista: cifras, nombres, fechas.\n\
+         Regla: si algo no aparece en los resultados de la búsqueda, no lo afirmes."
+    );
+    let mut errores: Vec<String> = Vec::new();
+    for modelo in MODELOS_GEMINI {
+        let url = format!(
+            "https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent"
+        );
+        let cuerpo = json!({
+            "contents": [{ "role": "user", "parts": [{ "text": prompt }] }],
+            "tools": [{ "google_search": {} }],
+            "generationConfig": { "temperature": 0.2 },
+        });
+        let r = match st
+            .http
+            .post(&url)
+            .header("x-goog-api-key", &clave)
+            .json(&cuerpo)
+            .timeout(std::time::Duration::from_secs(180))
+            .send()
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                errores.push(format!("{modelo}: red {e}"));
+                continue;
+            }
+        };
+        // Un 4xx/5xx NO es «no hay resultados»: se dice el código y **el motivo del proveedor**, que es
+        // lo que distingue «cuota agotada» de «modelo inexistente» (medido el 19/09: el log decía
+        // «HTTP 429» y el cuerpo decía exactamente RESOURCE_EXHAUSTED / quota).
+        if !r.status().is_success() {
+            let estado = r.status();
+            let detalle = r.text().await.unwrap_or_default();
+            if estado.as_u16() == 429 || detalle.contains("RESOURCE_EXHAUSTED") {
+                marcar_cuota_agotada(&st.data_dir);
+                errores.push(format!("{modelo}: sin cuota — {}", recorta(&detalle, 140)));
+                break;
+            }
+            errores.push(format!("{modelo}: HTTP {estado} — {}", recorta(&detalle, 140)));
+            continue;
+        }
+        let v: Value = match r.json().await {
+            Ok(v) => v,
+            Err(e) => {
+                errores.push(format!("{modelo}: respuesta ilegible {e}"));
+                continue;
+            }
+        };
+        let cand = &v["candidates"][0];
+        let panorama = cand["content"]["parts"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|p| p["text"].as_str())
+            .collect::<Vec<_>>()
+            .join("\n")
+            .trim()
+            .to_string();
+        let fuentes = fuentes_de_grounding(cand);
+        if fuentes.is_empty() {
+            errores.push(format!("{modelo}: grounding sin fuentes con URL"));
+            continue;
+        }
+        return Ok((fuentes, panorama));
+    }
+    Err(format!("Gemini: {}", errores.join(" · ")))
+}
+
+/// Las fuentes **reales** de una respuesta con grounding, con la atribución de cada una.
+///
+/// `groundingChunks` trae las páginas que Google usó; `groundingSupports` dice **qué fragmento** de la
+/// respuesta se apoya en cada chunk. Con las dos cosas, cada nodo dice qué aporta esa fuente y no sólo
+/// que existe. Se deduplica por URL y se corta en 5.
+pub fn fuentes_de_grounding(candidato: &Value) -> Vec<Value> {
+    let atribuciones = atribuciones_por_chunk(candidato);
+    let mut vistas: Vec<String> = Vec::new();
+    let mut fuentes: Vec<Value> = Vec::new();
+    for (i, c) in candidato["groundingMetadata"]["groundingChunks"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .enumerate()
+    {
+        let url = c["web"]["uri"].as_str().unwrap_or("").trim();
+        if !url.starts_with("http") || vistas.iter().any(|u| u == url) {
+            continue;
+        }
+        vistas.push(url.to_string());
+        let titulo = c["web"]["title"].as_str().unwrap_or("").trim();
+        let dicho = atribuciones
+            .get(i)
+            .map(String::as_str)
+            .unwrap_or("")
+            .trim();
+        fuentes.push(json!({
+            "titulo": if titulo.len() >= 3 { titulo.to_string() } else { recorta(url, 100) },
+            "url": url.chars().take(300).collect::<String>(),
+            "por_que": if dicho.is_empty() {
+                "Fuente del índice de Google para esta búsqueda.".to_string()
+            } else {
+                dicho.to_string()
+            },
+            "motor": "gemini",
+        }));
+        if fuentes.len() == 5 {
+            break;
+        }
+    }
+    fuentes
+}
+
+/// El fragmento de la respuesta que se apoya en cada chunk, indexado como `groundingChunks`.
+fn atribuciones_por_chunk(candidato: &Value) -> Vec<String> {
+    let chunks = candidato["groundingMetadata"]["groundingChunks"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let mut dichos = vec![String::new(); chunks.len()];
+    for s in candidato["groundingMetadata"]["groundingSupports"]
+        .as_array()
+        .into_iter()
+        .flatten()
+    {
+        let texto = s["segment"]["text"].as_str().unwrap_or("").trim();
+        if texto.is_empty() {
+            continue;
+        }
+        for i in s["groundingChunkIndices"].as_array().into_iter().flatten() {
+            let Some(n) = i.as_u64() else { continue };
+            let idx = n as usize;
+            if idx < dichos.len() && dichos[idx].is_empty() {
+                dichos[idx] = recorta(texto, 200);
+            }
+        }
+    }
+    dichos
+}
+
+/// **El contraste**: una segunda pasada crítica sobre el material, antes de cristalizar.
+///
+/// Hoy lo hace Gemini (es el motor con clave que puede razonar sobre lo que se juntó). El día que la
+/// clave de `foundry-grok` esté en el llavero, este rol se apunta ahí y la segunda opinión pasa a ser
+/// de otro proveedor — que es lo que le da valor a un contraste.
+pub async fn contraste(
+    st: &AppState,
+    pedido: &str,
+    listado: &str,
+    resumen: &str,
+) -> Result<String, String> {
+    let clave = clave_gemini(st).ok_or("sin clave de Gemini")?;
+    let prompt = format!(
+        "Sos el revisor de esta investigación: {pedido}\n\n\
+         Fuentes:\n{listado}\n\nSíntesis a revisar:\n{resumen}\n\n\
+         Devolvé SOLO texto, sin JSON ni markdown, en 3 puntos cortos:\n\
+         1) qué falta para responder el pedido; 2) qué afirmación NO se sostiene con estas fuentes; \
+         3) qué contradice o matiza. No agregues fuentes nuevas ni repitas el resumen.",
+        listado = recorta(listado, 3000),
+        resumen = recorta(resumen, 900)
+    );
+    for modelo in MODELOS_GEMINI {
+        let url = format!(
+            "https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent"
+        );
+        let cuerpo = json!({
+            "contents": [{ "role": "user", "parts": [{ "text": prompt }] }],
+            "generationConfig": { "temperature": 0.3 },
+        });
+        let r = match st
+            .http
+            .post(&url)
+            .header("x-goog-api-key", &clave)
+            .json(&cuerpo)
+            .timeout(std::time::Duration::from_secs(120))
+            .send()
+            .await
+        {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        if !r.status().is_success() {
+            continue;
+        }
+        let Ok(v) = r.json::<Value>().await else {
+            continue;
+        };
+        let texto = v["candidates"][0]["content"]["parts"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|p| p["text"].as_str())
+            .collect::<Vec<_>>()
+            .join("\n")
+            .trim()
+            .to_string();
+        if !texto.is_empty() {
+            return Ok(texto);
+        }
+    }
+    Err("el contraste no respondió".into())
 }
 
 /// Una pasada de Hermes (tiene las herramientas: web, archivos, terminal).
@@ -632,6 +984,7 @@ mod tests_investigacion {
             "resumen largo del hallazgo",
             "el principio",
             &["A".into(), "B".into()],
+            None,
         );
         assert_eq!(con_poda[0]["accion"], "actualizar");
         assert_eq!(con_poda[0]["maturity"], 3, "Cápsula es la fase 3");
@@ -639,8 +992,90 @@ mod tests_investigacion {
             con_poda[1]["accion"], "condensar",
             "con 2 o más sobrantes se poda"
         );
-        let sin_poda = comandos_de_sintesis("Investigación: x", "resumen", "principio", &[]);
+        let sin_poda =
+            comandos_de_sintesis("Investigación: x", "resumen", "principio", &[], None);
         assert_eq!(sin_poda.len(), 1, "sin sobrantes no se poda nada");
+    }
+
+    #[test]
+    fn el_contraste_entra_en_el_nodo() {
+        let con = comandos_de_sintesis(
+            "Investigación: x",
+            "resumen",
+            "principio",
+            &[],
+            Some("1) falta medir el costo\n2) la cifra de 40 ms no se sostiene con estas fuentes"),
+        );
+        let desc = con[0]["descripcion"].as_str().unwrap();
+        assert!(desc.contains("Contraste:"), "el contraste viaja en el nodo");
+        assert!(desc.contains("no se sostiene"));
+        // Sin contraste, la descripción no queda con un título vacío colgado.
+        let sin = comandos_de_sintesis("Investigación: x", "resumen", "principio", &[], None);
+        assert!(!sin[0]["descripcion"].as_str().unwrap().contains("Contraste:"));
+    }
+
+    #[test]
+    fn las_fuentes_del_grounding_salen_del_metadata_no_del_texto() {
+        // Forma real de una respuesta de Gemini con la herramienta `google_search`.
+        let candidato = json!({
+            "content": { "parts": [{ "text": "Kokoro sintetiza 4,16 s en 1,7 s." }] },
+            "groundingMetadata": {
+                "groundingChunks": [
+                    { "web": { "uri": "https://ejemplo.com/kokoro", "title": "Kokoro ONNX" } },
+                    { "web": { "uri": "https://ejemplo.com/kokoro", "title": "Kokoro (repetida)" } },
+                    { "web": { "uri": "https://otro.example/bench", "title": "Benchmarks de TTS" } },
+                    { "web": { "uri": "no-es-una-url", "title": "basura" } }
+                ],
+                "groundingSupports": [
+                    { "segment": { "text": "Kokoro corre en tu placa" }, "groundingChunkIndices": [0] },
+                    { "segment": { "text": "2,4x tiempo real" }, "groundingChunkIndices": [2] }
+                ]
+            }
+        });
+        let fuentes = fuentes_de_grounding(&candidato);
+        assert_eq!(fuentes.len(), 2, "la repetida y la que no es URL quedan afuera");
+        assert_eq!(fuentes[0]["titulo"], "Kokoro ONNX");
+        assert_eq!(fuentes[0]["motor"], "gemini");
+        assert_eq!(
+            fuentes[0]["por_que"], "Kokoro corre en tu placa",
+            "cada fuente dice QUÉ se apoya en ella"
+        );
+        assert_eq!(fuentes[1]["por_que"], "2,4x tiempo real");
+    }
+
+    #[test]
+    fn sin_grounding_no_hay_fuentes() {
+        assert!(fuentes_de_grounding(&json!({ "content": { "parts": [{ "text": "hola" }] } })).is_empty());
+    }
+
+    #[test]
+    fn sin_cuota_no_se_reintenta_al_investigador() {
+        let dir = std::env::temp_dir().join(format!("nf-cuota-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let _ = std::fs::remove_file(archivo_cuota(&dir));
+        assert!(!cuota_agotada(&dir), "sin marca, se intenta");
+        marcar_cuota_agotada(&dir);
+        assert!(cuota_agotada(&dir), "después de un 429 no se reintenta");
+        // La cuota se repone sola: la marca caduca sola.
+        std::fs::write(
+            archivo_cuota(&dir),
+            (ahora_s() - HORAS_TOPE_CUOTA * 3600 - 5).to_string(),
+        )
+        .unwrap();
+        assert!(!cuota_agotada(&dir), "una marca vieja no bloquea");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn la_fuente_dice_quien_la_trajo() {
+        let fuentes = vec![json!({
+            "titulo": "Fuente A", "url": "https://a.com", "por_que": "x", "motor": "gemini"
+        })];
+        let comandos = comandos_de_fuentes("sensores", &fuentes);
+        assert!(comandos[0]["descripcion"]
+            .as_str()
+            .unwrap()
+            .contains("traída por gemini"));
     }
 
     #[test]
