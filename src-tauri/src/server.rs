@@ -2855,7 +2855,7 @@ async fn claves_migrar(State(st): State<AppState>) -> impl IntoResponse {
 /// o `{ "campo": "gemini_api_key", "borrar": true }` para borrar.
 /// Responde: `{ "ok": true, "campo": "...", "origen": "llavero", "huella": "...", "largo": N }`.
 /// Nunca devuelve el valor. Rechaza con 400 si el campo no pasa `claves::es_campo_de_clave`.
-async fn claves_guardar(State(st): State<AppState>, Json(body): Json<Value>) -> impl IntoResponse {
+async fn claves_guardar(Json(body): Json<Value>) -> impl IntoResponse {
     let campo = body.get("campo").and_then(|v| v.as_str()).unwrap_or("").trim();
     if campo.is_empty() || !crate::claves::es_campo_de_clave(campo) {
         return (
