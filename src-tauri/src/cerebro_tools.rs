@@ -225,7 +225,8 @@ pub fn escribir(raiz_boveda: &Path, h: &Herramienta, codigo: &str) -> Result<Vec
     let ficha_txt = format!("{json}\n");
     crate::estado::escribir_atomico(&ficha, &ficha_txt)
         .map_err(|e| format!("no pude escribir la ficha: {e}"))?;
-    crate::estado::escribir_atomico(&guion, codigo).map_err(|e| format!("no pude escribir run.py: {e}"))?;
+    crate::estado::escribir_atomico(&guion, codigo)
+        .map_err(|e| format!("no pude escribir run.py: {e}"))?;
     Ok(vec![ficha, guion])
 }
 

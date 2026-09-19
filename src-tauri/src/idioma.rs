@@ -97,7 +97,8 @@ pub fn guardar(data_dir: &Path, idioma: &str) -> Result<Value, String> {
     };
     obj.insert("idioma".into(), json!(idioma.clone()));
     let txt = serde_json::to_string_pretty(&cfg).map_err(|e| e.to_string())?;
-    crate::estado::escribir_atomico(&ruta, &txt).map_err(|e| format!("no pude escribir el config: {e}"))?;
+    crate::estado::escribir_atomico(&ruta, &txt)
+        .map_err(|e| format!("no pude escribir el config: {e}"))?;
     log::info!("idioma: guardado «{idioma}» · voz TTS {}", voz_tts(&idioma));
     Ok(json!({
         "ok": true,
@@ -135,7 +136,8 @@ pub fn guardar_voz_idioma(data_dir: &Path, idioma: &str) -> Result<Value, String
     }
     obj.insert("voz".into(), Value::Object(voz));
     let txt = serde_json::to_string_pretty(&cfg).map_err(|e| e.to_string())?;
-    crate::estado::escribir_atomico(&ruta, &txt).map_err(|e| format!("no pude escribir el config: {e}"))?;
+    crate::estado::escribir_atomico(&ruta, &txt)
+        .map_err(|e| format!("no pude escribir el config: {e}"))?;
     let efectivo = voz_idioma(data_dir);
     log::info!("voz: idioma «{efectivo}» · voz TTS {}", voz_tts(&efectivo));
     Ok(json!({
@@ -204,7 +206,10 @@ mod tests {
             serde_json::from_str(&std::fs::read_to_string(d.join("nodeflow.config.json")).unwrap())
                 .unwrap();
         assert_eq!(cfg["vault_path"], "X");
-        assert_eq!(cfg["cerebro"]["repo"], "R", "el resto del config no se toca");
+        assert_eq!(
+            cfg["cerebro"]["repo"], "R",
+            "el resto del config no se toca"
+        );
     }
 
     fn dir() -> std::path::PathBuf {

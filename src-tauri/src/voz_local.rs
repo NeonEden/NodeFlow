@@ -56,7 +56,13 @@ fn ruta_progreso(data_dir: &Path) -> PathBuf {
     data_dir.join("voz.instalacion.json")
 }
 
-pub fn escribir_progreso(data_dir: &Path, fase: &str, bajado: u64, total: u64, error: Option<&str>) {
+pub fn escribir_progreso(
+    data_dir: &Path,
+    fase: &str,
+    bajado: u64,
+    total: u64,
+    error: Option<&str>,
+) {
     let v = json!({
         "fase": fase,
         "bajado": bajado,
@@ -155,9 +161,14 @@ fn expandir(zip: &Path, destino: &Path) -> Result<(), String> {
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x0800_0000);
     }
-    let out = cmd.output().map_err(|e| format!("no pude descomprimir: {e}"))?;
+    let out = cmd
+        .output()
+        .map_err(|e| format!("no pude descomprimir: {e}"))?;
     if !out.status.success() {
-        let err: String = String::from_utf8_lossy(&out.stderr).chars().take(220).collect();
+        let err: String = String::from_utf8_lossy(&out.stderr)
+            .chars()
+            .take(220)
+            .collect();
         return Err(format!("Expand-Archive falló: {err}"));
     }
     Ok(())
@@ -193,7 +204,11 @@ async fn descargar(url: &str, destino: &Path, data_dir: &Path, fase: &str) -> Re
 }
 
 /// Instala la voz local: runtime → verificación → despliegue → modelo → arranque.
-pub async fn instalar(data_dir: PathBuf, zip_url: String, modelo_url: String) -> Result<String, String> {
+pub async fn instalar(
+    data_dir: PathBuf,
+    zip_url: String,
+    modelo_url: String,
+) -> Result<String, String> {
     let d = dir(&data_dir);
     if let Err(e) = std::fs::create_dir_all(&d) {
         return Err(format!("no pude crear {d:?}: {e}"));

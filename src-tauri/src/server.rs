@@ -295,12 +295,12 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
             // Fase 8 — captura de conocimiento y exportación
             // Slice 1 — Expertos y Contrato de Artefactos
             .route("/api/expertos", get(expertos_listar))
-        .route("/api/expertos/guardar", post(expertos_guardar))
-        .route("/api/mcp/estado", get(mcp_estado))
-        .route("/api/mcp/instalar", post(mcp_instalar))
-        .route("/api/voz/motor/estado", get(voz_motor_estado))
-        .route("/api/voz/motor/instalar", post(voz_motor_instalar))
-        .route("/api/voz/motor/arrancar", post(voz_motor_arrancar))
+            .route("/api/expertos/guardar", post(expertos_guardar))
+            .route("/api/mcp/estado", get(mcp_estado))
+            .route("/api/mcp/instalar", post(mcp_instalar))
+            .route("/api/voz/motor/estado", get(voz_motor_estado))
+            .route("/api/voz/motor/instalar", post(voz_motor_instalar))
+            .route("/api/voz/motor/arrancar", post(voz_motor_arrancar))
             .route("/api/expert/run", post(experto_run))
             .route("/api/knowledge/preview", post(knowledge_preview))
             .route("/api/knowledge/capture", post(knowledge_capture))
@@ -2793,7 +2793,10 @@ async fn idioma_leer(State(st): State<AppState>) -> impl IntoResponse {
 
 /// `POST /api/idioma/voz` `{ "idioma": "es" }` — el idioma con el que la app **escucha y habla**,
 /// independiente del de la interfaz. Con `auto` vuelve a seguir al de la interfaz.
-async fn idioma_voz_guardar(State(st): State<AppState>, Json(body): Json<Value>) -> impl IntoResponse {
+async fn idioma_voz_guardar(
+    State(st): State<AppState>,
+    Json(body): Json<Value>,
+) -> impl IntoResponse {
     let pedido = body["idioma"].as_str().unwrap_or("");
     match crate::idioma::guardar_voz_idioma(&st.data_dir, pedido) {
         Ok(v) => (StatusCode::OK, Json(v)),
@@ -5032,56 +5035,66 @@ async fn export_json(State(st): State<AppState>) -> impl IntoResponse {
 // Slice 1 — Expertos y Contrato de Artefactos
 // ─────────────────────────────────────────────────────────────────────────────
 
-    /// `GET /api/voz/motor/estado` — la voz local (Kokoro): si está instalada, si está corriendo y
-    /// cuánto lleva la descarga. Arranca el servidor si hace falta (es idempotente y barato).
-    async fn voz_motor_estado(State(st): State<AppState>) -> impl IntoResponse {
-        if crate::voz_local::instalada(&st.data_dir) && !crate::voz_local::corriendo() {
-            let _ = crate::voz_local::arrancar(&st.data_dir);
-        }
-        Json(json!({ "success": true, "motor": crate::voz_local::estado(&st.data_dir) }))
+/// `GET /api/voz/motor/estado` — la voz local (Kokoro): si está instalada, si está corriendo y
+/// cuánto lleva la descarga. Arranca el servidor si hace falta (es idempotente y barato).
+async fn voz_motor_estado(State(st): State<AppState>) -> impl IntoResponse {
+    if crate::voz_local::instalada(&st.data_dir) && !crate::voz_local::corriendo() {
+        let _ = crate::voz_local::arrancar(&st.data_dir);
     }
+    Json(json!({ "success": true, "motor": crate::voz_local::estado(&st.data_dir) }))
+}
 
-    /// `POST /api/voz/motor/instalar` — baja el runtime (80 MB) y el modelo (325 MB), verifica el
-    /// hash, despliega y arranca. **No bloquea**: la descarga corre en segundo plano y el panel sigue
-    /// el progreso con `voz.instalacion.json` (una petición abierta cinco minutos no es una opción).
-    async fn voz_motor_instalar(State(st): State<AppState>) -> impl IntoResponse {
-        if crate::voz_local::corriendo() && crate::voz_local::instalada(&st.data_dir) {
-            return (
-                StatusCode::OK,
-                Json(json!({ "success": true, "ya_estaba": true, "motor": crate::voz_local::estado(&st.data_dir) })),
-            );
-        }
-        if crate::voz_local::en_curso(&st.data_dir) {
-            return (
-                StatusCode::CONFLICT,
-                Json(json!({
-                    "success": false,
-                    "ocupado": true,
-                    "error": "ya hay una descarga de la voz local en curso"
-                })),
-            );
-        }
-        let (zip_url, modelo_url) = crate::voz_local::urls(&st.data_dir);
-        let data_dir = st.data_dir.clone();
-        tokio::spawn(async move {
-            match crate::voz_local::instalar(data_dir, zip_url, modelo_url).await {
-                Ok(m) => log::info!("voz local: instalada · {m}"),
-                Err(e) => log::warn!("voz local: la instalación falló · {e}"),
-            }
-        });
-        (
+/// `POST /api/voz/motor/instalar` — baja el runtime (80 MB) y el modelo (325 MB), verifica el
+/// hash, despliega y arranca. **No bloquea**: la descarga corre en segundo plano y el panel sigue
+/// el progreso con `voz.instalacion.json` (una petición abierta cinco minutos no es una opción).
+async fn voz_motor_instalar(State(st): State<AppState>) -> impl IntoResponse {
+    if crate::voz_local::corriendo() && crate::voz_local::instalada(&st.data_dir) {
+        return (
             StatusCode::OK,
-            Json(json!({ "success": true, "iniciada": true, "motor": crate::voz_local::estado(&st.data_dir) })),
-        )
+            Json(
+                json!({ "success": true, "ya_estaba": true, "motor": crate::voz_local::estado(&st.data_dir) }),
+            ),
+        );
     }
-
-    /// `POST /api/voz/motor/arrancar` — arranca el servidor de voz ya instalado (sin ventana).
-    async fn voz_motor_arrancar(State(st): State<AppState>) -> impl IntoResponse {
-        match crate::voz_local::arrancar(&st.data_dir) {
-            Ok(m) => (StatusCode::OK, Json(json!({ "success": true, "mensaje": m }))),
-            Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "success": false, "error": e }))),
+    if crate::voz_local::en_curso(&st.data_dir) {
+        return (
+            StatusCode::CONFLICT,
+            Json(json!({
+                "success": false,
+                "ocupado": true,
+                "error": "ya hay una descarga de la voz local en curso"
+            })),
+        );
+    }
+    let (zip_url, modelo_url) = crate::voz_local::urls(&st.data_dir);
+    let data_dir = st.data_dir.clone();
+    tokio::spawn(async move {
+        match crate::voz_local::instalar(data_dir, zip_url, modelo_url).await {
+            Ok(m) => log::info!("voz local: instalada · {m}"),
+            Err(e) => log::warn!("voz local: la instalación falló · {e}"),
         }
+    });
+    (
+        StatusCode::OK,
+        Json(
+            json!({ "success": true, "iniciada": true, "motor": crate::voz_local::estado(&st.data_dir) }),
+        ),
+    )
+}
+
+/// `POST /api/voz/motor/arrancar` — arranca el servidor de voz ya instalado (sin ventana).
+async fn voz_motor_arrancar(State(st): State<AppState>) -> impl IntoResponse {
+    match crate::voz_local::arrancar(&st.data_dir) {
+        Ok(m) => (
+            StatusCode::OK,
+            Json(json!({ "success": true, "mensaje": m })),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "success": false, "error": e })),
+        ),
     }
+}
 
 /// Dónde quedó el servidor MCP. El instalador lo copia junto al ejecutable (Tauri respeta la
 /// estructura relativa del proyecto); en desarrollo vive en el repo, un nivel arriba de `src-tauri`.
@@ -5089,9 +5102,19 @@ fn mcp_server_recurso() -> Option<std::path::PathBuf> {
     let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
     let candidatos = [
         exe_dir.join("mcp-server").join("nodeflow_mcp.py"),
-        exe_dir.join("resources").join("mcp-server").join("nodeflow_mcp.py"),
-        exe_dir.join("_up_").join("mcp-server").join("nodeflow_mcp.py"),
-        exe_dir.join("..").join("..").join("mcp-server").join("nodeflow_mcp.py"),
+        exe_dir
+            .join("resources")
+            .join("mcp-server")
+            .join("nodeflow_mcp.py"),
+        exe_dir
+            .join("_up_")
+            .join("mcp-server")
+            .join("nodeflow_mcp.py"),
+        exe_dir
+            .join("..")
+            .join("..")
+            .join("mcp-server")
+            .join("nodeflow_mcp.py"),
     ];
     if let Some(p) = candidatos.into_iter().find(|p| p.exists()) {
         return Some(p);
@@ -5214,9 +5237,16 @@ async fn mcp_instalar(State(st): State<AppState>) -> impl IntoResponse {
 /// El prompt de un experto es **identidad del usuario, no del producto**: la app no trae ninguno
 /// embebido y esto escribe únicamente en su bóveda. Si el slug ya existe, el archivo se reemplaza
 /// (el cuerpo entero es el prompt, así que pegarlo de nuevo es la forma de editarlo).
-async fn expertos_guardar(State(st): State<AppState>, Json(body): Json<Value>) -> impl IntoResponse {
+async fn expertos_guardar(
+    State(st): State<AppState>,
+    Json(body): Json<Value>,
+) -> impl IntoResponse {
     let nombre = body["nombre"].as_str().unwrap_or("").trim().to_string();
-    let tipo = body["tipo_artefacto"].as_str().unwrap_or("").trim().to_string();
+    let tipo = body["tipo_artefacto"]
+        .as_str()
+        .unwrap_or("")
+        .trim()
+        .to_string();
     let system = body["system"].as_str().unwrap_or("").trim().to_string();
     if nombre.is_empty() {
         return (
@@ -5227,22 +5257,33 @@ async fn expertos_guardar(State(st): State<AppState>, Json(body): Json<Value>) -
     if crate::artefactos::schema(&tipo).is_none() {
         return (
             StatusCode::BAD_REQUEST,
-            Json(json!({ "success": false, "error": format!("tipo de artefacto desconocido: «{tipo}»") })),
+            Json(
+                json!({ "success": false, "error": format!("tipo de artefacto desconocido: «{tipo}»") }),
+            ),
         );
     }
     if system.chars().count() < 40 {
         return (
             StatusCode::BAD_REQUEST,
-            Json(json!({ "success": false, "error": "el prompt es muy corto: pegá el system prompt completo" })),
+            Json(
+                json!({ "success": false, "error": "el prompt es muy corto: pegá el system prompt completo" }),
+            ),
         );
     }
     // El nombre del archivo sale del slug: minúsculas/números/guiones, 3-60, sin rutas (mismo
     // camino jaula que los planes del cerebro). Si no lo mandan, se deriva del nombre.
-    let slug = match body["slug"].as_str().map(str::trim).filter(|s| !s.is_empty()) {
+    let slug = match body["slug"]
+        .as_str()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         Some(s) => match crate::cerebro::slug_plan(s) {
             Ok(v) => v,
             Err(e) => {
-                return (StatusCode::BAD_REQUEST, Json(json!({ "success": false, "error": e })));
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({ "success": false, "error": e })),
+                );
             }
         },
         None => match crate::cerebro::slug_plan(&nombre) {
@@ -5250,7 +5291,9 @@ async fn expertos_guardar(State(st): State<AppState>, Json(body): Json<Value>) -
             Err(e) => {
                 return (
                     StatusCode::BAD_REQUEST,
-                    Json(json!({ "success": false, "error": format!("no pude formar el nombre de archivo: {e}") })),
+                    Json(
+                        json!({ "success": false, "error": format!("no pude formar el nombre de archivo: {e}") }),
+                    ),
                 );
             }
         },

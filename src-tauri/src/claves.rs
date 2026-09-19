@@ -90,7 +90,10 @@ pub enum Origen {
 
 pub struct Resuelta {
     pub valor: String,
-    #[allow(dead_code, reason = "Parte de la API pública de obtener_con; hoy solo se inspecciona en tests")]
+    #[allow(
+        dead_code,
+        reason = "Parte de la API pública de obtener_con; hoy solo se inspecciona en tests"
+    )]
     pub origen: Origen,
 }
 
@@ -98,7 +101,10 @@ pub struct Resuelta {
 pub trait Store: Send + Sync {
     fn leer(&self, campo: &str) -> Option<String>;
     fn escribir(&self, campo: &str, valor: &str) -> Result<(), String>;
-    #[allow(dead_code, reason = "Parte de la trait pública Store; hoy solo se usa en tests y migración futura")]
+    #[allow(
+        dead_code,
+        reason = "Parte de la trait pública Store; hoy solo se usa en tests y migración futura"
+    )]
     fn borrar(&self, campo: &str) -> Result<(), String>;
 }
 
@@ -350,7 +356,8 @@ pub fn migrar(data_dir: &Path, store: &dyn Store) -> Result<Value, String> {
         }
     }
     let salida = serde_json::to_string_pretty(&cfg).map_err(|e| e.to_string())?;
-    crate::estado::escribir_atomico(&ruta, &salida).map_err(|e| format!("no pude escribir el config: {e}"))?;
+    crate::estado::escribir_atomico(&ruta, &salida)
+        .map_err(|e| format!("no pude escribir el config: {e}"))?;
 
     log::info!(
         "claves: {} migradas al llavero · {} ya estaban · {} fallidas",

@@ -51,7 +51,10 @@ pub fn parsear(ediciones: &Value) -> Result<Vec<Edicion>, String> {
         return Err("el parche no tiene ediciones".into());
     }
     if lista.len() > MAX_EDICIONES {
-        return Err(format!("demasiadas ediciones ({}, tope {MAX_EDICIONES})", lista.len()));
+        return Err(format!(
+            "demasiadas ediciones ({}, tope {MAX_EDICIONES})",
+            lista.len()
+        ));
     }
     let mut out = Vec::new();
     for (i, e) in lista.iter().enumerate() {
@@ -65,7 +68,10 @@ pub fn parsear(ediciones: &Value) -> Result<Vec<Edicion>, String> {
             return Err(format!("edición {} ({ruta}): falta `buscar`", i + 1));
         }
         if buscar == reemplazar {
-            return Err(format!("edición {} ({ruta}): `buscar` y `reemplazar` son iguales", i + 1));
+            return Err(format!(
+                "edición {} ({ruta}): `buscar` y `reemplazar` son iguales",
+                i + 1
+            ));
         }
         out.push(Edicion {
             ruta,
@@ -81,10 +87,9 @@ pub fn parsear(ediciones: &Value) -> Result<Vec<Edicion>, String> {
 pub fn ruta_escribible(raiz: &Path, rel: &str) -> Result<PathBuf, String> {
     let limpio = rel.trim().replace('\\', "/");
     let minuscula = limpio.to_ascii_lowercase();
-    if PROHIBIDOS_ESCRITURA
-        .iter()
-        .any(|p| minuscula.ends_with(p) || minuscula.contains(&format!("/{p}")) || minuscula.starts_with(p))
-    {
+    if PROHIBIDOS_ESCRITURA.iter().any(|p| {
+        minuscula.ends_with(p) || minuscula.contains(&format!("/{p}")) || minuscula.starts_with(p)
+    }) {
         return Err(format!(
             "«{rel}» está protegido: un parche no toca archivos de publicación, control de versiones ni herramientas de guardado"
         ));
@@ -104,9 +109,14 @@ pub fn validar(raiz: &Path, eds: &[Edicion]) -> Result<Vec<(String, usize)>, Str
     for e in eds {
         let camino = ruta_escribible(raiz, &e.ruta)?;
         if !camino.is_file() {
-            return Err(format!("«{}» no existe (el parche sólo edita archivos existentes)", e.ruta));
+            return Err(format!(
+                "«{}» no existe (el parche sólo edita archivos existentes)",
+                e.ruta
+            ));
         }
-        *por_archivo.entry(e.ruta.trim().replace('\\', "/")).or_insert(0) += 1;
+        *por_archivo
+            .entry(e.ruta.trim().replace('\\', "/"))
+            .or_insert(0) += 1;
     }
     if por_archivo.len() > MAX_ARCHIVOS {
         return Err(format!(
@@ -118,7 +128,8 @@ pub fn validar(raiz: &Path, eds: &[Edicion]) -> Result<Vec<(String, usize)>, Str
     let mut contenido: BTreeMap<String, String> = BTreeMap::new();
     for ruta in por_archivo.keys() {
         let camino = ruta_escribible(raiz, ruta)?;
-        let texto = std::fs::read_to_string(&camino).map_err(|e| format!("no pude leer «{ruta}»: {e}"))?;
+        let texto =
+            std::fs::read_to_string(&camino).map_err(|e| format!("no pude leer «{ruta}»: {e}"))?;
         contenido.insert(ruta.clone(), texto);
     }
     for (i, e) in eds.iter().enumerate() {
@@ -165,7 +176,8 @@ pub fn aplicar(raiz: &Path, eds: &[Edicion]) -> Result<Aplicado, String> {
             // ya leído: se reusa el contenido original
         } else {
             let camino = ruta_escribible(raiz, &ruta)?;
-            let texto = std::fs::read_to_string(&camino).map_err(|e| format!("no pude leer «{ruta}»: {e}"))?;
+            let texto = std::fs::read_to_string(&camino)
+                .map_err(|e| format!("no pude leer «{ruta}»: {e}"))?;
             originales.insert(ruta.clone(), texto.clone());
             nuevos.insert(ruta.clone(), texto);
         }
@@ -202,7 +214,9 @@ pub fn aplicar(raiz: &Path, eds: &[Edicion]) -> Result<Aplicado, String> {
                         let _ = crate::estado::escribir_atomico(&c, orig);
                     }
                 }
-                return Err(format!("no pude escribir «{ruta}»: {e} — restauré lo ya escrito"));
+                return Err(format!(
+                    "no pude escribir «{ruta}»: {e} — restauré lo ya escrito"
+                ));
             }
         }
     }
@@ -230,7 +244,10 @@ pub fn invertir(eds: &[Edicion]) -> Vec<Edicion> {
 /// (Correr los dos siempre es tirar minutos: un parche de Rust no puede romper el tipado de TS.)
 pub fn gates(archivos: &[String]) -> Vec<String> {
     let mut g = Vec::new();
-    if archivos.iter().any(|a| a.ends_with(".rs") || a.ends_with(".toml")) {
+    if archivos
+        .iter()
+        .any(|a| a.ends_with(".rs") || a.ends_with(".toml"))
+    {
         g.push("cargo test --manifest-path src-tauri/Cargo.toml --lib".to_string());
     }
     if archivos
@@ -403,11 +420,16 @@ mod tests_cola {
         let mut v = leer(&dir).unwrap();
         v["estado"] = json!("aplicado");
         escribir(&dir, &v).unwrap();
-        assert!(std::fs::read_to_string(raiz.join("src-tauri/src/lib.rs")).unwrap().contains("// fin (editado)"));
+        assert!(std::fs::read_to_string(raiz.join("src-tauri/src/lib.rs"))
+            .unwrap()
+            .contains("// fin (editado)"));
 
         // Revertir = aplicar la inversa.
         aplicar(&raiz, &invertir(&guardadas)).unwrap();
-        assert_eq!(std::fs::read_to_string(raiz.join("src-tauri/src/lib.rs")).unwrap(), original);
+        assert_eq!(
+            std::fs::read_to_string(raiz.join("src-tauri/src/lib.rs")).unwrap(),
+            original
+        );
         let _ = std::fs::remove_dir_all(&raiz);
     }
 
@@ -436,7 +458,12 @@ mod tests_cola {
     }
 
     fn ed(ruta: &str, buscar: &str, reemplazar: &str) -> Edicion {
-        Edicion { ruta: ruta.into(), buscar: buscar.into(), reemplazar: reemplazar.into(), todos: false }
+        Edicion {
+            ruta: ruta.into(),
+            buscar: buscar.into(),
+            reemplazar: reemplazar.into(),
+            todos: false,
+        }
     }
 
     #[test]
@@ -453,7 +480,10 @@ mod tests_cola {
             "clave-motor.txt",
             "sub/.env",
         ] {
-            assert!(ruta_escribible(&raiz, malo).is_err(), "«{malo}» no se puede escribir");
+            assert!(
+                ruta_escribible(&raiz, malo).is_err(),
+                "«{malo}» no se puede escribir"
+            );
         }
         let _ = std::fs::remove_dir_all(&raiz);
     }
@@ -461,12 +491,19 @@ mod tests_cola {
     #[test]
     fn aplicar_hace_el_cambio_y_deja_el_resto_igual() {
         let raiz = repo_temporal("aplicar");
-        let eds = vec![ed("src-tauri/src/lib.rs", "mod server;", "mod server;\nmod agente;")];
+        let eds = vec![ed(
+            "src-tauri/src/lib.rs",
+            "mod server;",
+            "mod server;\nmod agente;",
+        )];
         let r = aplicar(&raiz, &eds).unwrap();
         assert_eq!(r.archivos, vec!["src-tauri/src/lib.rs"]);
         assert_eq!(r.mas, 1, "una línea más");
         let texto = std::fs::read_to_string(raiz.join("src-tauri/src/lib.rs")).unwrap();
-        assert!(texto.contains("mod agente;\nmod server;\nmod agente;"), "{texto}");
+        assert!(
+            texto.contains("mod agente;\nmod server;\nmod agente;"),
+            "{texto}"
+        );
         let _ = std::fs::remove_dir_all(&raiz);
     }
 
@@ -499,7 +536,10 @@ mod tests_cola {
         let r = aplicar(&raiz, &todos).unwrap();
         assert_eq!(r.ediciones, 1);
         let texto = std::fs::read_to_string(raiz.join("src-tauri/src/lib.rs")).unwrap();
-        assert!(!texto.contains("mod ") && texto.contains("module "), "{texto}");
+        assert!(
+            !texto.contains("mod ") && texto.contains("module "),
+            "{texto}"
+        );
         let _ = std::fs::remove_dir_all(&raiz);
     }
 
@@ -509,7 +549,9 @@ mod tests_cola {
         let original = std::fs::read_to_string(raiz.join("src-tauri/src/lib.rs")).unwrap();
         let eds = vec![ed("src-tauri/src/lib.rs", "// fin", "// terminado")];
         aplicar(&raiz, &eds).unwrap();
-        assert!(std::fs::read_to_string(raiz.join("src-tauri/src/lib.rs")).unwrap().contains("// terminado"));
+        assert!(std::fs::read_to_string(raiz.join("src-tauri/src/lib.rs"))
+            .unwrap()
+            .contains("// terminado"));
         aplicar(&raiz, &invertir(&eds)).unwrap();
         assert_eq!(
             std::fs::read_to_string(raiz.join("src-tauri/src/lib.rs")).unwrap(),
@@ -522,9 +564,18 @@ mod tests_cola {
     #[test]
     fn los_topes_y_la_forma_se_chequean_antes_de_tocar_el_disco() {
         let raiz = repo_temporal("forma");
-        assert!(parsear(&json!([{"ruta": "a.rs", "buscar": "x", "reemplazar": "x"}])).is_err(), "iguales");
-        assert!(parsear(&json!([{"ruta": "", "buscar": "x", "reemplazar": "y"}])).is_err(), "sin ruta");
-        assert!(parsear(&json!([{"ruta": "a.rs", "buscar": "", "reemplazar": "y"}])).is_err(), "sin ancla");
+        assert!(
+            parsear(&json!([{"ruta": "a.rs", "buscar": "x", "reemplazar": "x"}])).is_err(),
+            "iguales"
+        );
+        assert!(
+            parsear(&json!([{"ruta": "", "buscar": "x", "reemplazar": "y"}])).is_err(),
+            "sin ruta"
+        );
+        assert!(
+            parsear(&json!([{"ruta": "a.rs", "buscar": "", "reemplazar": "y"}])).is_err(),
+            "sin ancla"
+        );
         assert!(parsear(&json!([])).is_err(), "vacío");
         assert!(parsear(&json!("no soy lista")).is_err());
 
@@ -547,11 +598,18 @@ mod tests_cola {
 
     #[test]
     fn el_gate_depende_de_lo_que_se_toco() {
-        assert_eq!(gates(&["src-tauri/src/lib.rs".into()]), vec!["cargo test --manifest-path src-tauri/Cargo.toml --lib"]);
+        assert_eq!(
+            gates(&["src-tauri/src/lib.rs".into()]),
+            vec!["cargo test --manifest-path src-tauri/Cargo.toml --lib"]
+        );
         assert_eq!(gates(&["src/App.tsx".into()]), vec!["npx tsc --noEmit"]);
         let dos = gates(&["src/App.tsx".into(), "src-tauri/src/lib.rs".into()]);
         assert_eq!(dos.len(), 2, "si toca los dos mundos, corren los dos gates");
-        assert_eq!(gates(&["README.md".into()]), vec!["git diff --stat"], "sin gate obvio, al menos el diff");
+        assert_eq!(
+            gates(&["README.md".into()]),
+            vec!["git diff --stat"],
+            "sin gate obvio, al menos el diff"
+        );
     }
 
     #[test]

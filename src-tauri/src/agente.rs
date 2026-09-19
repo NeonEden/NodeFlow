@@ -182,7 +182,13 @@ impl Paso {
             if self.ok { "ok" } else { "error" },
             self.herramienta,
             self.ms,
-            self.salida.lines().next().unwrap_or("").chars().take(80).collect::<String>()
+            self.salida
+                .lines()
+                .next()
+                .unwrap_or("")
+                .chars()
+                .take(80)
+                .collect::<String>()
         )
     }
 }
@@ -210,7 +216,10 @@ pub fn ruta_enjaulada(raiz: &Path, rel: &str) -> Result<PathBuf, String> {
             return Err(format!("«{rel}» intenta salir del repo"));
         }
         let minuscula = parte.to_ascii_lowercase();
-        if PROHIBIDOS.iter().any(|p| minuscula.starts_with(p) || minuscula == *p) {
+        if PROHIBIDOS
+            .iter()
+            .any(|p| minuscula.starts_with(p) || minuscula == *p)
+        {
             return Err(format!(
                 "«{parte}» está en la lista de archivos que el agente no lee (llaves y configuración)"
             ));
@@ -218,7 +227,9 @@ pub fn ruta_enjaulada(raiz: &Path, rel: &str) -> Result<PathBuf, String> {
         destino.push(parte);
     }
     if let Ok(real) = destino.canonicalize() {
-        let raiz_real = raiz.canonicalize().map_err(|e| format!("raíz ilegible: {e}"))?;
+        let raiz_real = raiz
+            .canonicalize()
+            .map_err(|e| format!("raíz ilegible: {e}"))?;
         if !real.starts_with(&raiz_real) {
             return Err(format!("«{rel}» apunta fuera del repo"));
         }
@@ -230,7 +241,9 @@ pub fn ruta_enjaulada(raiz: &Path, rel: &str) -> Result<PathBuf, String> {
 /// (`cargo test … --lib mi_test`) sin abrir la puerta a nada más.
 pub fn comando_autorizado(comando: &str) -> bool {
     let c = comando.trim();
-    COMANDOS.iter().any(|p| c == *p || c.starts_with(&format!("{p} ")))
+    COMANDOS
+        .iter()
+        .any(|p| c == *p || c.starts_with(&format!("{p} ")))
 }
 
 fn se_salta(nombre: &str) -> bool {
@@ -401,7 +414,10 @@ pub fn ejecutar(raiz: &Path, nombre: &str, args: &Value, cfg: &Config) -> Result
                 .collect();
             lineas.sort();
             if lineas.is_empty() {
-                return Ok(format!("(vacío): {}", if rel.trim().is_empty() { "." } else { rel }));
+                return Ok(format!(
+                    "(vacío): {}",
+                    if rel.trim().is_empty() { "." } else { rel }
+                ));
             }
             Ok(recorta(&lineas.join("  ")))
         }
@@ -411,9 +427,13 @@ pub fn ejecutar(raiz: &Path, nombre: &str, args: &Value, cfg: &Config) -> Result
                 .and_then(|v| v.as_str())
                 .ok_or("falta `ruta`")?;
             let ruta = ruta_enjaulada(raiz, rel)?;
-            let texto = std::fs::read_to_string(&ruta)
-                .map_err(|e| format!("no pude leer «{rel}»: {e}"))?;
-            let desde = args.get("desde").and_then(|v| v.as_u64()).unwrap_or(1).max(1) as usize;
+            let texto =
+                std::fs::read_to_string(&ruta).map_err(|e| format!("no pude leer «{rel}»: {e}"))?;
+            let desde = args
+                .get("desde")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(1)
+                .max(1) as usize;
             let cuantas = args
                 .get("lineas")
                 .and_then(|v| v.as_u64())
@@ -460,15 +480,30 @@ pub fn ejecutar(raiz: &Path, nombre: &str, args: &Value, cfg: &Config) -> Result
                     let t = l.trim_start();
                     let es = match ext.as_str() {
                         "rs" => [
-                            "pub fn ", "pub async fn ", "fn ", "async fn ", "pub struct ",
-                            "struct ", "impl ", "pub enum ", "enum ", "pub trait ", "trait ",
-                            "pub const ", "pub type ",
+                            "pub fn ",
+                            "pub async fn ",
+                            "fn ",
+                            "async fn ",
+                            "pub struct ",
+                            "struct ",
+                            "impl ",
+                            "pub enum ",
+                            "enum ",
+                            "pub trait ",
+                            "trait ",
+                            "pub const ",
+                            "pub type ",
                         ]
                         .iter()
                         .any(|p| t.starts_with(p)),
                         _ => [
-                            "export const ", "export function ", "export async function ",
-                            "export interface ", "export type ", "export default ", "export class ",
+                            "export const ",
+                            "export function ",
+                            "export async function ",
+                            "export interface ",
+                            "export type ",
+                            "export default ",
+                            "export class ",
                         ]
                         .iter()
                         .any(|p| t.starts_with(p)),
@@ -479,7 +514,12 @@ pub fn ejecutar(raiz: &Path, nombre: &str, args: &Value, cfg: &Config) -> Result
                     }
                 }
                 if !en_archivo.is_empty() {
-                    out.push(format!("· {} ({} firmas)\n{}", ruta_rel(&f), en_archivo.len(), en_archivo.join("\n")));
+                    out.push(format!(
+                        "· {} ({} firmas)\n{}",
+                        ruta_rel(&f),
+                        en_archivo.len(),
+                        en_archivo.join("\n")
+                    ));
                 }
             }
             if out.is_empty() {
@@ -525,7 +565,12 @@ pub fn ejecutar(raiz: &Path, nombre: &str, args: &Value, cfg: &Config) -> Result
             Ok(recorta(&out.join("\n")))
         }
         "proponer_parche" => {
-            let motivo = args.get("motivo").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+            let motivo = args
+                .get("motivo")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
             let eds = crate::parche::parsear(args.get("ediciones").unwrap_or(&Value::Null))?;
             // Se valida AHORA (sin escribir): una propuesta que no se puede aplicar no llega al humano.
             let archivos = crate::parche::validar(raiz, &eds)?;
@@ -653,7 +698,14 @@ fn recorta_cabeza_cola(s: &str) -> String {
         return s.to_string();
     }
     let cabeza: String = s.chars().take(4_000).collect();
-    let cola: String = s.chars().rev().take(3_500).collect::<String>().chars().rev().collect();
+    let cola: String = s
+        .chars()
+        .rev()
+        .take(3_500)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
     format!("{cabeza}\n…(recortado)…\n{cola}")
 }
 
@@ -683,7 +735,14 @@ pub struct Turno {
 
 impl Turno {
     fn cerrado(texto: String, pasos: Vec<Paso>) -> Turno {
-        Turno { texto, pasos, ok: true, error: None, podas: 0, entrada_estimada: 0 }
+        Turno {
+            texto,
+            pasos,
+            ok: true,
+            error: None,
+            podas: 0,
+            entrada_estimada: 0,
+        }
     }
 
     /// Le pega la cuenta del presupuesto al desenlace: cuántas salidas se podaron y cuánta entrada
@@ -695,7 +754,14 @@ impl Turno {
     }
     /// Se cortó por una regla nuestra (tope de vueltas, presupuesto): no es un error del motor.
     fn cortado(texto: String, pasos: Vec<Paso>) -> Turno {
-        Turno { texto, pasos, ok: false, error: None, podas: 0, entrada_estimada: 0 }
+        Turno {
+            texto,
+            pasos,
+            ok: false,
+            error: None,
+            podas: 0,
+            entrada_estimada: 0,
+        }
     }
     /// Falla del motor o del proveedor: también conserva los pasos.
     fn fallado(e: String, pasos: Vec<Paso>) -> Turno {
@@ -772,12 +838,7 @@ pub fn podar(messages: &mut [Value], cfg: &Config) -> usize {
 /// `llamar(messages, tools)` es el único acceso al mundo: lo inyecta el backend (proveedor real) y lo
 /// inyecta el test (modelo de mentira). Devuelve el texto final y **todos** los pasos ejecutados, que
 /// es lo que el panel muestra y lo que hace auditable la corrida.
-pub async fn correr<F, Fut>(
-    pedido: &str,
-    sistema: &str,
-    cfg: &Config,
-    llamar: F,
-) -> Turno
+pub async fn correr<F, Fut>(pedido: &str, sistema: &str, cfg: &Config, llamar: F) -> Turno
 where
     F: Fn(Vec<Value>, Vec<Value>) -> Fut,
     Fut: std::future::Future<Output = Result<Value, String>>,
@@ -830,8 +891,11 @@ where
         };
         let msg = r["choices"][0]["message"].clone();
         if msg.is_null() {
-            return Turno::fallado(format!("respuesta sin `message`: {}", recorta(&r.to_string())), pasos)
-                .con_cuenta(podas, entrada_estimada);
+            return Turno::fallado(
+                format!("respuesta sin `message`: {}", recorta(&r.to_string())),
+                pasos,
+            )
+            .con_cuenta(podas, entrada_estimada);
         }
         let llamadas = msg
             .get("tool_calls")
@@ -932,7 +996,10 @@ mod tests {
     fn la_jaula_rebota_escapes_absolutas_y_llaves() {
         let raiz = repo_temporal("jaula");
         assert!(ruta_enjaulada(&raiz, "src-tauri/src/server.rs").is_ok());
-        assert!(ruta_enjaulada(&raiz, "./src-tauri/src/server.rs").is_ok(), "el ./ es inocente");
+        assert!(
+            ruta_enjaulada(&raiz, "./src-tauri/src/server.rs").is_ok(),
+            "el ./ es inocente"
+        );
         for malo in [
             "../fuera.txt",
             "src/../../fuera.txt",
@@ -953,7 +1020,9 @@ mod tests {
 
     #[test]
     fn solo_corren_los_comandos_de_la_lista_blanca() {
-        assert!(comando_autorizado("cargo test --manifest-path src-tauri/Cargo.toml --lib"));
+        assert!(comando_autorizado(
+            "cargo test --manifest-path src-tauri/Cargo.toml --lib"
+        ));
         assert!(comando_autorizado("npx tsc --noEmit"));
         assert!(
             comando_autorizado("cargo test --manifest-path src-tauri/Cargo.toml --lib la_jaula"),
@@ -967,15 +1036,26 @@ mod tests {
             "git checkout .",
             "node -e \"require('fs').rmSync('/')\"",
         ] {
-            assert!(!comando_autorizado(malo), "«{malo}» no puede estar permitido");
+            assert!(
+                !comando_autorizado(malo),
+                "«{malo}» no puede estar permitido"
+            );
         }
     }
 
     #[test]
     fn los_comandos_de_git_no_pueden_quedar_esperando_un_paginador() {
         // El cuelgue medido: `git log` abrió el paginador y se comió 180 s del turno.
-        for forma in ["git log", "git --no-pager log", "git diff", "git --no-pager status"] {
-            assert!(comando_autorizado(forma), "«{forma}» tiene que estar permitido");
+        for forma in [
+            "git log",
+            "git --no-pager log",
+            "git diff",
+            "git --no-pager status",
+        ] {
+            assert!(
+                comando_autorizado(forma),
+                "«{forma}» tiene que estar permitido"
+            );
         }
         // Y el hijo corre con el paginador apagado, así ninguno de esos se cuelga.
         // (El `env` se aplica en `correr_comando`; acá se fija el contrato de la lista.)
@@ -988,7 +1068,10 @@ mod tests {
     #[test]
     fn leer_archivo_devuelve_el_rango_pedido_con_numeros() {
         let raiz = repo_temporal("leer");
-        let cfg = Config { repo: raiz.clone(), ..Config::default() };
+        let cfg = Config {
+            repo: raiz.clone(),
+            ..Config::default()
+        };
         let out = ejecutar(
             &raiz,
             "leer_archivo",
@@ -1015,8 +1098,15 @@ mod tests {
     fn firmas_da_el_corte_barato_y_saltea_lo_pesado() {
         let raiz = repo_temporal("firmas");
         std::fs::create_dir_all(raiz.join("node_modules/ruido")).unwrap();
-        std::fs::write(raiz.join("node_modules/ruido/x.rs"), "pub fn no_deberia_aparecer() {}\n").unwrap();
-        let cfg = Config { repo: raiz.clone(), ..Config::default() };
+        std::fs::write(
+            raiz.join("node_modules/ruido/x.rs"),
+            "pub fn no_deberia_aparecer() {}\n",
+        )
+        .unwrap();
+        let cfg = Config {
+            repo: raiz.clone(),
+            ..Config::default()
+        };
         let out = ejecutar(&raiz, "firmas", &json!({ "ruta": "src-tauri/src" }), &cfg).unwrap();
         assert!(out.contains("pub fn health()"));
         assert!(out.contains("pub async fn call_motor()"));
@@ -1030,9 +1120,21 @@ mod tests {
     #[test]
     fn buscar_encuentra_y_acota() {
         let raiz = repo_temporal("buscar");
-        let cfg = Config { repo: raiz.clone(), ..Config::default() };
-        let out = ejecutar(&raiz, "buscar", &json!({ "texto": "call_motor", "extension": "rs" }), &cfg).unwrap();
-        assert!(out.contains("src-tauri/src/server.rs:3"), "archivo:línea → {out}");
+        let cfg = Config {
+            repo: raiz.clone(),
+            ..Config::default()
+        };
+        let out = ejecutar(
+            &raiz,
+            "buscar",
+            &json!({ "texto": "call_motor", "extension": "rs" }),
+            &cfg,
+        )
+        .unwrap();
+        assert!(
+            out.contains("src-tauri/src/server.rs:3"),
+            "archivo:línea → {out}"
+        );
         let vacio = ejecutar(&raiz, "buscar", &json!({ "texto": "no-existe-xyz" }), &cfg).unwrap();
         assert!(vacio.starts_with("sin resultados"));
         let _ = std::fs::remove_dir_all(&raiz);
@@ -1041,20 +1143,39 @@ mod tests {
     #[test]
     fn correr_rechaza_lo_que_no_esta_en_la_lista_y_respeta_el_apagado() {
         let raiz = repo_temporal("correr");
-        let cfg = Config { repo: raiz.clone(), ..Config::default() };
+        let cfg = Config {
+            repo: raiz.clone(),
+            ..Config::default()
+        };
         let e = ejecutar(&raiz, "correr", &json!({ "comando": "rm -rf /" }), &cfg).unwrap_err();
         assert!(e.contains("no autorizado"), "{e}");
-        let apagado = Config { comandos: false, ..cfg.clone() };
-        assert!(ejecutar(&raiz, "correr", &json!({ "comando": "git status" }), &apagado).is_err());
+        let apagado = Config {
+            comandos: false,
+            ..cfg.clone()
+        };
+        assert!(ejecutar(
+            &raiz,
+            "correr",
+            &json!({ "comando": "git status" }),
+            &apagado
+        )
+        .is_err());
         assert!(
-            !definiciones(false).iter().any(|d| d["function"]["name"] == "correr"),
+            !definiciones(false)
+                .iter()
+                .any(|d| d["function"]["name"] == "correr"),
             "si está apagado, la herramienta ni se ofrece"
         );
         let _ = std::fs::remove_dir_all(&raiz);
     }
 
     /// Modelo de mentira: devuelve una secuencia de respuestas. El bucle no sabe de HTTP.
-    fn modelo(respuestas: Vec<Value>) -> impl Fn(Vec<Value>, Vec<Value>) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, String>>>> {
+    fn modelo(
+        respuestas: Vec<Value>,
+    ) -> impl Fn(
+        Vec<Value>,
+        Vec<Value>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, String>>>> {
         let celda = std::sync::Arc::new(std::sync::Mutex::new(respuestas));
         move |_m: Vec<Value>, _t: Vec<Value>| {
             let c = celda.clone();
@@ -1064,14 +1185,18 @@ mod tests {
                     return Err("el modelo se quedó sin respuestas".into());
                 }
                 Ok(g.remove(0))
-            }) as std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, String>>>>
+            })
+                as std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, String>>>>
         }
     }
 
     #[tokio::test]
     async fn el_bucle_ejecuta_la_herramienta_y_cierra_con_el_texto() {
         let raiz = repo_temporal("bucle");
-        let cfg = Config { repo: raiz.clone(), ..Config::default() };
+        let cfg = Config {
+            repo: raiz.clone(),
+            ..Config::default()
+        };
         let secuencia = vec![
             json!({ "choices": [ { "message": { "role": "assistant", "content": null, "tool_calls": [
                 { "id": "c1", "type": "function", "function": { "name": "firmas", "arguments": "{\"ruta\":\"src-tauri/src\"}" } } ] } } ] }),
@@ -1092,7 +1217,10 @@ mod tests {
     #[tokio::test]
     async fn una_herramienta_que_falla_no_mata_el_turno() {
         let raiz = repo_temporal("falla");
-        let cfg = Config { repo: raiz.clone(), ..Config::default() };
+        let cfg = Config {
+            repo: raiz.clone(),
+            ..Config::default()
+        };
         let secuencia = vec![
             json!({ "choices": [ { "message": { "tool_calls": [
                 { "id": "c1", "type": "function", "function": { "name": "leer_archivo", "arguments": "{\"ruta\":\"no/existe.rs\"}" } } ] } } ] }),
@@ -1102,14 +1230,20 @@ mod tests {
         assert!(t.ok, "un paso que falla no corta el turno");
         let (texto, pasos) = (t.texto, t.pasos);
         assert!(pasos[0].ok == false, "el paso se marca como error");
-        assert!(pasos[0].salida.starts_with("ERROR:"), "el error viaja como texto");
+        assert!(
+            pasos[0].salida.starts_with("ERROR:"),
+            "el error viaja como texto"
+        );
         assert!(texto.contains("probemos otro camino"), "el turno siguió");
         let _ = std::fs::remove_dir_all(&raiz);
     }
 
     #[test]
     fn la_poda_deja_la_primera_linea_y_no_toca_las_ultimas() {
-        let cfg = Config { conservar_ultimas: 2, ..Config::default() };
+        let cfg = Config {
+            conservar_ultimas: 2,
+            ..Config::default()
+        };
         let mut msgs: Vec<Value> = vec![
             json!({ "role": "system", "content": "sys" }),
             json!({ "role": "user", "content": "pedido" }),
@@ -1123,15 +1257,25 @@ fin", "x".repeat(600)) }));
         assert_eq!(n, 2, "con conservar_ultimas=2 se recortan las 2 más viejas");
         let vieja = msgs[2]["content"].as_str().unwrap();
         assert!(vieja.starts_with("salida 0 de la herramienta"), "{vieja}");
-        assert!(vieja.contains(MARCA_PODA) && vieja.contains("2 líneas"), "{vieja}");
+        assert!(
+            vieja.contains(MARCA_PODA) && vieja.contains("2 líneas"),
+            "{vieja}"
+        );
         assert!(vieja.chars().count() < 200, "lo recortado no viaja");
         let ultima = msgs[5]["content"].as_str().unwrap();
-        assert_eq!(ultima.lines().count(), 3, "la última queda entera: el modelo la acaba de pedir");
+        assert_eq!(
+            ultima.lines().count(),
+            3,
+            "la última queda entera: el modelo la acaba de pedir"
+        );
     }
 
     #[test]
     fn la_poda_es_monotona_y_no_se_repite() {
-        let cfg = Config { conservar_ultimas: 1, ..Config::default() };
+        let cfg = Config {
+            conservar_ultimas: 1,
+            ..Config::default()
+        };
         let mut msgs: Vec<Value> = vec![json!({ "role": "system", "content": "sys" })];
         for i in 0..4 {
             msgs.push(json!({ "role": "tool", "tool_call_id": format!("c{i}"),
@@ -1143,14 +1287,20 @@ fin", "y".repeat(600)) }));
         // Segunda pasada: no recorta nada nuevo y **no re-expande** lo ya recortado.
         assert_eq!(podar(&mut msgs, &cfg), 0, "idempotente");
         let ahora: Vec<String> = msgs.iter().map(|m| m.to_string()).collect();
-        assert_eq!(despues, ahora, "monótona: el prefijo no cambia entre vueltas");
+        assert_eq!(
+            despues, ahora,
+            "monótona: el prefijo no cambia entre vueltas"
+        );
     }
 
     #[test]
     fn la_estimacion_de_entrada_sigue_la_regla_de_cuatro_caracteres() {
         let msgs = vec![json!({ "role": "system", "content": "a".repeat(4_000) })];
         let est = estimar_entrada(&msgs);
-        assert!((1_000..1_100).contains(&est), "≈1000 tokens para 4000 caracteres, dio {est}");
+        assert!(
+            (1_000..1_100).contains(&est),
+            "≈1000 tokens para 4000 caracteres, dio {est}"
+        );
         assert!(estimar_entrada(&[]) == 0);
     }
 
@@ -1160,7 +1310,9 @@ fin", "y".repeat(600)) }));
         // Un archivo grande: cada lectura devuelve el tope de salida (8.000 caracteres ≈ 2.000 tokens).
         std::fs::write(
             raiz.join("src-tauri/src/grande.rs"),
-            (0..1_000).map(|i| format!("// línea {i} con relleno suficiente para pesar\n")).collect::<String>(),
+            (0..1_000)
+                .map(|i| format!("// línea {i} con relleno suficiente para pesar\n"))
+                .collect::<String>(),
         )
         .unwrap();
         let cfg = Config {
@@ -1179,10 +1331,25 @@ fin", "y".repeat(600)) }));
             .collect();
         let t = correr("dale", "sys", &cfg, modelo(siempre)).await;
         assert!(!t.ok, "no cerró: {}", t.texto);
-        assert!(t.texto.contains("presupuesto de 4000 tokens"), "{}", t.texto);
-        assert!(t.error.is_none(), "un presupuesto no es una falla de motor: es una regla nuestra");
-        assert!(t.pasos.len() >= 2, "los pasos NO se pierden: {}", t.pasos.len());
-        assert!(t.entrada_estimada > 4_000, "informa cuánta entrada tenía: {}", t.entrada_estimada);
+        assert!(
+            t.texto.contains("presupuesto de 4000 tokens"),
+            "{}",
+            t.texto
+        );
+        assert!(
+            t.error.is_none(),
+            "un presupuesto no es una falla de motor: es una regla nuestra"
+        );
+        assert!(
+            t.pasos.len() >= 2,
+            "los pasos NO se pierden: {}",
+            t.pasos.len()
+        );
+        assert!(
+            t.entrada_estimada > 4_000,
+            "informa cuánta entrada tenía: {}",
+            t.entrada_estimada
+        );
         let _ = std::fs::remove_dir_all(&raiz);
     }
 
@@ -1191,7 +1358,9 @@ fin", "y".repeat(600)) }));
         let raiz = repo_temporal("poda-turno");
         std::fs::write(
             raiz.join("src-tauri/src/grande.rs"),
-            (0..1_000).map(|i| format!("// línea {i} con relleno suficiente para pesar\n")).collect::<String>(),
+            (0..1_000)
+                .map(|i| format!("// línea {i} con relleno suficiente para pesar\n"))
+                .collect::<String>(),
         )
         .unwrap();
         let cfg = Config {
@@ -1209,8 +1378,16 @@ fin", "y".repeat(600)) }));
             })
             .collect();
         let t = correr("dale", "sys", &cfg, modelo(siempre)).await;
-        assert!(t.texto.contains("agotó las 5 vueltas"), "el turno siguió hasta el tope: {}", t.texto);
-        assert!(t.podas >= 2, "podó lo viejo en vez de morir por presupuesto: {}", t.podas);
+        assert!(
+            t.texto.contains("agotó las 5 vueltas"),
+            "el turno siguió hasta el tope: {}",
+            t.texto
+        );
+        assert!(
+            t.podas >= 2,
+            "podó lo viejo en vez de morir por presupuesto: {}",
+            t.podas
+        );
         assert_eq!(t.pasos.len(), 5);
         let _ = std::fs::remove_dir_all(&raiz);
     }
@@ -1218,16 +1395,27 @@ fin", "y".repeat(600)) }));
     #[tokio::test]
     async fn el_tope_de_vueltas_corta_el_bucle_infinito() {
         let raiz = repo_temporal("tope");
-        let cfg = Config { repo: raiz.clone(), tope_pasos: 3, ..Config::default() };
+        let cfg = Config {
+            repo: raiz.clone(),
+            tope_pasos: 3,
+            ..Config::default()
+        };
         // El modelo siempre pide la misma herramienta: sin tope, esto no termina nunca.
         let siempre = (0..10).map(|i| json!({ "choices": [ { "message": { "tool_calls": [
             { "id": format!("c{i}"), "type": "function", "function": { "name": "listar", "arguments": "{}" } } ] } } ] })).collect();
         let t = correr("dale", "sys", &cfg, modelo(siempre)).await;
         assert!(!t.ok, "no cerró el turno");
         assert!(t.texto.contains("agotó las 3 vueltas"), "{}", t.texto);
-        assert!(t.error.is_none(), "un tope no es una falla de motor: es una regla nuestra");
+        assert!(
+            t.error.is_none(),
+            "un tope no es una falla de motor: es una regla nuestra"
+        );
         // El bug que destapó el turno real: el tope tiraba los pasos a la basura.
-        assert_eq!(t.pasos.len(), 3, "los pasos NO se pierden cuando se agota el tope");
+        assert_eq!(
+            t.pasos.len(),
+            3,
+            "los pasos NO se pierden cuando se agota el tope"
+        );
         assert!(t.pasos.iter().all(|p| p.ok), "y conservan su marca");
         let _ = std::fs::remove_dir_all(&raiz);
     }

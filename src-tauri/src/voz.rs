@@ -173,16 +173,30 @@ mod tests_voz_selectiva {
     #[test]
     fn responder_necesita_una_pregunta_del_lienzo_y_su_texto() {
         let ids = vec!["p-1".to_string()];
-        let ok = json!({"comandos": [{"accion": "responder", "nodo": "p-1", "respuesta": "lo probé"}]});
+        let ok =
+            json!({"comandos": [{"accion": "responder", "nodo": "p-1", "respuesta": "lo probé"}]});
         let out = super::validar(&ok, &ids);
         assert_eq!(out["comandos"][0]["nodo"], json!("p-1"));
         assert_eq!(out["comandos"][0]["respuesta"], json!("lo probé"));
         // id inventado
-        let fantasma = json!({"comandos": [{"accion": "responder", "nodo": "p-9", "respuesta": "x"}]});
-        assert_eq!(super::validar(&fantasma, &ids)["comandos"].as_array().unwrap().len(), 0);
+        let fantasma =
+            json!({"comandos": [{"accion": "responder", "nodo": "p-9", "respuesta": "x"}]});
+        assert_eq!(
+            super::validar(&fantasma, &ids)["comandos"]
+                .as_array()
+                .unwrap()
+                .len(),
+            0
+        );
         // sin texto
         let mudo = json!({"comandos": [{"accion": "responder", "nodo": "p-1", "respuesta": " "}]});
-        assert_eq!(super::validar(&mudo, &ids)["comandos"].as_array().unwrap().len(), 0);
+        assert_eq!(
+            super::validar(&mudo, &ids)["comandos"]
+                .as_array()
+                .unwrap()
+                .len(),
+            0
+        );
     }
 
     #[test]
@@ -197,16 +211,28 @@ mod tests_voz_selectiva {
         }
         // con un solo nodo alcanza (condensar necesita 2; decidir, no)
         let uno = json!({"comandos": [{"accion": "descartar", "nodos": ["n-1"]}]});
-        assert_eq!(super::validar(&uno, &ids)["comandos"][0]["nodos"], json!(["n-1"]));
+        assert_eq!(
+            super::validar(&uno, &ids)["comandos"][0]["nodos"],
+            json!(["n-1"])
+        );
         // sin ids válidos, se cae
         let nada = json!({"comandos": [{"accion": "aceptar", "nodos": ["x", "y"]}]});
-        assert_eq!(super::validar(&nada, &ids)["comandos"].as_array().unwrap().len(), 0);
+        assert_eq!(
+            super::validar(&nada, &ids)["comandos"]
+                .as_array()
+                .unwrap()
+                .len(),
+            0
+        );
     }
 
     #[test]
     fn los_cierres_del_ciclo_hablan() {
         for accion in ["responder", "aceptar", "descartar"] {
-            assert!(super::debe_hablar(&json!({"comandos": [{"accion": accion}]})), "{accion}");
+            assert!(
+                super::debe_hablar(&json!({"comandos": [{"accion": accion}]})),
+                "{accion}"
+            );
         }
     }
 

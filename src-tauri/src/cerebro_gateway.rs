@@ -73,7 +73,10 @@ impl Gateway {
         self.puerto
     }
 
-    #[allow(dead_code, reason = "API pública para que el frontend o tests puedan leer el token del gateway; hoy solo se usa en tests")]
+    #[allow(
+        dead_code,
+        reason = "API pública para que el frontend o tests puedan leer el token del gateway; hoy solo se usa en tests"
+    )]
     pub fn token(&self) -> &str {
         &self.token
     }

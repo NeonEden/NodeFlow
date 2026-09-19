@@ -691,7 +691,11 @@ mod tests {
             "NODEFLOW_AZURE_ACCOUNT",
         ]
         .iter()
-        .any(|k| std::env::var(k).map(|v| !v.trim().is_empty()).unwrap_or(false))
+        .any(|k| {
+            std::env::var(k)
+                .map(|v| !v.trim().is_empty())
+                .unwrap_or(false)
+        })
     }
 
     // ── Destino ──────────────────────────────────────────────────────────────
@@ -701,7 +705,10 @@ mod tests {
         let e = Destino::nuevo("  ", "\"\"", "").unwrap_err();
         let texto = e.to_string();
         for campo in ["suscripcion", "grupo", "cuenta"] {
-            assert!(texto.contains(campo), "el error tiene que nombrar «{campo}»: {texto}");
+            assert!(
+                texto.contains(campo),
+                "el error tiene que nombrar «{campo}»: {texto}"
+            );
         }
         assert!(
             texto.contains("nodeflow.config.json"),
@@ -740,13 +747,20 @@ mod tests {
             url.contains("/accounts/cuenta%20%C3%B1"),
             "el acento va percent-encoded: {url}"
         );
-        assert!(!url.contains(' '), "no puede quedar un espacio crudo en la URL");
+        assert!(
+            !url.contains(' '),
+            "no puede quedar un espacio crudo en la URL"
+        );
     }
 
     #[test]
     fn codificar_deja_los_caracteres_seguros_y_escapa_el_resto() {
         assert_eq!(codificar("aZ0-._~"), "aZ0-._~", "los seguros no se tocan");
-        assert_eq!(codificar("a/b"), "a%2Fb", "la barra se escapa: no puede cambiar la ruta");
+        assert_eq!(
+            codificar("a/b"),
+            "a%2Fb",
+            "la barra se escapa: no puede cambiar la ruta"
+        );
         assert_eq!(codificar("a:b"), "a%3Ab");
         assert_eq!(codificar("a b"), "a%20b");
     }
@@ -865,14 +879,22 @@ mod tests {
     fn capacity_como_texto_o_numero_da_lo_mismo() {
         // Medido: algún backend manda la capacidad como string.
         let (modelos, _, _) = leer(PAGINA_REAL);
-        assert_eq!(modelos[1].capacidad, Some(120), "capacity \"120\" tiene que leerse como 120");
+        assert_eq!(
+            modelos[1].capacidad,
+            Some(120),
+            "capacity \"120\" tiene que leerse como 120"
+        );
     }
 
     #[test]
     fn una_capacidad_ilegible_no_convierte_el_despliegue_en_ignorado() {
-        let (modelos, ignorados, _) = leer(r#"{"value":[{"name":"x","sku":{"capacity":"muchos"}}]}"#);
+        let (modelos, ignorados, _) =
+            leer(r#"{"value":[{"name":"x","sku":{"capacity":"muchos"}}]}"#);
         assert_eq!(modelos.len(), 1);
-        assert_eq!(ignorados, 0, "un campo raro no borra un despliegue que sí tiene nombre");
+        assert_eq!(
+            ignorados, 0,
+            "un campo raro no borra un despliegue que sí tiene nombre"
+        );
         assert_eq!(modelos[0].capacidad, None);
     }
 
@@ -887,7 +909,10 @@ mod tests {
     #[test]
     fn un_nextlink_en_blanco_no_afirma_que_haya_mas() {
         let (_, _, siguiente) = leer(r#"{"value":[],"nextLink":"   "}"#);
-        assert!(siguiente.is_none(), "un nextLink en blanco no es paginación");
+        assert!(
+            siguiente.is_none(),
+            "un nextLink en blanco no es paginación"
+        );
     }
 
     // ── Traducción de errores ────────────────────────────────────────────────
@@ -899,7 +924,10 @@ mod tests {
             r#"{"error":{"code":"InvalidAuthenticationToken","message":"token vencido"}}"#,
         );
         assert!(m.contains("az login"), "tiene que decir qué correr: {m}");
-        assert!(m.contains("InvalidAuthenticationToken"), "y traer el detalle: {m}");
+        assert!(
+            m.contains("InvalidAuthenticationToken"),
+            "y traer el detalle: {m}"
+        );
     }
 
     #[test]
@@ -923,6 +951,10 @@ mod tests {
         let r = recorte(&html);
         assert_eq!(r.chars().count(), 301, "300 + el carácter de corte");
         assert!(r.ends_with('…'));
-        assert_eq!(recorte("  corto  "), "corto", "lo corto se recorta de espacios, no de largo");
+        assert_eq!(
+            recorte("  corto  "),
+            "corto",
+            "lo corto se recorta de espacios, no de largo"
+        );
     }
 }

@@ -300,7 +300,9 @@ pub async fn correr(st: &AppState, pedido: String) {
          Las URL tienen que existir de verdad: son la evidencia de esta investigación."
     );
     let mut panorama = String::new();
-    let fuentes: Vec<Value> = match buscar_con_gemini(st, &pedido, CONSULTAS_POR_INVESTIGACION).await {
+    let fuentes: Vec<Value> = match buscar_con_gemini(st, &pedido, CONSULTAS_POR_INVESTIGACION)
+        .await
+    {
         Ok((f, resumen_busqueda)) => {
             log::info!(
                 "investigación: {} fuentes del investigador (Gemini con grounding)",
@@ -310,7 +312,9 @@ pub async fn correr(st: &AppState, pedido: String) {
             f
         }
         Err(motivo_gemini) => {
-            log::info!("investigación: el investigador no trajo fuentes ({motivo_gemini}); sigue Tavily");
+            log::info!(
+                "investigación: el investigador no trajo fuentes ({motivo_gemini}); sigue Tavily"
+            );
             match buscar_con_tavily(st, &pedido).await {
                 Ok(f) => {
                     log::info!("investigación: {} fuentes de Tavily", f.len());
@@ -412,7 +416,10 @@ pub async fn correr(st: &AppState, pedido: String) {
     // investigación NO se cae: cristaliza sin contraste y queda dicho en el paso.
     let revision = match contraste(st, &pedido, &listado, &resumen).await {
         Ok(t) => {
-            log::info!("investigación: contraste listo ({} caracteres)", t.chars().count());
+            log::info!(
+                "investigación: contraste listo ({} caracteres)",
+                t.chars().count()
+            );
             t
         }
         Err(e) => {
@@ -642,7 +649,10 @@ pub async fn buscar_con_gemini(
                 errores.push(format!("{modelo}: sin cuota — {}", recorta(&detalle, 140)));
                 break;
             }
-            errores.push(format!("{modelo}: HTTP {estado} — {}", recorta(&detalle, 140)));
+            errores.push(format!(
+                "{modelo}: HTTP {estado} — {}",
+                recorta(&detalle, 140)
+            ));
             continue;
         }
         let v: Value = match r.json().await {
@@ -693,11 +703,7 @@ pub fn fuentes_de_grounding(candidato: &Value) -> Vec<Value> {
         }
         vistas.push(url.to_string());
         let titulo = c["web"]["title"].as_str().unwrap_or("").trim();
-        let dicho = atribuciones
-            .get(i)
-            .map(String::as_str)
-            .unwrap_or("")
-            .trim();
+        let dicho = atribuciones.get(i).map(String::as_str).unwrap_or("").trim();
         fuentes.push(json!({
             "titulo": if titulo.len() >= 3 { titulo.to_string() } else { recorta(url, 100) },
             "url": url.chars().take(300).collect::<String>(),
@@ -916,10 +922,7 @@ pub async fn iniciar(st: &AppState, pedido: String) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     // El instante de arranque, no un "1": así la bandera puede vencer (ver `en_curso`).
     let ahora = ahora_s().to_string();
-    let _ = crate::estado::escribir_atomico(
-        &st.data_dir.join("investigacion.corriendo"),
-        &ahora,
-    );
+    let _ = crate::estado::escribir_atomico(&st.data_dir.join("investigacion.corriendo"), &ahora);
     let st2 = st.clone();
     tokio::spawn(async move { correr(&st2, pedido).await });
     Ok(())
@@ -988,8 +991,7 @@ mod tests_investigacion {
             con_poda[1]["accion"], "condensar",
             "con 2 o más sobrantes se poda"
         );
-        let sin_poda =
-            comandos_de_sintesis("Investigación: x", "resumen", "principio", &[], None);
+        let sin_poda = comandos_de_sintesis("Investigación: x", "resumen", "principio", &[], None);
         assert_eq!(sin_poda.len(), 1, "sin sobrantes no se poda nada");
     }
 
@@ -1007,7 +1009,10 @@ mod tests_investigacion {
         assert!(desc.contains("no se sostiene"));
         // Sin contraste, la descripción no queda con un título vacío colgado.
         let sin = comandos_de_sintesis("Investigación: x", "resumen", "principio", &[], None);
-        assert!(!sin[0]["descripcion"].as_str().unwrap().contains("Contraste:"));
+        assert!(!sin[0]["descripcion"]
+            .as_str()
+            .unwrap()
+            .contains("Contraste:"));
     }
 
     #[test]
@@ -1029,7 +1034,11 @@ mod tests_investigacion {
             }
         });
         let fuentes = fuentes_de_grounding(&candidato);
-        assert_eq!(fuentes.len(), 2, "la repetida y la que no es URL quedan afuera");
+        assert_eq!(
+            fuentes.len(),
+            2,
+            "la repetida y la que no es URL quedan afuera"
+        );
         assert_eq!(fuentes[0]["titulo"], "Kokoro ONNX");
         assert_eq!(fuentes[0]["motor"], "gemini");
         assert_eq!(
@@ -1041,7 +1050,10 @@ mod tests_investigacion {
 
     #[test]
     fn sin_grounding_no_hay_fuentes() {
-        assert!(fuentes_de_grounding(&json!({ "content": { "parts": [{ "text": "hola" }] } })).is_empty());
+        assert!(
+            fuentes_de_grounding(&json!({ "content": { "parts": [{ "text": "hola" }] } }))
+                .is_empty()
+        );
     }
 
     #[test]

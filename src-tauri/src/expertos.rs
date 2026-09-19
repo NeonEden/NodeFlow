@@ -60,7 +60,13 @@ fn campo(pares: &[(String, String)], clave: &str) -> String {
 /// Es pura y se prueba sola: es la única pieza del guardado que puede meter basura en la bóveda.
 /// Los campos opcionales vacíos **no se escriben** (un `rol: ` vacío ensucia el frontmatter).
 pub fn md_desde(nombre: &str, tipo: &str, campos: &[(&str, &str)], system: &str) -> String {
-    let limpiar = |s: &str| s.trim().lines().collect::<Vec<_>>().join(" ").replace('"', "'");
+    let limpiar = |s: &str| {
+        s.trim()
+            .lines()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .replace('"', "'")
+    };
     let mut txt = String::from("---\n");
     txt.push_str(&format!("experto: \"{}\"\n", limpiar(nombre)));
     for (k, v) in campos {
@@ -69,7 +75,11 @@ pub fn md_desde(nombre: &str, tipo: &str, campos: &[(&str, &str)], system: &str)
             txt.push_str(&format!("{k}: {v}\n"));
         }
     }
-    txt.push_str(&format!("tipo_artefacto: {}\n---\n\n{}\n", limpiar(tipo), system.trim()));
+    txt.push_str(&format!(
+        "tipo_artefacto: {}\n---\n\n{}\n",
+        limpiar(tipo),
+        system.trim()
+    ));
     txt
 }
 
