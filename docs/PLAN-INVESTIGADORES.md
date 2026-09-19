@@ -47,9 +47,15 @@ nodo. Nada de «fuentes» inventadas: una fuente sin URL no entra al lienzo.
 2. `claves.rs`: sumar `github_token` (o leer el token de `gh auth token`) para el rol Copilot.
 3. Panel: mostrar **quién trajo cada fuente** (chip con el motor), como ya se muestra el motor de voz.
 
-## Preguntas abiertas (para decidir con el usuario)
+## Decidido (19/09/2026)
 
-- Copilot, ¿por **GitHub Models** (API con token, se puede llamar desde Rust) o manejando el
-  **Copilot CLI** headless (necesita el binario y la suscripción)?
-- ¿El investigador trabaja **por nodo** (una búsqueda por idea) o **por investigación completa** (una
-  tanda de consultas y las reparte)? La primera gasta más llamadas; la segunda pierde foco.
+- **Copilot → GitHub Models** con el token de `gh` (`gh auth token`): API HTTP, se llama desde Rust,
+  no hace falta instalar ni suscribir nada. El rol es *recaudador / segunda opinión*: contraste del
+  material y armado del artefacto, que es lo que hoy se pide a mano (`prompt_para_copilot`).
+- **Gemini → por investigación completa**: una tanda de consultas al empezar la investigación y las
+  fuentes se reparten entre los nodos de la fase Fricción. No una búsqueda por idea (gastaría una
+  llamada por nodo). El reparto lo hace `comandos_de_fuentes`, que ya existe.
+
+## Preguntas abiertas
+
+- ¿El tope de consultas por investigación? Propuesta: 3 (una por tema del pedido), configurable.
