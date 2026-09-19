@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8">
+<title>Ecosistema de orquestación de agentes · NodeFlow</title>
+<style>
+  @page { size: A4; margin: 17mm 15mm 16mm; }
+  * { box-sizing: border-box; }
+  body { font-family: "Segoe UI", system-ui, sans-serif; color: #1d2b33; font-size: 10pt; line-height: 1.5; margin: 0; }
+  h1 { font-size: 21pt; line-height: 1.15; margin: 0 0 3mm; letter-spacing: -0.2px; }
+  h2 { font-size: 14pt; margin: 9mm 0 3mm; padding-bottom: 1.6mm; border-bottom: 2px solid #24c8db; break-after: avoid; }
+  h3 { font-size: 11.2pt; margin: 6mm 0 2mm; color: #0b4f5c; break-after: avoid; }
+  h4 { font-size: 10.3pt; margin: 4mm 0 1.5mm; break-after: avoid; }
+  p { margin: 0 0 2.6mm; }
+  ul, ol { margin: 0 0 3mm; padding-left: 5.5mm; }
+  li { margin-bottom: 1.2mm; }
+  code { font-family: "Cascadia Mono", Consolas, monospace; font-size: 8.6pt; background: #f2f6f8; padding: 0.3mm 1mm; border-radius: 2px; }
+  table { border-collapse: collapse; width: 100%; font-size: 8.6pt; margin: 2mm 0 4mm; break-inside: avoid; }
+  th, td { border: 1px solid #d3dde2; padding: 1.5mm 2mm; text-align: left; vertical-align: top; }
+  th { background: #eef4f7; font-weight: 600; }
+  td.n { text-align: right; white-space: nowrap; }
+  .cover { border-bottom: 3px solid #24c8db; padding-bottom: 5mm; margin-bottom: 6mm; }
+  .cover .kicker { font-size: 8.6pt; letter-spacing: 1.6px; text-transform: uppercase; color: #0b7f8f; margin-bottom: 2mm; }
+  .cover .sub { font-size: 11pt; color: #4a5f6a; margin: 0; }
+  .meta { font-size: 8.4pt; color: #66787f; margin-top: 3mm; }
+  .lead { font-size: 10.6pt; color: #2b3d45; }
+  .badge { display: inline-block; font-size: 7.6pt; border: 1px solid #24c8db; color: #0b7f8f; border-radius: 8px; padding: 0.2mm 1.6mm; vertical-align: 1px; }
+  .badge.no { border-color: #c0392b; color: #a93226; }
+  .badge.warn { border-color: #b7791f; color: #975a16; }
+  .card { border: 1px solid #d3dde2; border-left: 3px solid #24c8db; border-radius: 3px; padding: 2.6mm 3mm; margin: 0 0 3.2mm; break-inside: avoid; }
+  .card h4 { margin-top: 0; }
+  .card.warn { border-left-color: #b7791f; }
+  .card.bad { border-left-color: #c0392b; }
+  .grid2 { display: flex; gap: 4mm; break-inside: avoid; }
+  .grid2 > * { flex: 1; }
+  .kpi { font-size: 8.6pt; color: #4a5f6a; }
+  .quote { border-left: 3px solid #cfd8dd; padding-left: 3mm; color: #4a5f6a; font-style: italic; }
+  .small { font-size: 8.6pt; color: #4a5f6a; }
+  .tier { display: inline-block; background: #0b7f8f; color: #fff; font-size: 8pt; border-radius: 3px; padding: 0.4mm 2mm; margin-right: 2mm; }
+  .tier.b { background: #b7791f; }
+  .tier.c { background: #6b4f9e; }
+  .avoid { break-inside: avoid; }
+  .flow table { break-inside: auto; }
+  .flow tr { break-inside: avoid; }
+  .card.flow { break-inside: auto; }
+  footer { margin-top: 8mm; border-top: 1px solid #d3dde2; padding-top: 2.5mm; font-size: 8pt; color: #66787f; }
+  a { color: #0b7f8f; text-decoration: none; word-break: break-all; }
+</style></head>
+<body>
+
+<div class="cover">
+  <div class="kicker">Informe de investigación · 19 de septiembre de 2026</div>
+  <h1>Ecosistema de orquestación de agentes para NodeFlow</h1>
+  <p class="sub">Qué existe hoy, qué es verdad de lo que se dice, qué podés enchufar en esta máquina — y qué camino multiplica el crecimiento.</p>
+  <div class="meta">Preparado para <strong>TOMAS.WAV (Tomas Pieruz)</strong> · verificación de repos con <code>gh api</code> el 19/09/2026 · inventario por <code>which</code>/<code>--version</code> en la máquina</div>
+</div>
+
+<h2>0 · Cómo leer esto (y por qué podés confiar en la lista de repos)</h2>
+<p class="lead">Este informe se apoya en tres tipos de afirmación, siempre marcados: <span class="badge">verificado</span> = lo
+comprobé en esta sesión (repos contra la API de GitHub con estrellas, licencia y fecha del último push; herramientas contra
+tu propia máquina); <span class="badge warn">a probar</span> = es plausible y está en la dirección correcta, pero depende de
+credenciales o de hardware que no puedo ejecutar por vos; <span class="badge no">descartado</span> = circulaba en el material
+de investigación y <strong>no existe o es irrelevante</strong>.</p>
+<p>La razón de esta sección: la primera pasada de investigación (tres agentes en paralelo, <code>gpt-oss:120b-cloud</code>)
+devolvió tablas impecables con <strong>repositorios inventados</strong>. Un informe que no separa lo verificado de lo narrado
+no sirve para decidir: sirve para sentirse productivo. Abajo está la lista de lo que se cayó, con la prueba.</p>
+
+<div class="card bad flow">
+  <h4><span class="badge no">descartado</span> Lo que la investigación afirmó y no existe</h4>
+  <table>
+    <tr><th>Afirmación recibida</th><th>Realidad medida con <code>gh api</code></th></tr>
+    <tr><td><code>arthur-melton/crewAI</code> (★11k, Apache-2.0)</td><td><strong>404: el repo no existe.</strong> El real es <code>crewAIInc/crewAI</code> — 58.762★, MIT.</td></tr>
+    <tr><td><code>deepyard/agno</code> (★41k)</td><td><strong>404.</strong> El real: <code>agno-agi/agno</code> — 42.245★, Apache-2.0.</td></tr>
+    <tr><td><code>mikesquared-agency/axocoatl</code> — «runtime Rust con checkpointing»</td><td><strong>404.</strong> No existe.</td></tr>
+    <tr><td>«Open-Agent-Delegation-Protocol (OADP)», estándar de delegación entre agentes, v0.2</td><td>El repo existe y tiene <strong>0★ y último push 12/03/2026</strong>. Un borrador que nadie usa no es un estándar.</td></tr>
+    <tr><td><code>foobarto/glorbo</code> — «orquestador self-hosted»</td><td>Existe: <strong>3★</strong>. Es un experimento personal, no una pieza de infraestructura.</td></tr>
+    <tr><td><code>spyrae/kronos-agent-os</code> — «runtime durable 24/7»</td><td>Existe: <strong>51★</strong>, MIT. No sostiene la recomendación que se le dio.</td></tr>
+    <tr><td><code>Sathvik-1007/GraphMem-MCP</code> — «28 herramientas de memoria»</td><td>Existe: <strong>1★</strong>.</td></tr>
+    <tr><td>«VyasaGraph», «ClawGraph», «mem-graph (GoVanAI)», paper MAGMA <code>arXiv 2602.05665</code></td><td>Sin rastro verificable (ni repo, ni paper con ese identificador).</td></tr>
+    <tr><td>Rendimiento de tu GPU «≈80 tok/s escalado desde una RTX 5080»</td><td>Metodología inventada (escalar por ancho de banda desde otro chip). Los números de la §4 son los medibles.</td></tr>
+    <tr><td>«Tus modelos locales tienen la etiqueta <code>-cloud</code>»</td><td>Falso: los locales son <code>qwen2.5:7b</code>, <code>deepseek-r1:7b</code>, <code>granite3.3:2b</code>; los <code>-cloud</code> son otros modelos servidos por Ollama.</td></tr>
+    <tr><td>NodeFlow «<code>github.com/maxnth/NodeFlow</code>»</td><td>Existe pero es otro proyecto (17★, sin actividad desde 06/2024). El tuyo es <code>NeonEden/NodeFlow</code>.</td></tr>
+  </table>
+</div>
+<p class="small">Regla que aplico de acá en adelante para cualquier recomendación de herramienta: <strong>repo existente + licencia
+declarada + actividad en los últimos 6 meses + una superficie programática que se pueda llamar</strong>. Sin las cuatro, no entra.</p>
+
+<h2>1 · Qué hay hoy en esta máquina <span class="badge">verificado</span></h2>
+<div class="grid2">
+  <div>
+    <h3>1.1 Hierro</h3>
+    <table>
+      <tr><th>Componente</th><th>Detalle</th></tr>
+      <tr><td>GPU</td><td>AMD Radeon RX 6700 XT · 12 GB · driver 32.0.21045.5002</td></tr>
+      <tr><td>CPU</td><td>Ryzen 5 5600G (iGPU Vega integrada)</td></tr>
+      <tr><td>RAM</td><td>15,8 GB</td></tr>
+    </table>
+    <p class="small">El tope físico del ecosistema no es la GPU: son los 16 GB de RAM y <strong>un solo modelo grande por vez</strong> en la placa.</p>
+  </div>
+  <div>
+    <h3>1.2 Runtime con CLI</h3>
+    <table>
+      <tr><th>Herramienta</th><th>Versión</th></tr>
+      <tr><td>opencode</td><td>1.18.18</td></tr>
+      <tr><td>aider</td><td>instalado (<code>~/.local/bin</code>)</td></tr>
+      <tr><td>Hermes Agent</td><td>perfil default, host-direct</td></tr>
+      <tr><td>Ollama / Docker</td><td>0.34.2 / 29.7.2</td></tr>
+      <tr><td>Node / Bun / Python</td><td>22.23.2 / 1.4.2 / 3.11.16</td></tr>
+      <tr><td>gh / az</td><td>— / 2.90.0 (200 USD de crédito)</td></tr>
+    </table>
+  </div>
+</div>
+
+<h3>1.3 Apps de agente instaladas — y el dato que cambia el diseño</h3>
+<p>Instaladas como <strong>aplicaciones de ventana</strong>: Antigravity (<code>Antigravity.exe</code>), Qwen (<code>Qwen.exe</code>),
+Claude Desktop, copilot, Cursor, Cline (extensión de VS Code, 4.1.19), Continue, Obsidian, Ollama.</p>
+<div class="card warn">
+  <h4>Ninguna de esas cuatro grandes tiene CLI en el PATH</h4>
+  <p><strong>Claude, Qwen, Antigravity y Copilot</strong> no exponen binario de línea de comandos en tu máquina. Son
+  <em>clientes</em> (y clientes MCP), no <em>trabajadores</em> llamables. Consecuencia directa: cualquier arquitectura que las
+  trate como workers necesita un puente (MCP, automatización de UI o su API remota), y hoy ese puente no existe localmente.
+  Lo que <strong>sí</strong> podés llamar por línea de comandos y capturar salida: opencode, aider, Hermes, Ollama, Docker, gh, az.</p>
+</div>
+
+<h3>1.4 Modelos locales ya bajados</h3>
+<p><code>qwen2.5:7b-instruct-q4_K_M</code> (4,7 GB) · <code>deepseek-r1:7b</code> (4,7 GB) · <code>granite3.3:2b</code> (1,5 GB).
+Vía Ollama en la nube: <code>kimi-k2.7-code</code>, <code>qwen3.5:397b</code>, <code>glm-5.3</code>, <code>gpt-oss:20b</code>,
+<code>deepseek-v4.1-flash</code>, <code>minimax-m3</code>, <code>nemotron-3</code>, <code>mistral-large-3</code>.</p>
+
+<h3>1.5 Lo que NodeFlow ya tiene construido</h3>
+<table>
+  <tr><th>Pieza</th><th>Estado</th></tr>
+  <tr><td>App Tauri v2 (Rust + React), backend axum <code>:37371</code></td><td>Instalada como programa (NSIS con marca, accesos directos, «Aplicaciones instaladas»)</td></tr>
+  <tr><td>Lienzo de nodos + grafo Kùzu + bóveda Obsidian</td><td>Funcional, sin publicar</td></tr>
+  <tr><td>Voz: STT (AssemblyAI/Speechmatics) + TTS local Kokoro <code>:8125</code></td><td>Funcional; idioma de la voz desacoplado de la interfaz (19/09)</td></tr>
+  <tr><td>Servidor MCP propio (<code>nodeflow_mcp.py</code>) montado en Hermes</td><td>Funcional: Hermes ya opera el lienzo</td></tr>
+  <tr><td>Motores: DeepSeek, Gemini, Ollama (local y cloud), Foundry sin clave</td><td>Catálogo con disponibilidad declarada por motor</td></tr>
+  <tr><td>Investigación por fases con investigador + contraste</td><td>Cadena lista; bloqueada hoy por cuota de búsqueda (§6.3)</td></tr>
+  <tr><td>Suite de tests</td><td>281 Rust + <code>tsc</code> limpio</td></tr>
+</table>
+
+<h3>1.6 Tres hechos medidos hoy que condicionan cualquier plan</h3>
+<ol>
+  <li><strong>GitHub Models está retirado</strong> (30/07/2026, changelog oficial): el endpoint contesta <code>410 Gone</code>
+  con un cuerpo que dice «temporarily unavailable… brownout». Cualquier rol apoyado en <code>models.github.ai</code> está muerto.</li>
+  <li><strong>La cuota de búsqueda de Gemini se agota antes que la del modelo</strong>: con la herramienta de búsqueda todos los
+  modelos devolvieron <code>429 RESOURCE_EXHAUSTED</code>; sin ella, el mismo modelo contestó <code>200</code>.</li>
+  <li><strong>El agente-CLI como buscador es lento</strong>: una búsqueda delegada al runtime de agente pasó los 300 s y se cortó.
+  Sirve como worker de código, no como buscador en camino caliente.</li>
+</ol>
+
+<h2>2 · El terreno real <span class="badge">verificado</span></h2>
+<p class="small">Todo lo de esta sección se consultó contra la API de GitHub el 19/09/2026: estrellas, licencia declarada y fecha
+del último push. La columna «activo» es el último push.</p>
+
+<h3>2.1 Protocolos: lo que hoy es un estándar de verdad</h3>
+<table>
+  <tr><th>Protocolo</th><th>Qué resuelve</th><th class="n">★</th><th>Lic.</th><th>Activo</th></tr>
+  <tr><td><strong>MCP</strong> — <code>modelcontextprotocol/modelcontextprotocol</code></td><td>Agente ↔ herramientas/recursos. Es el que ya usás (NodeFlow montado en Hermes, y opencode tiene <code>opencode mcp</code>).</td><td class="n">9.254</td><td>MIT/Apache</td><td>19/09/26</td></tr>
+  <tr><td><strong>ACP</strong> — <code>zed-industries/agent-client-protocol</code></td><td>Editor ↔ agente: «conectar cualquier editor con cualquier agente». <strong>opencode lo implementa (<code>opencode acp</code>)</strong>.</td><td class="n">4.282</td><td>Apache-2.0</td><td>19/09/26</td></tr>
+  <tr><td><strong>AGENTS.md</strong> — <code>openai/agents.md</code></td><td>Contrato de repo que leen los agentes: convenciones, comandos, reglas. Un archivo, efecto en todos los workers.</td><td class="n">24.471</td><td>MIT</td><td>10/09/26</td></tr>
+  <tr><td><strong>Agent Protocol</strong> — <code>langchain-ai/agent-protocol</code></td><td>HTTP para servir agentes: hilos, corridas, streaming, estado.</td><td class="n">677</td><td>MIT</td><td>18/09/26</td></tr>
+</table>
+<p><strong>Lectura:</strong> elegiste bien sin saberlo. <strong>MCP es el bus</strong> (y ya lo tenés montado) y <strong>ACP es el
+enchufe de workers de código</strong> (y tu opencode habla los dos). No hay que inventar protocolo: hay que usar el que tu
+herramienta más fuerte ya implementa.</p>
+
+<h3>2.2 Agentes-CLI: la fuerza de trabajo que ya se ejecuta sola</h3>
+<table>
+  <tr><th>Herramienta</th><th>Qué es</th><th class="n">★</th><th>Lic.</th><th>Activo</th></tr>
+  <tr><td><strong>opencode</strong> — <code>sst/opencode</code></td><td>El que tenés instalado. <strong>208.572★</strong>: es, por lejos, el proyecto más grande de la categoría.</td><td class="n">208.572</td><td>MIT</td><td>19/09/26</td></tr>
+  <tr><td><strong>Claude Code</strong> — <code>anthropics/claude-code</code></td><td>El agente-CLI de Anthropic. Sin licencia declarada, con la comunidad más activa de todas.</td><td class="n">146.574</td><td>—</td><td>19/09/26</td></tr>
+  <tr><td><strong>Codex</strong> — <code>openai/codex</code></td><td>Agente de código de OpenAI, terminal, Apache-2.0.</td><td class="n">125.280</td><td>Apache-2.0</td><td>19/09/26</td></tr>
+  <tr><td><strong>Gemini CLI</strong> — <code>google-gemini/gemini-cli</code></td><td>Agente de terminal de Google, licencia permisiva.</td><td class="n">107.085</td><td>Apache-2.0</td><td>19/09/26</td></tr>
+  <tr><td><strong>OpenHands</strong> — <code>All-Hands-AI/OpenHands</code></td><td>Agente de desarrollo completo, autohospedable.</td><td class="n">88.511</td><td>MIT</td><td>19/09/26</td></tr>
+  <tr><td><strong>Cline</strong> — <code>cline/cline</code></td><td>El que tenés en VS Code; también existe como herramienta aparte.</td><td class="n">68.760</td><td>Apache-2.0</td><td>19/09/26</td></tr>
+  <tr><td><strong>Goose</strong> — <code>block/goose</code></td><td>Agente extensible de Block: «más allá del código».</td><td class="n">54.464</td><td>Apache-2.0</td><td>19/09/26</td></tr>
+  <tr><td><strong>aider</strong> — <code>Aider-AI/aider</code></td><td>El que tenés: edición por diff y commits automáticos.</td><td class="n">49.057</td><td>Apache-2.0</td><td>22/05/26</td></tr>
+  <tr><td><strong>Qwen Code</strong> — <code>QwenLM/qwen-code</code></td><td>Agente de terminal de Qwen (encaja con tus modelos locales).</td><td class="n">27.986</td><td>Apache-2.0</td><td>19/09/26</td></tr>
+  <tr><td><code>opencode-ai/opencode</code></td><td>El opencode anterior (sucesor: <code>sst/opencode</code>). Sin actividad desde 09/2025.</td><td class="n">13.754</td><td>MIT</td><td>18/09/25</td></tr>
+</table>
+<p><strong>Lectura:</strong> el mercado convergió en «un agente que vive en la terminal, se llama por flag y devuelve texto o
+JSON». Eso es exactamente un <em>worker</em>. Tenés instalado el de mayor adopción (opencode) y uno de los más scriptables (aider).</p>
+
+<h3>2.3 Frameworks de orquestación: quién sigue vivo y con qué licencia</h3>
+<table>
+  <tr><th>Framework</th><th>Nota</th><th class="n">★</th><th>Lic.</th><th>Activo</th></tr>
+  <tr><td>crewAI</td><td>Equipos de agentes por roles; el más «de negocio».</td><td class="n">58.762</td><td>MIT</td><td>19/09/26</td></tr>
+  <tr><td>LangGraph</td><td>Grafos de estado con checkpoints y human-in-the-loop.</td><td class="n">41.935</td><td>MIT</td><td>18/09/26</td></tr>
+  <tr><td>agno</td><td>Agentes como herramientas; fuerte en evals.</td><td class="n">42.245</td><td>Apache-2.0</td><td>18/09/26</td></tr>
+  <tr><td>openai-agents-python</td><td>SDK oficial, handoffs, tracing.</td><td class="n">29.558</td><td>MIT</td><td>18/09/26</td></tr>
+  <tr><td>Semantic Kernel</td><td>Base .NET/Python de Microsoft.</td><td class="n">28.578</td><td>MIT</td><td>19/09/26</td></tr>
+  <tr><td>microsoft/agent-framework</td><td>Su framework nuevo de agentes (13,6k★, un mes de vida).</td><td class="n">13.597</td><td>MIT</td><td>18/09/26</td></tr>
+  <tr><td>AG2 (ex AutoGen)</td><td>La continuidad comunitaria de AutoGen.</td><td class="n">4.940</td><td>Apache-2.0</td><td>19/09/26</td></tr>
+  <tr><td>AutoGen (original)</td><td><strong>En mantenimiento</strong>: sin push desde 15/04/2026.</td><td class="n">61.060</td><td>CC-BY-4.0</td><td>15/04/26</td></tr>
+  <tr><td>MetaGPT</td><td>Sin actividad desde 21/01/2026.</td><td class="n">70.499</td><td>MIT</td><td>21/01/26</td></tr>
+  <tr><td>NVIDIA NeMo Agent Toolkit</td><td>Cliente y servidor MCP incluidos; nicho empresarial.</td><td class="n">2.637</td><td>Apache-2.0</td><td>10/09/26</td></tr>
+</table>
+<p><strong>Lectura y advertencia:</strong> ninguno de estos frameworks vive en Rust ni piensa como una app de escritorio; meterlos en
+NodeFlow significaría un segundo runtime (Python) dentro de un producto Tauri. La tabla sirve para <em>copiar ideas</em>
+(checkpoints, handoffs, tracing), no para adoptar la dependencia.</p>
+
+<h3>2.4 Memoria de agentes con grafo: acá está el calor del mercado</h3>
+<table>
+  <tr><th>Proyecto</th><th>Qué aporta</th><th class="n">★</th><th>Lic.</th><th>Activo</th></tr>
+  <tr><td>mem0</td><td>Memoria persistente para agentes, multi-SDK.</td><td class="n">65.637</td><td>Apache-2.0</td><td>19/09/26</td></tr>
+  <tr><td>Graphiti</td><td>Grafo temporal de conocimiento (bi-temporal) para agentes.</td><td class="n">31.005</td><td>Apache-2.0</td><td>19/09/26</td></tr>
+  <tr><td>cognee</td><td>Pipeline de memoria desde documentos a grafo.</td><td class="n">30.835</td><td>Apache-2.0</td><td>19/09/26</td></tr>
+  <tr><td>Letta (ex MemGPT)</td><td>Agentes con estado propio y memoria administrada.</td><td class="n">24.797</td><td>Apache-2.0</td><td>10/09/26</td></tr>
+  <tr><td><strong>Kùzu</strong> (lo que usa NodeFlow)</td><td>Grafo embebido con búsqueda vectorial. <strong>Sin push desde 10/10/2025</strong>.</td><td class="n">4.024</td><td>MIT</td><td class="warn">10/10/25</td></tr>
+</table>
+<div class="card warn">
+  <h4>Riesgo que no estábamos mirando: tu capa de grafo está sin actividad hace 11 meses</h4>
+  <p>Kùzu es la pieza más «de fundación» de NodeFlow (el lienzo vive ahí) y su repositorio no recibe commits desde octubre de
+  2025. Puede ser un proyecto que terminó y está estable —o uno abandonado—; desde acá no se distingue. Lo importante es que
+  <strong>hoy no tiene plan B</strong>. Antes de escribir más historia sobre Kùzu conviene decidir: exportar/migrar, encapsular el
+  acceso en una capa única, o adoptar Graphiti/cognee (ambos muy activos) para la parte semántica.</p>
+</div>
+
+<h3>2.5 Orquestadores self-hosted y ejecución duradera</h3>
+<table>
+  <tr><th>Proyecto</th><th>Para qué</th><th class="n">★</th><th>Lic.</th><th>Activo</th></tr>
+  <tr><td>n8n</td><td>Automatización visual con cientos de integraciones; el estándar de facto autohospedado.</td><td class="n">205.352</td><td>s/d</td><td>19/09/26</td></tr>
+  <tr><td>Langflow</td><td>Construir y desplegar flujos de IA con UI.</td><td class="n">155.003</td><td>MIT</td><td>19/09/26</td></tr>
+  <tr><td>Temporal</td><td>Ejecución duradera de verdad: los flujos sobreviven a caídas y reinicios.</td><td class="n">23.170</td><td>MIT</td><td>19/09/26</td></tr>
+  <tr><td>Kestra</td><td>Orquestador de flujos declarativo (YAML), con UI.</td><td class="n">28.168</td><td>Apache-2.0</td><td>18/09/26</td></tr>
+  <tr><td>Sim</td><td>Workspace colaborativo para construir y monitorear agentes.</td><td class="n">29.675</td><td>Apache-2.0</td><td>19/09/26</td></tr>
+  <tr><td>Windmill</td><td>Scripts → flujos y colas, muy liviano (Rust + Svelte).</td><td class="n">17.977</td><td>s/d</td><td>19/09/26</td></tr>
+  <tr><td>Restate</td><td>Ejecución duradera minimalista (Rust).</td><td class="n">4.441</td><td>s/d</td><td>18/09/26</td></tr>
+  <tr><td>Dagu</td><td>Orquestador de un solo binario, sin dependencias (Go).</td><td class="n">4.034</td><td>GPL-3.0</td><td>19/09/26</td></tr>
+</table>
+
+<h3>2.6 El resto del terreno que sirve a NodeFlow</h3>
+<table>
+  <tr><th>Proyecto</th><th>Por qué te importa</th><th class="n">★</th><th>Lic.</th></tr>
+  <tr><td>Ollama</td><td>Tu runtime local; API OpenAI-compatible y de herramientas.</td><td class="n">181.264</td><td>MIT</td></tr>
+  <tr><td>markitdown (Microsoft)</td><td>Convertir cualquier archivo/Office a Markdown — ideal como herramienta MCP para el lienzo.</td><td class="n">185.580</td><td>MIT</td></tr>
+  <tr><td>browser-use</td><td>Agentes que manejan el navegador de verdad (research, formularios, prospectos).</td><td class="n">115.282</td><td>MIT</td></tr>
+  <tr><td>MCP servers (oficiales)</td><td>Catálogo de servidores listos para montar.</td><td class="n">90.463</td><td>s/d</td></tr>
+  <tr><td>RAGFlow</td><td>Ingesta y RAG profundo sobre documentos.</td><td class="n">90.990</td><td>Apache-2.0</td></tr>
+  <tr><td>tldraw</td><td>El SDK de lienzo infinito (tu dominio: canvas + nodos).</td><td class="n">50.452</td><td>s/d</td></tr>
+  <tr><td>playwright-mcp</td><td>Navegador controlable por MCP: una herramienta, todos tus clientes.</td><td class="n">37.329</td><td>Apache-2.0</td></tr>
+  <tr><td>Suna</td><td>«Sistema de gestión de IA» open source: referencia de producto, no de librería.</td><td class="n">20.222</td><td>s/d</td></tr>
+</table>
+
+<h2>3 · Tus herramientas: qué superficie real exponen <span class="badge">verificado</span></h2>
+<p class="small">Salida literal de <code>--help</code> en tu máquina. Esto es lo que se puede llamar hoy, sin instalar nada.</p>
+
+<div class="card">
+  <h4>opencode 1.18.18 — el hallazgo más grande del relevamiento</h4>
+  <p>No es «un TUI»: es un <strong>servidor de agentes</strong>. Subcomandos reales de <code>opencode --help</code>:</p>
+  <table>
+    <tr><th>Subcomando</th><th>Qué te habilita</th></tr>
+    <tr><td><code>opencode serve</code></td><td>Servidor headless: otro proceso (Hermes, NodeFlow, un cron) le manda trabajo y recoge resultado.</td></tr>
+    <tr><td><code>opencode acp</code></td><td>Habla <strong>ACP</strong> (el estándar editor↔agente, 4,3k★): cualquier cliente ACP puede manejarlo.</td></tr>
+    <tr><td><code>opencode run [message..]</code></td><td>Una tarea y salida: el worker más simple posible.</td></tr>
+    <tr><td><code>opencode mcp</code></td><td>Monta servidores MCP (tu <code>nodeflow_mcp.py</code> entra acá: opencode operaría el lienzo).</td></tr>
+    <tr><td><code>opencode agent</code> / <code>plugin</code></td><td>Define agentes y plugins propios.</td></tr>
+    <tr><td><code>opencode export [sessionID]</code> / <code>import</code></td><td>Sesión como JSON: resultado capturable y auditable.</td></tr>
+    <tr><td><code>opencode stats</code></td><td>Tokens y costo por uso: la métrica que hoy no tenés del lado de agentes.</td></tr>
+    <tr><td><code>opencode github</code> / <code>pr</code></td><td>Agente de GitHub y flujo de PR: cierra el ciclo hasta el commit.</td></tr>
+  </table>
+</div>
+<div class="card">
+  <h4>aider — scriptable por diseño</h4>
+  <p><code>--message/-m</code> (una orden y sale), <code>--message-file</code>, <code>--exit</code>, <code>--yes-always</code>,
+  <code>--apply FILE</code>, <code>--stream</code>, <code>--model</code>. No tiene API HTTP: se usa como proceso externo y se
+  lee su salida. Ideal para «aplicá este diff y commiteá».</p>
+</div>
+<div class="card">
+  <h4>Hermes — el orquestador que ya tenés (y que ya sabe más de lo que usás)</h4>
+  <p>Subcomandos verificados: <code>chat</code>, <code>model</code>, <code>moa</code> (<strong>Mixture of Agents</strong>),
+  <code>fallback</code> (cadena de proveedores), <code>worktree</code> (podar worktrees de git), <code>browser</code>,
+  <code>secrets</code>, <code>egress</code> (firewall de egreso con inyección de credenciales), más <code>mcp</code>.
+  Y en la línea base: <code>-z</code> (una orden y salir), <code>--resume</code>/<code>--continue</code> (sesiones),
+  <code>--skills</code>, <code>--worktree</code>, <code>--yolo</code>. Sumado a lo que ya usás todos los días
+  (subagentes en paralelo, cron, skills, cliente MCP, memoria), Hermes <em>es</em> el orquestador central: lo que faltaba
+  no era un framework, era <strong>conectarle workers y darle continuidad</strong>.</p>
+</div>
+<div class="card warn">
+  <h4>Ollama, Docker, gh, az — los otros cuatro llamables</h4>
+  <p><code>ollama</code>: API HTTP en <code>:11434</code> (<code>/api/chat</code>, <code>/api/tags</code>, <code>/api/ps</code>) y
+  <code>-cloud</code> para modelos grandes sin bajarlos. <code>docker</code>: aislamiento de workers y servicios.
+  <code>gh</code>: PRs, issues, releases (y autenticado). <code>az</code>: Azure AI Foundry con 200 USD de crédito —
+  el reemplazo natural del canal de Copilot que se murió.</p>
+</div>
+
+<h2>4 · Teorías de continuación <span class="badge">verificado</span><span class="badge warn">a probar</span></h2>
+<p class="lead">Cada teoría tiene la misma forma: <strong>tesis</strong> (qué sostengo), <strong>por qué</strong> (la evidencia),
+<strong>qué hace falta</strong> (el trabajo concreto) y <strong>cómo sé que funcionó</strong> (la señal, medida). Están ordenadas por
+relación resultado/esfuerzo, no por elegancia.</p>
+
+<h3>Nivel A · multiplican ya, con lo que hay en la máquina</h3>
+
+<div class="card">
+  <h4><span class="tier">A1</span> Hermes orquesta, opencode trabaja (y el contrato es un archivo)</h4>
+  <p><strong>Tesis:</strong> el par orquestador/worker necesita un <em>contrato</em>, no una fusión. Hermes ya es el mejor orquestador
+  disponible en la máquina (subagentes, cron, skills, MCP, sesiones, MoA, fallback); opencode 1.18.18 ya es un servidor de agentes
+  (<code>serve</code>/<code>acp</code>/<code>run</code>). Falta lo barato: un <code>AGENTS.md</code> en el repo y una llamada.</p>
+  <p><strong>Por qué:</strong> hoy el cuello de botella no es la capacidad de los modelos, es <em>mi contexto</em>: cada tarea de código
+  que hago yo consume la ventana que necesito para pensar el sistema. Medido en esta misma sesión: tres subagentes investigaron en
+  paralelo y devolvieron 6.000 palabras en 7 minutos. Eso ya es trabajo delegado; falta que el trabajo de <em>código</em> también lo sea.</p>
+  <p><strong>Qué hace falta:</strong> <code>AGENTS.md</code> con comandos exactos (build, test, lint, formato) y reglas del repo;
+  invocar <code>opencode run</code> (o <code>serve</code>) con tope de tiempo y <em>verificación obligatoria</em> por tests antes de
+  aceptar el resultado.</p>
+  <p><strong>Señal de éxito:</strong> una tarea real de NodeFlow (p. ej. «arreglar los 6 warnings de Rust y correr la suite»)
+  resuelta por un worker, con los 281 tests verdes y sin que yo escriba una línea.</p>
+</div>
+
+<div class="card">
+  <h4><span class="tier">A2</span> Un hub MCP compartido vale más que cinco agentes nuevos</h4>
+  <p><strong>Tesis:</strong> cada servidor MCP que montás sirve a <em>todos</em> tus clientes a la vez (Hermes, opencode, Cline,
+  Claude Desktop, VS Code, NodeFlow). La inversión se multiplica por el número de clientes, no por el número de agentes.</p>
+  <p><strong>Por qué:</strong> MCP (9,2k★, actividad diaria) es el único estándar con adopción real; ya lo usás con NodeFlow; y existen
+  servidores de primer nivel listos: <code>playwright-mcp</code> (37k★) para el navegador, <code>markitdown</code> (185k★) para
+  documentos, el catálogo oficial (90k★).</p>
+  <p><strong>Qué hace falta:</strong> montar 2-3 servidores (navegador, documentos, bóveda) una sola vez, y dejar de escribir
+  integraciones ad-hoc dentro de la app.</p>
+  <p><strong>Señal de éxito:</strong> la misma capacidad (p. ej. «leer un PDF y volcarlo al lienzo») disponible desde dos clientes
+  distintos sin código nuevo.</p>
+</div>
+
+<div class="card">
+  <h4><span class="tier">A3</span> NodeFlow no debe ser el orquestador: debe ser la capa de intención y evidencia</h4>
+  <p><strong>Tesis:</strong> el camino equivocado es reimplementar LangGraph/Temporal dentro de Tauri. El correcto es el que ya
+  empezaste: el lienzo guarda <em>qué se quiere</em> (nodos PENDIENTE/DECISIÓN/RIESGO/HITO), la bóveda guarda <em>por qué</em>, el
+  MCP expone el lienzo, y los agentes (Hermes, opencode) ejecutan afuera.</p>
+  <p><strong>Por qué:</strong> ningún framework de la §2.3 vive en Rust ni piensa como app de escritorio; meter uno es agregar un
+  segundo runtime a un producto que ya tenés que empaquetar y firmar. Tu ventaja competitiva no es el ruteo de agentes (todos lo
+  tienen): es el grafo + la bóveda + la voz + el panel de aprobación.</p>
+  <p><strong>Qué hace falta:</strong> formalizar el contrato — «los agentes escriben planes en <code>bóveda/cerebro/planes/</code>,
+  un worker los ejecuta, el lienzo registra el resultado». Y una regla dura: nada escribe en el lienzo sin pasar por la app.</p>
+  <p><strong>Señal de éxito:</strong> una tarea delegada hoy que mañana se pueda explicar leyendo el lienzo, sin abrir el chat.</p>
+</div>
+
+<div class="card">
+  <h4><span class="tier">A4</span> La continuidad se resuelve con un job, no con más agentes</h4>
+  <p><strong>Tesis:</strong> el proyecto no se frena por falta de capacidad, se frena por falta de <em>retomar</em>: entre sesión y
+  sesión se pierde el hilo. Un cron diario que condense <code>git log</code> + DEVLOG + los pendientes del lienzo en
+  <strong>tres movimientos</strong> vale más que un agente más.</p>
+  <p><strong>Por qué:</strong> ya tenés las piezas: cron de Hermes, <code>checkpoint.sh</code>, DEVLOG, nodos PENDIENTE, y los
+  «pendientes elegidos» que anotamos hoy en <code>ROADMAP.md</code>. Falta la síntesis diaria.</p>
+  <p><strong>Señal de éxito:</strong> abrís la app y hay una lista de 3 cosas que hacer, sin releer el chat.</p>
+</div>
+
+<h3>Nivel B · abren techo (30 a 90 días)</h3>
+
+<div class="card">
+  <h4><span class="tier b">B1</span> Ejecución duradera: reanudar en vez de reintentar</h4>
+  <p><strong>Tesis:</strong> las tareas que valen (investigación completa, refactor grande, procesamiento del video demo) duran más
+  que la paciencia de un proceso y se cortan. Hoy eso se resuelve a mano (topes de 300 s, banderas que caducan solas). El salto es
+  un motor de ejecución duradera. <strong>Por qué:</strong> Temporal (23k★, MIT) es el estándar, pero pesado (servidor + workers);
+  Restate (4,4k★, Rust) y Dagu (4k★, GPL-3.0, un binario) son proporcionados a tu escala. <strong>Qué hace falta:</strong> elegir
+  por peso, no por fama: <strong>Dagu o Windmill en Docker</strong> para los flujos de «muchos pasos con reintentos», dejando
+  Temporal para el día que haya clientes. <strong>Señal:</strong> un flujo largo que se corta y retoma donde estaba, solo.</p>
+</div>
+
+<div class="card">
+  <h4><span class="tier b">B2</span> Memoria: separar «recordar» de «buscar»</h4>
+  <p><strong>Tesis:</strong> tu memoria es rica (bóveda + grafo) pero no tiene capa de <em>recuperación</em>: qué recordar y cuándo.
+  El mercado resolvió eso y está muy activo: Graphiti (31k★, grafo temporal bitemporal), cognee (30,8k★), mem0 (65,6k★). Con Kùzu
+  sin actividad hace 11 meses, la pregunta es si la capa semántica conviene apoyarla en uno de estos. <strong>Qué hace falta:</strong>
+  primero <em>encerrar</em> el acceso a Kùzu detrás de una interfaz propia (una sola puerta = migración barata después). <strong>Señal:</strong>
+  poder cambiar el motor de grafo tocando un archivo.</p>
+</div>
+
+<div class="card">
+  <h4><span class="tier b">B3</span> Sumar uno o dos agentes-CLI de terceros como especialistas</h4>
+  <p><strong>Tesis:</strong> no hace falta uno de cada uno; hace falta uno <em>distinto</em>. Hipótesis concreta: un segundo worker
+  con otra familia de modelo (Gemini CLI 107k★, Qwen Code 28k★ — encaja con tus locales, Codex 125k★) reduce el sesgo compartido:
+  cuando dos familias distintas coinciden, la probabilidad de error baja; cuando discrepan, aprendiste algo. <strong>Señal:</strong>
+  un bug real encontrado por el worker B que el A no vio. <strong>Cuidado:</strong> cada CLI nuevo = otra cuota, otra factura, otro
+  conjunto de permisos sobre tu repo.</p>
+</div>
+
+<div class="card">
+  <h4><span class="tier b">B4</span> AGENTS.md: un archivo que entrena a todo worker futuro</h4>
+  <p><strong>Tesis:</strong> el formato AGENTS.md (24,4k★) es el contrato más barato del ecosistema: convenciones, comandos
+  canónicos y «lo que no se toca». Escrito una vez, trabaja para opencode, Cline, Codex, Gemini CLI y cualquier agente que entre al
+  repo. <strong>Señal:</strong> un worker nuevo produce un PR que respeta tus reglas sin que se las repitas.</p>
+</div>
+
+<div class="card">
+  <h4><span class="tier b">B5</span> Las apps de ventana son consumidoras, no trabajadoras</h4>
+  <p><strong>Tesis:</strong> Antigravity, Claude Desktop y Qwen no tienen CLI (verificado): tratarlas como workers obliga a
+  automatización de UI, que es frágil y rompe la máquina de estado de la app. Su rol correcto: <strong>clientes MCP con humano en el
+  medio</strong> — revisar, editar, aprobar. <strong>Por qué:</strong> aportan lo que los CLI no dan (UI rica, diffs visuales) y ya
+  hablan MCP. <strong>Señal:</strong> el mismo hub MCP consumido desde la app de ventana que preferís para revisar.</p>
+</div>
+
+<div class="card">
+  <h4><span class="tier b">B6</span> La voz como disparador de orquestación (ya construida, sin explotar)</h4>
+  <p><strong>Tesis:</strong> el costo real de delegar es <em>arrancar</em>: abrir el panel, escribir el pedido, aprobar. Tu voz ya
+  resuelve dictado, aprobación hablada y guion de pasos. Hipótesis: «che, que opencode arregle los warnings» debería crear el nodo de
+  tarea, lanzar el worker y pedirte aprobación al terminar. <strong>Señal:</strong> una tarea de código iniciada sin tocar el teclado.</p>
+</div>
+
+<h3>Nivel C · apuestas que cambian el juego (90 días o más)</h3>
+
+<div class="card">
+  <h4><span class="tier c">C1</span> NodeFlow como infraestructura, no sólo como app</h4>
+  <p><strong>Tesis:</strong> si el valor está en el grafo + la bóveda + la evidencia, el crecimiento viene de que <em>otros
+  orquestadores</em> usen el lienzo. Tu servidor MCP ya es el vehículo: publicarlo con 3 herramientas limpias (crear nodo, enlazar,
+  leer contexto) te pone en el mismo carril que <code>modelcontextprotocol/servers</code> (90k★) pero con algo que casi nadie tiene:
+  memoria visual del proyecto.</p>
+</div>
+
+<div class="card">
+  <h4><span class="tier c">C2</span> MoA y el validador en código: calidad sin modelos más grandes</h4>
+  <p><strong>Tesis:</strong> tu regla de la casa (el modelo propone, el código valida) es exactamente lo que le falta a la industria.
+  Hermes ya soporta <code>moa</code> (varias opiniones) y <code>fallback</code> (cadena de proveedores). Combinado: N modelos opinan →
+  un validador en código decide → se registra la evidencia en el lienzo. Es más barato que un modelo frontera y da trazabilidad.</p>
+</div>
+
+<div class="card">
+  <h4><span class="tier c">C3</span> Local-first y control de costo como producto de servicios</h4>
+  <p><strong>Tesis:</strong> tenés dos activos que las agencias no pueden copiar: <strong>todo corre en la máquina del cliente</strong>
+  (privacidad demostrable) y <strong>el costo medido por tarea</strong> (contador de costo + caché semántica + ruteo). Eso no es una
+  feature de la app: es la propuesta de un servicio («te dejo un sistema que no manda tus datos a nadie y te dice cuánto gasta»).</p>
+</div>
+
+<div class="card">
+  <h4><span class="tier c">C4</span> El ecosistema como imán de leads, no como proyecto infinito</h4>
+  <p><strong>Tesis (incómoda):</strong> el ecosistema de agentes es infraestructura <em>interna</em>. Lo que se vende es el resultado:
+  visuales, automatizaciones, y NodeFlow como demostración de criterio. Si el ecosistema se convierte en el proyecto, el imán deja de
+  atraer porque nadie ve nada.</p>
+</div>
+
+<h2>5 · Lo que no estamos teniendo en cuenta</h2>
+<table>
+  <tr><th>#</th><th>Punto ciego</th><th>Por qué importa (y qué hacer)</th></tr>
+  <tr><td>1</td><td><strong>La atención como recurso escaso</strong></td><td>Seis clientes MCP, cinco apps de agente, tres CLIs: el costo no es la factura, es el ruido. Hace falta <em>un</em> panel (el lienzo) y <em>un</em> log de qué hizo cada worker.</td></tr>
+  <tr><td>2</td><td><strong>Permisos de los agentes</strong></td><td>Un worker con escritura en el repo y acceso al llavero es un riesgo real: ya pasó (un bot dejó NodeFlow con ventana blanca). Regla: cada worker con alcance declarado, worktree propio y revisión por tests antes de mergear.</td></tr>
+  <tr><td>3</td><td><strong>Las cuotas como variable de diseño</strong></td><td>Medido hoy: Grounding de Gemini agotado y GitHub Models retirado. Todo rol debe declarar su cuota, su límite y su plan B <em>antes</em> de asignársele trabajo.</td></tr>
+  <tr><td>4</td><td><strong>16 GB de RAM</strong></td><td>Ollama + Docker + 3 workers + navegador con 40 pestañas no entran. El paralelismo tiene techo físico: conviene cola explícita, no «lanzar todo».</td></tr>
+  <tr><td>5</td><td><strong>Un solo modelo grande por GPU</strong></td><td>Con 12 GB y carga concurrente, dos workers con modelos locales se pisan. Los workers locales deben serializarse; los cloud pueden paralelizar.</td></tr>
+  <tr><td>6</td><td><strong>Bus factor y colaboración</strong></td><td>Sin <code>AGENTS.md</code>, sin demo pública y sin instalador firmado, nadie más puede aportar — y vos quedás como único punto de falla.</td></tr>
+  <tr><td>7</td><td><strong>Licencias</strong></td><td>AutoGen es CC-BY-4.0; varios modelos <code>-cloud</code> tienen términos comerciales. Si NodeFlow va a distribuirse (MIT), la matriz de licencias de modelos y dependencias hay que mirarla ahora, no al vender.</td></tr>
+  <tr><td>8</td><td><strong>Observabilidad de agentes</strong></td><td>Tenés costo por llamada de la app, pero no por worker. Sin métrica por worker no hay decisión sobre cuál mantener.</td></tr>
+  <tr><td>9</td><td><strong>Kùzu sin actividad</strong></td><td>La capa de grafo es la fundación del producto y su repo lleva 11 meses sin commits. Encapsular el acceso ya.</td></tr>
+  <tr><td>10</td><td><strong>El deadline real</strong></td><td>El video demo del hackathon y los 30 prospectos cierran el 30/09. El ecosistema es medio, no fin: si se come la semana, el costo de oportunidad es todo el ciclo de ingresos.</td></tr>
+</table>
+
+<h2>6 · El camino que multiplica (mi recomendación)</h2>
+<p class="lead">Tres movimientos, en este orden, cada uno con su criterio de corte. No son «adoptar frameworks»: son <em>conectar
+lo que ya está instalado</strong> y poner una regla de verificación.</p>
+
+<div class="card">
+  <h4>Movimiento 1 · Hermes + opencode con contrato (esta semana)</h4>
+  <p>Escribir <code>AGENTS.md</code> en <code>nodeflow-desktop/</code> y dejar una skill de Hermes
+  (<code>delegar-a-opencode</code>) con el protocolo: worktree aparte → <code>opencode run</code> con tope → <code>cargo test</code> /
+  <code>tsc</code> como árbitro → PR con <code>gh</code>. <strong>Corte:</strong> si en 5 días no resolvió 3 tareas reales sin que
+  intervengas, el protocolo está mal escrito (no el worker).</p>
+</div>
+<div class="card">
+  <h4>Movimiento 2 · Un hub MCP único montado en todos los clientes (2 semanas)</h4>
+  <p>NodeFlow (ya está) + navegador (<code>playwright-mcp</code>) + documentos (<code>markitdown</code>). Montados en Hermes,
+  opencode, Cline y Claude Desktop. Efecto lateral buscado: empezás a usar la herramienta correcta para cada cosa en vez de una sola
+  para todo. <strong>Corte:</strong> si una capacidad no se usa desde dos clientes distintos, no la montes.</p>
+</div>
+<div class="card">
+  <h4>Movimiento 3 · Continuidad automática (antes del 30/09, 1 tarde)</h4>
+  <p>Cron diario en Hermes: <code>git log</code> + DEVLOG + nodos PENDIENTE del lienzo → tres movimientos + un recordatorio de lo
+  cortado. Sale en el lienzo (nodo) y en el panel. <strong>Corte:</strong> si a la semana no cambió ninguna decisión por esa lista,
+  el formato está mal, no la idea.</p>
+</div>
+
+<h3>6.1 Roadmap con criterios de corte</h3>
+<table>
+  <tr><th>Ventana</th><th>Qué se hace</th><th>Señal de que sigue</th><th>Señal de que se corta</th></tr>
+  <tr><td><strong>0-10 días</strong><br><span class="small">antes del 30/09</span></td><td>Video demo + one-pager + 30 prospectos (el plan activo). Movimiento 1 y 3 en paralelo, sólo con ratos muertos.</td><td>Demo publicada y primeros contactos enviados.</td><td>El ecosistema consumió más de 3 días de la semana.</td></tr>
+  <tr><td><strong>10-30 días</strong></td><td>Movimiento 2 (hub MCP) + <code>AGENTS.md</code> maduro + métricas por worker (tokens y costo por tarea, tomando <code>opencode stats</code>).</td><td>Dos clientes usando el mismo hub; costo por tarea visible.</td><td>Más de un mes montando servidores MCP sin una tarea real resuelta.</td></tr>
+  <tr><td><strong>30-60 días</strong></td><td>B1 (Dagu o Windmill para flujos con reintentos) + B2 (puerta única al grafo) + B3 (un segundo agente-CLI de otra familia).</td><td>Un flujo largo reanudado solo; una migración de grafo hecha en un día.</td><td>Dos motores de flujo instalados y ninguno en producción.</td></tr>
+  <tr><td><strong>60-90 días</strong></td><td>Firma Authenticode + release público con <code>AGENTS.md</code>, y el MCP de NodeFlow publicado (C1).</td><td>Alguien externo (o un agente ajeno) opera el lienzo con tu MCP.</td><td>Publicar sin que nadie lo haya pedido.</td></tr>
+</table>
+
+<h3>6.2 Lo que NO haría (y por qué)</h3>
+<ul>
+  <li><strong>Meter LangGraph/CrewAI/agno en NodeFlow.</strong> Ninguno vive en Rust ni piensa como app de escritorio: te deja un
+  segundo runtime (Python) que hay que empaquetar, firmar y actualizar. Las ideas se copian en 200 líneas; la dependencia no se paga.</li>
+  <li><strong>Instalar los siete orquestadores.</strong> Los proyectos con 1★ y 3★ de la §0 son experimentos ajenos: adoptarlos es
+  heredar su bus factor, no resolver el tuyo.</li>
+  <li><strong>Automatizar por UI las apps que no tienen CLI.</strong> Es la clase de integración que se rompe en cada actualización y
+  que ya te costó una app en blanco.</li>
+  <li><strong>Comprar «la plataforma de agentes».</strong> Ya tenés el orquestador más capaz de tu máquina: el trabajo es darle
+  workers, memoria y continuidad, no reemplazarlo.</li>
+</ul>
+
+<h2>7 · Fuentes (verificadas el 19/09/2026)</h2>
+<p class="small">Repos consultados con <code>gh api repos/&lt;owner&gt;/&lt;repo&gt;</code> (estrellas, licencia, último push).
+Especificaciones: MCP <a href="https://modelcontextprotocol.io">modelcontextprotocol.io</a> · ACP
+<a href="https://github.com/zed-industries/agent-client-protocol">zed-industries/agent-client-protocol</a> · AGENTS.md
+<a href="https://github.com/openai/agents.md">openai/agents.md</a>. Retiro de GitHub Models:
+<a href="https://github.blog/changelog/2026-07-30-github-models-is-now-retired/">github.blog/changelog 30/07/2026</a>.
+Superficies locales: salida de <code>--help</code> de opencode 1.18.18, aider, <code>hermes</code>, y búsqueda de ejecutables en
+<code>%LOCALAPPDATA%\\Programs</code>. Medición de cuotas: llamadas directas a la API de Gemini y a <code>models.github.ai</code>
+desde esta máquina.</p>
+<footer>
+  <strong>NodeFlow · informe de ecosistema de agentes.</strong> Tres investigaciones delegadas en paralelo (modelo
+  <code>gpt-oss:120b-cloud</code>) + verificación propia. Las afirmaciones sin marca de verificación son hipótesis de trabajo, no hechos.
+  Generado el 19/09/2026 para TOMAS.WAV.
+</footer>
+</body></html>
