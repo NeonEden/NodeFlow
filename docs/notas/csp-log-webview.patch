@@ -1,0 +1,15 @@
+diff --git a/src-tauri/src/lib.rs b/src-tauri/src/lib.rs
+index 9a0f44e..6f406f0 100644
+--- a/src-tauri/src/lib.rs
++++ b/src-tauri/src/lib.rs
+@@ -67,6 +67,10 @@ pub fn run() {
+                             file_name: Some("NodeFlow".into()),
+                         }),
+                         tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
++                        // TEMPORAL (verificación de la CSP, 19/09): el webview tiene que escribir su
++                        // consola en el archivo, porque una violación de Content-Security-Policy sólo
++                        // aparece ahí y no hay otra forma de verla en una app de escritorio.
++                        tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Webview),
+                     ])
+                     .build(),
+             )?;
