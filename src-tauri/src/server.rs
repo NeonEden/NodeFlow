@@ -244,6 +244,7 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
             .route("/api/claves/estado", get(claves_estado))
             .route("/api/claves/migrar", post(claves_migrar))
             .route("/api/idioma", get(idioma_leer).post(idioma_guardar))
+            .route("/api/idioma/voz", post(idioma_voz_guardar))
             .route("/api/voz/decir", post(voz_decir))
             .route("/api/voz/dialogo", get(voz_dialogo))
             .route("/api/ai/delegar", post(delegar).get(delegar_estado))
@@ -2777,14 +2778,30 @@ fn clave_voz(st: &AppState, prov: &'static crate::stt::Proveedor) -> Option<Stri
 }
 
 /// `GET /api/idioma` — el idioma guardado. Es la fuente de verdad: la interfaz, la transcripción y la
-/// voz de salida leen lo mismo.
+/// voz de salida leen lo mismo, salvo que la voz tenga el suyo propio (`voz.idioma`).
 async fn idioma_leer(State(st): State<AppState>) -> impl IntoResponse {
+    let voz = crate::idioma::voz_idioma(&st.data_dir);
     Json(json!({
         "ok": true,
         "idioma": crate::idioma::actual(&st.data_dir),
-        "voz_tts": crate::idioma::voz_tts(&crate::idioma::actual(&st.data_dir)),
+        "voz_idioma": voz,
+        "voz_tts": crate::idioma::voz_tts(&voz),
+        "voz_sigue_a_la_interfaz": crate::idioma::voz_sigue_a_la_interfaz(&st.data_dir),
         "idiomas": crate::idioma::IDIOMAS,
     }))
+}
+
+/// `POST /api/idioma/voz` `{ "idioma": "es" }` — el idioma con el que la app **escucha y habla**,
+/// independiente del de la interfaz. Con `auto` vuelve a seguir al de la interfaz.
+async fn idioma_voz_guardar(State(st): State<AppState>, Json(body): Json<Value>) -> impl IntoResponse {
+    let pedido = body["idioma"].as_str().unwrap_or("");
+    match crate::idioma::guardar_voz_idioma(&st.data_dir, pedido) {
+        Ok(v) => (StatusCode::OK, Json(v)),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "ok": false, "error": e })),
+        ),
+    }
 }
 
 /// `POST /api/idioma` `{ "idioma": "en" }` — guarda el idioma. Un idioma desconocido se rechaza.
@@ -2852,7 +2869,8 @@ async fn voz_estado(State(st): State<AppState>) -> impl IntoResponse {
     let id = crate::stt::seleccionado(&st.data_dir);
     let prov = crate::stt::por_id(&id).unwrap_or(&crate::stt::CATALOGO[0]);
     let configurada = clave_voz(&st, prov).is_some();
-    // El idioma se pide como lo pide la app (el entorno manda); si no, sigue al idioma de la interfaz.
+    // El idioma se pide como lo pide la app (el entorno manda); si no, el de la VOZ, que puede ir por
+    // su lado (leer la app en inglés y hablarle en castellano).
     let (url, modelo, idioma_ajustes) = crate::voz::ajustes();
     // El panel tiene que mostrar el modelo del motor ELEGIDO: con AssemblyAI anunciaba «enhanced»
     // (el default de Speechmatics) mientras la sesión real iba con otro modelo.
@@ -2864,7 +2882,7 @@ async fn voz_estado(State(st): State<AppState>) -> impl IntoResponse {
     let idioma_pedido = if std::env::var("NODEFLOW_VOZ_IDIOMA").is_ok() {
         idioma_ajustes
     } else {
-        crate::idioma::actual(&st.data_dir)
+        crate::idioma::voz_idioma(&st.data_dir)
     };
     let (idioma, aviso) = crate::stt::idioma_efectivo(prov, &idioma_pedido);
     // La voz de salida (Kokoro local) es opcional: si no responde, se dice sin romper nada.
@@ -4459,9 +4477,10 @@ async fn voz_decir(
         return responder_json(StatusCode::BAD_REQUEST, "Falta el texto a decir.".into());
     }
     let url = format!("{}/decir", crate::voz::tts_url());
-    // La voz sigue al idioma: si el llamador no pide una voz puntual, se usa la nativa del idioma
-    // activo. Así el switch ES/EN también **se escucha**, no sólo se lee.
-    let idioma = crate::idioma::actual(&st.data_dir);
+    // La voz sigue al idioma **de la voz** (no al de la interfaz): si el llamador no pide una voz
+    // puntual, se usa la nativa de ese idioma. Así el switch ES/EN también **se escucha**, y la voz
+    // puede ir por su lado cuando la interfaz está en el otro idioma.
+    let idioma = crate::idioma::voz_idioma(&st.data_dir);
     let voz = body["voz"]
         .as_str()
         .filter(|v| !v.trim().is_empty())
@@ -4531,7 +4550,12 @@ async fn voz_jwt(State(st): State<AppState>) -> impl IntoResponse {
             })),
         );
     };
-    let (_, _, idioma_pedido) = crate::voz::ajustes();
+    let (_, _, idioma_ajustes) = crate::voz::ajustes();
+    let idioma_pedido = if std::env::var("NODEFLOW_VOZ_IDIOMA").is_ok() {
+        idioma_ajustes
+    } else {
+        crate::idioma::voz_idioma(&st.data_dir)
+    };
     let modelo_pedido = std::env::var("NODEFLOW_VOZ_MODELO").unwrap_or_default();
     match crate::stt::abrir_sesion(&st.http, prov, &clave, &idioma_pedido, &modelo_pedido).await {
         Ok(sesion) => {

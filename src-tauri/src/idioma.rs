@@ -35,18 +35,47 @@ pub fn voz_tts(idioma: &str) -> &'static str {
     }
 }
 
-/// Idioma guardado en el config; si no hay o no es válido, el de por defecto.
-pub fn actual(data_dir: &Path) -> String {
-    let cfg = std::fs::read_to_string(data_dir.join("nodeflow.config.json"))
+/// El config tal como está en disco (objeto vacío si no hay o está roto).
+fn leer_cfg(data_dir: &Path) -> Value {
+    std::fs::read_to_string(data_dir.join("nodeflow.config.json"))
         .ok()
         .and_then(|t| serde_json::from_str::<Value>(&t).ok())
-        .unwrap_or_else(|| json!({}));
-    let guardado = cfg["idioma"].as_str().unwrap_or("");
-    if es_valido(guardado) {
-        normalizar(guardado)
+        .unwrap_or_else(|| json!({}))
+}
+
+/// Idioma guardado en el config; si no hay o no es válido, el de por defecto.
+pub fn actual(data_dir: &Path) -> String {
+    let guardado = leer_cfg(data_dir)["idioma"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    if es_valido(&guardado) {
+        normalizar(&guardado)
     } else {
         POR_DEFECTO.to_string()
     }
+}
+
+/// Idioma de la **voz**: con el que el motor de transcripción escucha y con el que responde el
+/// sintetizador. No tiene por qué ser el de la interfaz —se puede leer la app en inglés y hablarle en
+/// castellano, y al revés—, así que vive aparte en `voz.idioma` del config.
+///
+/// Sin valor propio, sigue al idioma de la interfaz (el comportamiento de siempre).
+pub fn voz_idioma(data_dir: &Path) -> String {
+    let guardado = leer_cfg(data_dir)["voz"]["idioma"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    if es_valido(&guardado) {
+        normalizar(&guardado)
+    } else {
+        actual(data_dir)
+    }
+}
+
+/// ¿La voz está siguiendo a la interfaz (sin idioma propio)?
+pub fn voz_sigue_a_la_interfaz(data_dir: &Path) -> bool {
+    !es_valido(leer_cfg(data_dir)["voz"]["idioma"].as_str().unwrap_or(""))
 }
 
 /// Guarda el idioma preservando el resto del config.
@@ -78,9 +107,105 @@ pub fn guardar(data_dir: &Path, idioma: &str) -> Result<Value, String> {
     }))
 }
 
+/// Guarda el **idioma de la voz** preservando el resto del config. Con `auto` (o vacío) la voz vuelve
+/// a seguir al idioma de la interfaz, que es como se comportaba antes de que esta clave existiera.
+pub fn guardar_voz_idioma(data_dir: &Path, idioma: &str) -> Result<Value, String> {
+    let pedido = normalizar(idioma);
+    let auto = pedido.is_empty() || pedido == "auto" || pedido == "interfaz";
+    if !auto && !es_valido(&pedido) {
+        return Err(format!(
+            "Idioma de voz desconocido: «{idioma}». Soportados: {} (o «auto» para seguir a la interfaz)",
+            IDIOMAS.join(", ")
+        ));
+    }
+    let ruta = data_dir.join("nodeflow.config.json");
+    let mut cfg = leer_cfg(data_dir);
+    let Some(obj) = cfg.as_object_mut() else {
+        return Err("config inválido".to_string());
+    };
+    let mut voz = obj
+        .get("voz")
+        .and_then(|v| v.as_object())
+        .cloned()
+        .unwrap_or_default();
+    if auto {
+        voz.remove("idioma");
+    } else {
+        voz.insert("idioma".into(), json!(pedido));
+    }
+    obj.insert("voz".into(), Value::Object(voz));
+    let txt = serde_json::to_string_pretty(&cfg).map_err(|e| e.to_string())?;
+    std::fs::write(&ruta, txt).map_err(|e| format!("no pude escribir el config: {e}"))?;
+    let efectivo = voz_idioma(data_dir);
+    log::info!("voz: idioma «{efectivo}» · voz TTS {}", voz_tts(&efectivo));
+    Ok(json!({
+        "ok": true,
+        "voz_idioma": efectivo,
+        "voz_tts": voz_tts(&efectivo),
+        "auto": auto,
+        "idiomas": IDIOMAS,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn la_voz_sigue_a_la_interfaz_si_no_tiene_idioma_propio() {
+        let d = dir();
+        std::fs::write(d.join("nodeflow.config.json"), r#"{"idioma":"en"}"#).unwrap();
+        assert_eq!(
+            voz_idioma(&d),
+            "en",
+            "sin voz.idioma propio, la voz sigue a la interfaz"
+        );
+        assert!(voz_sigue_a_la_interfaz(&d));
+    }
+
+    #[test]
+    fn la_voz_puede_ir_por_su_lado() {
+        let d = dir();
+        std::fs::write(d.join("nodeflow.config.json"), r#"{"idioma":"en"}"#).unwrap();
+        let r = guardar_voz_idioma(&d, "es").unwrap();
+        assert_eq!(r["voz_idioma"], "es");
+        assert_eq!(
+            voz_idioma(&d),
+            "es",
+            "se puede leer la app en inglés y hablarle en castellano"
+        );
+        assert_eq!(actual(&d), "en", "el idioma de la interfaz no se toca");
+        assert!(!voz_sigue_a_la_interfaz(&d));
+        // «auto» la devuelve a seguir a la interfaz.
+        let r = guardar_voz_idioma(&d, "auto").unwrap();
+        assert_eq!(r["auto"], true);
+        assert_eq!(voz_idioma(&d), "en");
+        assert!(voz_sigue_a_la_interfaz(&d));
+    }
+
+    #[test]
+    fn un_idioma_de_voz_invalido_no_se_guarda() {
+        let d = dir();
+        std::fs::write(d.join("nodeflow.config.json"), r#"{"idioma":"es"}"#).unwrap();
+        assert!(guardar_voz_idioma(&d, "klingon").is_err());
+        assert_eq!(voz_idioma(&d), "es");
+    }
+
+    #[test]
+    fn el_idioma_de_voz_preserva_el_resto_del_config() {
+        let d = dir();
+        std::fs::write(
+            d.join("nodeflow.config.json"),
+            r#"{"vault_path":"X","cerebro":{"repo":"R"}}"#,
+        )
+        .unwrap();
+        guardar_voz_idioma(&d, "en").unwrap();
+        let cfg: Value =
+            serde_json::from_str(&std::fs::read_to_string(d.join("nodeflow.config.json")).unwrap())
+                .unwrap();
+        assert_eq!(cfg["vault_path"], "X");
+        assert_eq!(cfg["cerebro"]["repo"], "R", "el resto del config no se toca");
+    }
 
     fn dir() -> std::path::PathBuf {
         let d = std::env::temp_dir().join(format!(

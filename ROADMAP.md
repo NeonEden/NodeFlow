@@ -28,3 +28,15 @@
 - Instaladores firmados y *updater*.
 - Builds para macOS y Linux.
 - Onboarding y configuración de proveedores desde la UI (sin tocar archivos).
+
+## Pendientes elegidos
+
+Tareas que quedan anotadas para no perderlas (se hacen cuando toque, no ahora).
+
+- **Firma Authenticode del instalador** — el instalador NSIS ya sale con marca, accesos directos,
+  entrada en «Aplicaciones instaladas» y desinstalador, y la firma del *updater* (minisign) funciona.
+  Falta la firma de Windows del `.exe`, que es lo único que hoy hace que SmartScreen muestre
+  «Windows protegió su PC» al primer arranque en otra máquina. Opciones: certificado EV/OV clásico o
+  firma en la nube (Azure Trusted Signing). Va junto con `bundle.windows.signCommand` en
+  `tauri.conf.json`. Anotado el 19/09/2026, después de dejar el instalador decente (v0.3.7, commit
+  «feat(instalador): la app se instala como un programa de verdad»).

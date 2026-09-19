@@ -135,6 +135,11 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
   const cortarRef = useRef<() => void>(() => {});
   // Último texto escuchado (parcial o final): con esto el modo conversación sabe cuándo te callaste.
   const fragRef = useRef('');
+  // Lo último que DIJO la app, y cuántos turnos seguidos llegaron como eco del micrófono. Con
+  // parlantes (no auriculares) el motor de transcripción se escucha a sí mismo: sin esto, la
+  // conversación se mordía la cola y repetía la misma pregunta.
+  const dichoRef = useRef('');
+  const ecosSeguidosRef = useRef(0);
   const [delegado, setDelegado] = useState<{ pedido: string; salida: string; ms: number; ok?: boolean } | null>(null);
   const [investigando, setInvestigando] = useState(false);
   const [fases, setFases] = useState<{ fase: string; titulo: string; emoji: string; que: string }[]>([]);
@@ -199,9 +204,33 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
     return punto > 80 ? recorte.slice(0, punto + 1) : `${recorte.trim()}…`;
   };
 
+  /**
+   * ¿Lo que llegó es la propia voz de la app rebotando en el micrófono?
+   *
+   * Compara por palabras (sin acentos ni signos) contra lo último que dijo la app: si el dictado usa
+   * las mismas palabras, es el eco. Un «sí», un «dale» o un «no» no llegan a tres palabras y por eso
+   * **nunca** se descartan como eco: las respuestas cortas son las que más importan.
+   */
+  const esEco = (dictado: string, dicho: string): boolean => {
+    const palabras = (t: string) =>
+      t
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9ñ ]+/g, ' ')
+        .split(/\s+/)
+        .filter((p) => p.length > 2);
+    const del = palabras(dictado);
+    if (del.length < 3) return false;
+    const suyas = new Set(palabras(dicho));
+    if (!suyas.size) return false;
+    return del.filter((p) => suyas.has(p)).length / del.length >= 0.7;
+  };
+
   /** Habla sólo si el backend lo autorizó (regla de voz selectiva) y no está en silencio. */
   const hablar = async (texto: string) => {
     if (!texto.trim()) return;
+    dichoRef.current = texto;
     setHablando(true);
     try {
       // Primero la voz local (Kokoro). Si esa PC no la tiene —una instalación limpia nunca la
@@ -211,8 +240,25 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
         if (motorVoz !== 'kokoro') setMotorVoz('kokoro');
         const url = URL.createObjectURL(audio);
         const el = new Audio(url);
-        el.onended = () => URL.revokeObjectURL(url);
-        await el.play();
+        // Se espera el FIN del audio, no el comienzo: `play()` resuelve apenas arranca a sonar, y el
+        // micrófono se abría encima de la propia voz (medido 19/09 con parlantes: el motor de
+        // transcripción transcribía a la app y la conversación se mordía la cola).
+        await new Promise<void>((listo) => {
+          let cerrado = false;
+          const fin = () => {
+            if (cerrado) return;
+            cerrado = true;
+            URL.revokeObjectURL(url);
+            listo();
+          };
+          el.onended = fin;
+          el.onerror = fin;
+          void el.play().catch(fin);
+          // Red de seguridad: si `ended` no llega (audio raro, salida de audio cambiada en el medio),
+          // no nos quedamos sordos para siempre.
+          const ms = Number.isFinite(el.duration) ? el.duration * 1000 + 1000 : 0;
+          window.setTimeout(fin, Math.max(2500, ms));
+        });
       } else {
         if (motorVoz !== 'sistema') setMotorVoz('sistema');
         await hablarConElSistema(texto, servicio?.idioma || 'es');
@@ -267,6 +313,15 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
     return () => window.clearTimeout(t);
   }, [continuo, estado, parcial, texto]);
 
+  /**
+   * Vuelve a escuchar cuando el turno se cierra por conversación: deja pasar un instante para que el
+   * audio termine de apagarse en la sala antes de abrir el micrófono.
+   */
+  const seguirEscuchando = async () => {
+    await new Promise((r) => window.setTimeout(r, 350));
+    if (continuoRef.current) void empezar();
+  };
+
   const empezar = async () => {
     setError('');
     setResultado('');
@@ -314,13 +369,35 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
     if (!dictado) {
       setError('No se escuchó nada. Probá de nuevo hablando más cerca del micrófono.');
       setEstado('inactivo');
-      // En conversación el turno no se corta por un silencio: se vuelve a escuchar.
+      // En conversación el turno no se corta por un silencio: se vuelve a escuchar (después de que
+      // termine de sonar el aviso, no encima).
       if (continuoRef.current) {
-        void hablar('No te escuché. ¿Me lo repetís?');
-        void empezar();
+        await hablar('No te escuché. ¿Me lo repetís?');
+        void seguirEscuchando();
       }
       return;
     }
+    // ── Eco del micrófono ─────────────────────────────────────────────────────────────────────
+    // Con parlantes, el motor de transcripción escucha lo que la propia app acaba de decir. No es una
+    // respuesta tuya: no se toca el lienzo y se vuelve a escuchar. A la tercera vez seguida la
+    // conversación se cierra y dice por qué (antes seguía repitiendo la misma pregunta sin fin).
+    if (esEco(dictado, dichoRef.current)) {
+      ecosSeguidosRef.current += 1;
+      const veces = ecosSeguidosRef.current;
+      setResultado('Me escuché a mí misma (eco del micrófono): no lo tomo como respuesta.');
+      if (veces >= 3) {
+        setContinuo(false);
+        continuoRef.current = false;
+        setEstado('inactivo');
+        setError(
+          'Cerré la conversación: el micrófono estaba escuchando la voz de la app. Usá auriculares, o apagá la voz de salida, y volvé a empezar.'
+        );
+        return;
+      }
+      void seguirEscuchando();
+      return;
+    }
+    ecosSeguidosRef.current = 0;
     // ── Modo conversación ─────────────────────────────────────────────────────────────────────
     // a) Aprobación hablada: el plan esperaba un «¿lo aplico?» y el contrato sigue siendo el mismo
     //    (el humano aprueba), sólo que aprobás hablando.
@@ -335,7 +412,7 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
         setResultado('Lo dejé sin aplicar.');
         if (!silencio) await hablar('Lo dejo sin aplicar. ¿Qué más querés hacer?');
       }
-      void empezar();
+      void seguirEscuchando();
       return;
     }
     // b) El guion del modo conversación: pasos guiados que no gastan motor (0 tokens).
@@ -349,7 +426,7 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
           setEstado('inactivo');
           return;
         }
-        void empezar();
+        void seguirEscuchando();
         return;
       }
       // No era parte del guion: sigue el camino normal (le pide el plan al motor) y al final
