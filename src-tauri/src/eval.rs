@@ -212,7 +212,7 @@ fn cuerpo(prueba: &Prueba, lienzo: &[Value]) -> Value {
 /// al terminar, pase lo que pase.
 pub async fn correr(st: &AppState, modelos: Vec<String>) -> Value {
     let bandera = st.data_dir.join("evaluacion.corriendo");
-    let _ = std::fs::write(&bandera, "1");
+    let _ = crate::estado::escribir_atomico(&bandera, "1");
     // La elección del usuario se guarda APARTE antes de tocar nada: si una corrida se corta a mitad,
     // la próxima la recupera en vez de quedarse con el motor que la planilla estaba midiendo.
     let guardada = st.data_dir.join("evaluacion.seleccion.json");
@@ -228,10 +228,8 @@ pub async fn correr(st: &AppState, modelos: Vec<String>) -> Value {
         );
     }
     let anterior = crate::motores::seleccionado(&st.data_dir);
-    let _ = std::fs::write(
-        &guardada,
-        serde_json::to_string(&json!({ "seleccion": anterior })).unwrap_or_default(),
-    );
+    let guardada_txt = serde_json::to_string(&json!({ "seleccion": anterior })).unwrap_or_default();
+    let _ = crate::estado::escribir_atomico(&guardada, &guardada_txt);
     let lienzo: Vec<Value> = st.vault.read_state().unwrap_or(json!({}))["nodes"]
         .as_array()
         .map(|ns| {
@@ -421,9 +419,11 @@ fn fecha_iso() -> String {
 /// Guarda la última planilla y su versión legible en la carpeta de datos de la app.
 pub fn guardar(st: &AppState, tabla: &Value) -> Result<(), String> {
     let txt = serde_json::to_string_pretty(tabla).map_err(|e| e.to_string())?;
-    std::fs::write(st.data_dir.join("evaluacion.json"), txt).map_err(|e| e.to_string())?;
+    crate::estado::escribir_atomico(&st.data_dir.join("evaluacion.json"), &txt)
+        .map_err(|e| e.to_string())?;
     let md = a_markdown(tabla);
-    std::fs::write(st.data_dir.join("EVALUACION.md"), md).map_err(|e| e.to_string())
+    crate::estado::escribir_atomico(&st.data_dir.join("EVALUACION.md"), &md)
+        .map_err(|e| e.to_string())
 }
 
 /// ¿Hay una corrida en curso? La app no bloquea la ventana mientras mide.

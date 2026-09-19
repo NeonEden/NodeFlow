@@ -194,12 +194,12 @@ pub fn aplicar(raiz: &Path, eds: &[Edicion]) -> Result<Aplicado, String> {
     let mut escritos: Vec<String> = Vec::new();
     for (ruta, nuevo) in &nuevos {
         let camino = ruta_escribible(raiz, ruta)?;
-        match std::fs::write(&camino, nuevo) {
+        match crate::estado::escribir_atomico(&camino, nuevo) {
             Ok(_) => escritos.push(ruta.clone()),
             Err(e) => {
                 for r in &escritos {
                     if let (Ok(c), Some(orig)) = (ruta_escribible(raiz, r), originales.get(r)) {
-                        let _ = std::fs::write(c, orig);
+                        let _ = crate::estado::escribir_atomico(&c, orig);
                     }
                 }
                 return Err(format!("no pude escribir «{ruta}»: {e} — restauré lo ya escrito"));
@@ -304,11 +304,9 @@ pub fn leer(dir: &Path) -> Option<Value> {
 }
 
 pub fn escribir(dir: &Path, v: &Value) -> Result<(), String> {
-    std::fs::write(
-        dir.join(ARCHIVO),
-        serde_json::to_string_pretty(v).map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| format!("no pude guardar la cola de parches: {e}"))
+    let txt = serde_json::to_string_pretty(v).map_err(|e| e.to_string())?;
+    crate::estado::escribir_atomico(&dir.join(ARCHIVO), &txt)
+        .map_err(|e| format!("no pude guardar la cola de parches: {e}"))
 }
 
 /// Deja una propuesta **pendiente** (nada escrito). Se valida antes de encolar: una propuesta que no se

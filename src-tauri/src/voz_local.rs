@@ -67,7 +67,8 @@ pub fn escribir_progreso(data_dir: &Path, fase: &str, bajado: u64, total: u64, e
             .map(|d| d.as_secs())
             .unwrap_or(0),
     });
-    let _ = std::fs::write(ruta_progreso(data_dir), v.to_string());
+    let v_txt = v.to_string();
+    let _ = crate::estado::escribir_atomico(&ruta_progreso(data_dir), &v_txt);
 }
 
 pub fn leer_progreso(data_dir: &Path) -> Value {

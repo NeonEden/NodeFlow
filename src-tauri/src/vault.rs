@@ -295,14 +295,10 @@ impl Vault {
     }
 
     /// Escritura atómica (tmp + rename) para que Obsidian nunca lea un archivo a medio escribir.
+    /// La implementación vive en `estado.rs`: un solo lugar donde se escribe estado en toda la app.
     fn write_atomic(&self, rel: &str, content: &str) -> Result<usize, String> {
         let path = self.root.join(rel);
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-        }
-        let tmp = path.with_extension("tmp-nf");
-        std::fs::write(&tmp, content.as_bytes()).map_err(|e| e.to_string())?;
-        std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
+        crate::estado::escribir_atomico(&path, content)?;
         let bytes = content.len();
         self.inner
             .lock()

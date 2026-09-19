@@ -153,11 +153,9 @@ pub fn registrar(
     if let Some(padre) = data_dir.parent() {
         let _ = std::fs::create_dir_all(padre);
     }
-    std::fs::write(
-        data_dir.join("dialogo.json"),
-        serde_json::to_string_pretty(&sesion).map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| e.to_string())?;
+    let sesion_txt = serde_json::to_string_pretty(&sesion).map_err(|e| e.to_string())?;
+    crate::estado::escribir_atomico(&data_dir.join("dialogo.json"), &sesion_txt)
+        .map_err(|e| e.to_string())?;
     Ok(sesion)
 }
 

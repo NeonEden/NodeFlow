@@ -426,7 +426,7 @@ fn save_profile(data_dir: &Path, profile: &Value) {
     let _ = std::fs::create_dir_all(data_dir);
     let p = profile_path(data_dir);
     if let Ok(txt) = serde_json::to_string_pretty(profile) {
-        if let Err(e) = std::fs::write(&p, txt) {
+        if let Err(e) = crate::estado::escribir_atomico(&p, &txt) {
             log::error!("No pude escribir {}: {e}", p.display());
         }
     }

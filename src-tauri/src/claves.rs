@@ -342,7 +342,7 @@ pub fn migrar(data_dir: &Path, store: &dyn Store) -> Result<Value, String> {
         }
     }
     let salida = serde_json::to_string_pretty(&cfg).map_err(|e| e.to_string())?;
-    std::fs::write(&ruta, salida).map_err(|e| format!("no pude escribir el config: {e}"))?;
+    crate::estado::escribir_atomico(&ruta, &salida).map_err(|e| format!("no pude escribir el config: {e}"))?;
 
     log::info!(
         "claves: {} migradas al llavero · {} ya estaban · {} fallidas",

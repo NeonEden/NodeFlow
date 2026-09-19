@@ -446,7 +446,7 @@ pub fn guardar_seleccion(data_dir: &Path, id: Option<&str>) -> Result<(), String
         }
     }
     let txt = serde_json::to_string_pretty(&cfg).map_err(|e| e.to_string())?;
-    std::fs::write(&ruta, txt).map_err(|e| format!("no pude escribir {}: {e}", ruta.display()))
+    crate::estado::escribir_atomico(&ruta, &txt).map_err(|e| format!("no pude escribir {}: {e}", ruta.display()))
 }
 
 #[cfg(test)]
