@@ -13,7 +13,8 @@
     "demo:build": "node demo/build.mjs",
     "demo": "node demo/server.mjs",
     "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
@@ -31,10 +32,14 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.4",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
     "@types/node": "^22.14.0",
     "autoprefixer": "^10.4.21",
+    "jsdom": "^30.1.0",
     "tailwindcss": "^4.1.14",
     "typescript": "~5.8.2",
-    "vite": "^6.2.3"
+    "vite": "^6.2.3",
+    "vitest": "^5.0.1"
   }
 }
