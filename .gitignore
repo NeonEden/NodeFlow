@@ -16,8 +16,11 @@ npm-debug.log*
 .env.local
 *.key
 
-# Demo web: lo compilado y las claves que sólo viven en el servidor
-demo/public/
+# Demo web: las claves que sólo viven en el servidor (NUNCA al repo)
+# `demo/public/` SÍ se versiona (968 KB, 4 archivos): Vercel sirve el demo como estático y su
+# buildCommand es un no-op a propósito, así que el bundle tiene que estar en el repo o el deploy
+# falla con «No Output Directory named "public" found». Se regenera con `node demo/build.mjs` y se
+# commitea: si tocás el front, acordate de regenerarlo.
 demo/clave-assemblyai.txt
 demo/clave-motor.txt
 
