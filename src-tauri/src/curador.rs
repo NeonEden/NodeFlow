@@ -544,7 +544,9 @@ mod tests {
         ];
         assert!(intocable(&nodos[0], 0).unwrap().contains("núcleo"));
         assert!(intocable(&nodos[1], 0).unwrap().contains("madurez 5"));
-        assert!(intocable(&nodos[2], 4).unwrap().contains("4 conexiones"));
+        assert!(intocable(&nodos[2], aristas.len())
+            .unwrap()
+            .contains("4 conexiones"));
         assert!(intocable(&nodos[3], 0).unwrap().contains("400 chars"));
         assert!(intocable(&nodo("x", "X", "DATOS", 1, "corto"), 0).is_none());
     }

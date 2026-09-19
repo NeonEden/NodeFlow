@@ -151,10 +151,15 @@ forzado a mitad de escritura podía dejar un JSON truncado, y con él la bóveda
 único camino de escritura que escribe a un archivo temporal y lo mueve al destino — la operación es
 atómica, o pasa entera o no pasa. Lo produjo un worker delegado y se verificó con la suite completa.</p>
 
-<h3>3.4 · El crate sin warnings</h3>
-<p>El build de Rust arrastraba código muerto y avisos. Se limpiaron; el build sale sin warnings, y el
-árbitro (<code>cargo test</code>) confirmó que no se rompió nada. También es el PR que estrenó el flujo
-de delegación de punta a punta.</p>
+<h3>3.4 · El crate sin warnings de código</h3>
+<p>El build de Rust arrastraba código muerto y avisos. Se limpiaron; el árbitro (<code>cargo test</code>)
+confirmó que no se rompió nada. También es el PR que estrenó el flujo de delegación de punta a punta.</p>
+<p class="mini"><b>Precisión, medida al cerrar este informe:</b> el PR #9 limpió el crate <code>app</code>,
+pero quedaba un warning real sin tocar — una variable declarada y nunca usada en un test del curador
+(<code>curador.rs:539</code>). Se corrigió usando el fixture que ya estaba declarado
+(<code>aristas.len()</code>) en vez del número escrito a mano, con lo que además el test quedó
+autoconsistente. Queda un aviso de <code>linker_messages</code> que emite <b>el enlazador de MSVC</b>, no
+el código: es ruido del toolchain de Rust 1.98, no deuda del proyecto.</p>
 
 <h3>3.5 · El demo web vuelve a estar en pie</h3>
 <p>Vercel estaba rojo porque el bundle no existía en el repositorio. Se corrigió configurando el directorio
