@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8">
+<title>NodeFlow — Estado, investigación y hoja de ruta</title>
+<style>
+  @page { size: A4; margin: 17mm 15mm 16mm; }
+  * { box-sizing: border-box; }
+  body { font-family: "Segoe UI", system-ui, sans-serif; font-size: 10.2pt; line-height: 1.5; color: #1c2b30; margin: 0; }
+  h1 { font-size: 21pt; line-height: 1.15; margin: 0 0 3mm; color: #0d3b45; }
+  h2 { font-size: 13.5pt; margin: 9mm 0 3mm; padding-bottom: 1.5mm; border-bottom: 2.5px solid #0d7c8c; color: #0d3b45; break-after: avoid; }
+  h3 { font-size: 11.2pt; margin: 6mm 0 2mm; color: #0d5c69; break-after: avoid; }
+  h4 { font-size: 10.4pt; margin: 4mm 0 1.5mm; color: #24424a; break-after: avoid; }
+  p { margin: 0 0 2.5mm; }
+  .lead { font-size: 11.6pt; color: #3a5a63; }
+  .fecha { font-size: 8.6pt; letter-spacing: .09em; text-transform: uppercase; color: #0d7c8c; font-weight: 600; }
+  table { width: 100%; border-collapse: collapse; margin: 2.5mm 0 4mm; font-size: 9pt; break-inside: avoid; }
+  th { background: #0d3b45; color: #fff; text-align: left; padding: 2mm 2.4mm; font-weight: 600; font-size: 8.8pt; }
+  td { border-bottom: 1px solid #dae4e7; padding: 1.9mm 2.4mm; vertical-align: top; }
+  tr:nth-child(even) td { background: #f6fafb; }
+  code { font-family: Consolas, monospace; font-size: 8.6pt; background: #eef4f6; padding: .3mm 1mm; border-radius: 2px; }
+  .card { border: 1px solid #d3dee2; border-left: 4px solid #0d7c8c; border-radius: 3px; padding: 3mm 3.6mm; margin: 3mm 0; background: #fbfdfe; break-inside: avoid; }
+  .card.bad { border-left-color: #b03030; background: #fdf8f8; }
+  .card.good { border-left-color: #1d7a3f; background: #f7fdf9; }
+  .card.warn { border-left-color: #b7791f; background: #fffdf6; }
+  .badge { display: inline-block; font-size: 8pt; padding: .6mm 2mm; border-radius: 8px; color: #fff; font-weight: 600; }
+  .badge.si { background: #1d7a3f; } .badge.no { background: #b03030; } .badge.med { background: #b7791f; } .badge.info { background: #0d7c8c; }
+  ul, ol { margin: 0 0 3mm; padding-left: 5mm; } li { margin-bottom: 1.2mm; }
+  .flow table { break-inside: auto; } .flow tr { break-inside: avoid; } .card.flow { break-inside: auto; }
+  footer { margin-top: 8mm; border-top: 1px solid #d3dde2; padding-top: 2.5mm; font-size: 8pt; color: #66787f; }
+  a { color: #0b7f8f; text-decoration: none; word-break: break-all; }
+  .grid { display: flex; gap: 3mm; flex-wrap: wrap; }
+  .grid > div { flex: 1 1 46%; }
+  .mini { font-size: 8.6pt; color: #55707a; }
+  .kpi { display: flex; gap: 3mm; flex-wrap: wrap; margin: 3mm 0 4mm; }
+  .kpi > div { flex: 1 1 22%; border: 1px solid #d3dee2; border-top: 3px solid #0d7c8c; border-radius: 3px; padding: 2.4mm 2.8mm; background: #fbfdfe; }
+  .kpi .n { font-size: 16pt; font-weight: 700; color: #0d3b45; line-height: 1.1; }
+  .kpi .l { font-size: 8pt; text-transform: uppercase; letter-spacing: .06em; color: #55707a; }
+</style></head><body>
+
+<div class="fecha">Informe de cierre de sesión · 19 de septiembre de 2026</div>
+<h1>NodeFlow — estado, investigación y hoja de ruta</h1>
+<p class="lead">Qué construimos, qué averiguamos, dónde estamos exactamente y qué falta. Todo lo que dice
+«medido» en este informe se volvió a correr el 19/09/2026 sobre el repositorio real; lo que no se pudo
+verificar está marcado como tal.</p>
+<p class="mini">TOMAS.WAV · NodeFlow 0.3.7 · repositorio <code>github.com/NeonEden/NodeFlow</code> ·
+rama <code>main</code> en <code>d11f5d3</code></p>
+
+<h2>0 · Cómo leer esto</h2>
+<p>Cuatro marcas, siempre visibles:</p>
+<ul>
+<li><span class="badge si">medido</span> lo corrí en esta máquina o lo leí del repositorio en esta sesión.</li>
+<li><span class="badge info">construido</span> existe, está en <code>main</code> y pasa CI.</li>
+<li><span class="badge med">pendiente</span> está identificado, con esfuerzo estimado, y no está hecho.</li>
+<li><span class="badge no">descartado</span> se evaluó y no conviene hacerlo ahora — con el motivo.</li>
+</ul>
+<p class="mini">Los esfuerzos son estimaciones, no mediciones. Las afirmaciones que vinieron de investigación
+delegada se conservaron sólo cuando el sondeo contra la fuente las confirmó; las que no, están anotadas con su prueba.</p>
+
+<h2>1 · Resumen ejecutivo</h2>
+<div class="kpi">
+  <div><div class="n">292</div><div class="l">tests en verde</div></div>
+  <div><div class="n">4</div><div class="l">PR mergeados hoy</div></div>
+  <div><div class="n">2</div><div class="l">informes de investigación</div></div>
+  <div><div class="n">1</div><div class="l">migración en curso</div></div>
+</div>
+
+<p><b>La app funciona y se instala.</b> El instalador NSIS sale con marca, accesos directos, entrada en
+«Aplicaciones instaladas» y desinstalador. Los 292 tests pasan (282 en Rust, 10 en el frontend), la CI está
+verde y el demo web está publicado en Vercel. La ventana ya tiene una política de seguridad de contenido
+(CSP) propia, y el estado se escribe de forma atómica.</p>
+
+<p><b>La investigación cambió dos decisiones de fondo.</b> La primera: la librería central del lienzo
+(<code>reactflow</code> v11) está en la rama muerta del proyecto; la viva es <code>@xyflow/react</code> 12.
+La segunda: las apps de agente grandes que tenés instaladas (Claude Desktop, Qwen, Antigravity, Copilot)
+<b>no exponen línea de comandos</b>, así que no sirven como trabajadores llamables — lo que sí sirve es
+<code>opencode</code>, y ese hallazgo es el que habilitó todo el flujo de delegación que armamos.</p>
+
+<p><b>Lo que falta no es código, son tres cosas concretas.</b> (1) Un certificado de firma <i>real</i>: el
+auto-firmado que pusimos prueba la tubería, pero no quita el aviso de SmartScreen. (2) La migración a
+React Flow 12, que ya compila y corre pero todavía no está commiteada ni rebasada sobre <code>main</code>.
+(3) La clave de API propia del usuario, que hoy no está resuelta — ver §6.3.</p>
+
+<div class="card warn">
+<h4>El deadline que manda</h4>
+<p>El <b>30/09</b> cierran el video demo del hackathon y los 30 prospectos de outreach. Todo lo que sigue
+en este informe es el <i>medio</i>; el <i>fin</i> es el ciclo de ingresos. El ecosistema de agentes es
+infraestructura interna: si se come la semana, el costo de oportunidad es todo el ciclo.</p>
+</div>
+
+<h2>2 · Dónde estamos, medido</h2>
+<table>
+<tr><th>Pieza</th><th>Estado</th><th>Evidencia de esta sesión</th></tr>
+<tr><td>Repositorio <code>main</code></td><td><span class="badge si">medido</span></td>
+<td><code>d11f5d3</code> · 203 commits · PR #9, #10, #11, #12 mergeados</td></tr>
+<tr><td>Tests backend (Rust)</td><td><span class="badge si">medido</span></td>
+<td><code>cargo test</code> → <b>282 passed; 0 failed</b> (0.94 s)</td></tr>
+<tr><td>Tests frontend (vitest)</td><td><span class="badge si">medido</span></td>
+<td><code>npx vitest run</code> → 2 archivos, <b>10 passed</b> (<code>layout.test.ts</code>, <code>obsidianExport.test.ts</code>)</td></tr>
+<tr><td>Chequeo de tipos</td><td><span class="badge si">medido</span></td>
+<td><code>tsc --noEmit</code> limpio · CI verde en los 4 runs de merge</td></tr>
+<tr><td>CSP de la ventana</td><td><span class="badge info">construido</span></td>
+<td><code>tauri.conf.json</code> con <code>csp</code> + <code>devCsp</code>; verificada en el binario de release sin violaciones</td></tr>
+<tr><td>Estado atómico</td><td><span class="badge info">construido</span></td>
+<td>un solo camino de escritura (<code>estado.rs</code> / <code>vault.rs</code>), con sufijo temporal <code>tmp-nf</code></td></tr>
+<tr><td>Instalador NSIS</td><td><span class="badge si">medido</span></td>
+<td><code>NodeFlow_0.3.7_x64-setup.exe</code> · 5.057.552 bytes · firmado</td></tr>
+<tr><td>Instalador MSI</td><td><span class="badge si">medido</span></td>
+<td><code>NodeFlow_0.3.7_x64_en-US.msi</code> · 7.303.168 bytes · <b>sin firmar</b></td></tr>
+<tr><td>Firma Authenticode</td><td><span class="badge med">parcial</span></td>
+<td>certificado auto-firmado <code>CN=NodeFlow Test</code>, válido hasta 19/09/2027 · <code>signtool verify</code> → «cadena termina en una raíz no confiable» (esperado)</td></tr>
+<tr><td>Demo web</td><td><span class="badge info">construido</span></td>
+<td>Vercel con <code>rootDirectory=demo</code> y el bundle versionado en <code>demo/public/</code></td></tr>
+<tr><td>Migración React Flow 12</td><td><span class="badge med">en curso</span></td>
+<td>worktree <code>nodeflow-reactflow12</code> · <code>@xyflow/react ^12.11.6</code> · 17 archivos, +202/−488 · <b>compila</b> · falta commit y rebase</td></tr>
+<tr><td>Worktrees</td><td><span class="badge si">medido</span></td>
+<td><code>nf-csp-tests</code>, <code>nf-estado-atomico</code>, <code>nf-warnings</code> (mergeados), <code>nodeflow-reactflow12</code> (activo)</td></tr>
+</table>
+
+<div class="card">
+<h4>La máquina, para contexto</h4>
+<p>AMD Ryzen 5 5600G (6 núcleos / 12 hilos) · <b>15,8 GB de RAM</b> · AMD Radeon RX 6700 XT.
+Node v22.23.2 · npm 12.0.2 · cargo/rustc 1.98.1.</p>
+<p class="mini">Los 15,8 GB importan: Ollama + Docker + varios workers + el navegador no entran a la vez.
+El paralelismo tiene techo físico — conviene cola explícita, no «lanzar todo».</p>
+</div>
+
+<h2>3 · Qué construimos en esta sesión</h2>
+
+<h3>3.1 · El instalador que se comporta como un programa</h3>
+<p>Antes la app se instalaba «a medias»: sin ícono, sin entrada en el menú de inicio, sin aparecer en
+«Aplicaciones instaladas». Ahora el paquete NSIS tiene branding (encabezado propio, íconos de instalador
+y desinstalador), crea los accesos directos en escritorio y menú de inicio, registra el desinstalador y
+renombra el binario a <code>NodeFlow.exe</code>. El viaje de ida y vuelta (instalar → desinstalar) se
+probó completo.</p>
+
+<h3>3.2 · Movimiento 1: cerrar los dos huecos que ya eran deuda</h3>
+<p><b>CSP.</b> La ventana tenía <code>csp: null</code> — cualquier script que entrara por error podía correr.
+Ahora hay una política explícita que declara de dónde puede venir cada cosa: scripts y estilos propios,
+imágenes también de DiceBear y Unsplash, medios locales, fuentes locales, y conexiones únicamente al
+backend local (<code>127.0.0.1</code>), a AssemblyAI por WebSocket y a DeepSeek. <code>object-src 'none'</code>
+y <code>base-uri 'self'</code> cierran las dos vías clásicas de inyección. Hay una variante <code>devCsp</code>
+más permisiva sólo para el servidor de desarrollo. Se verificó ejecutando el binario de release: la política
+se inyecta y el log no registra violaciones al cargar la bóveda ni las voces locales.</p>
+<p><b>Vitest y los primeros tests.</b> El frontend no tenía <i>ninguna</i> prueba: cualquier refactor era a
+ciegas. Se montó vitest y se escribieron los primeros tests sobre dos funciones puras — el layout y la
+exportación a Obsidian. Son 10 tests, pero lo importante no es el número: es que ahora existe la
+<b>red</b>. Sin esto, la migración de React Flow que viene después habría sido un salto al vacío.</p>
+
+<h3>3.3 · El estado se escribe en un solo lugar, y de forma atómica</h3>
+<p>Antes el estado se guardaba desde varios puntos y con escrituras directas: un corte de luz o un cierre
+forzado a mitad de escritura podía dejar un JSON truncado, y con él la bóveda ilegible. Ahora hay un
+único camino de escritura que escribe a un archivo temporal y lo mueve al destino — la operación es
+atómica, o pasa entera o no pasa. Lo produjo un worker delegado y se verificó con la suite completa.</p>
+
+<h3>3.4 · El crate sin warnings</h3>
+<p>El build de Rust arrastraba código muerto y avisos. Se limpiaron; el build sale sin warnings, y el
+árbitro (<code>cargo test</code>) confirmó que no se rompió nada. También es el PR que estrenó el flujo
+de delegación de punta a punta.</p>
+
+<h3>3.5 · El demo web vuelve a estar en pie</h3>
+<p>Vercel estaba rojo porque el bundle no existía en el repositorio. Se corrigió configurando el directorio
+raíz del proyecto en <code>demo</code> y versionando <code>demo/public/</code> (que estaba en el
+<code>.gitignore</code>). El deployment quedó <code>Ready</code>. Nota: esta es la pieza que va a servir de
+escaparate para los 30 prospectos.</p>
+
+<h3>3.6 · Movimiento 2: la migración a React Flow 12 <span class="badge med">en curso</span></h3>
+<p>El informe de la pila reveló que <code>reactflow</code> v11 — la librería sobre la que está construido
+todo el lienzo — está en la <b>rama muerta</b> del proyecto. La rama viva es <code>@xyflow/react</code> 12.
+Se hizo la migración en un worktree aparte (<code>nodeflow-reactflow12</code>), con los árbitros corriendo:
+17 archivos tocados, +202/−488 líneas (el saldo negativo es porque la v12 absorbe código que antes había
+que escribir a mano).</p>
+<p>Diferencias concretas que aparecieron:</p>
+<ul>
+<li>El paquete cambia de nombre: <code>reactflow</code> → <code>@xyflow/react</code>.</li>
+<li>La exportación por defecto desaparece: <code>import ReactFlow, {…}</code> pasa a ser
+<code>import { ReactFlow, … }</code> — el componente ahora es una exportación con nombre.</li>
+<li>La hoja de estilos se mueve a <code>@xyflow/react/dist/style.css</code>.</li>
+<li>Y el detalle que costó más tiempo: <b>no existe ninguna versión 12 publicada como <code>reactflow</code></b>.
+El <code>npm install</code> fallaba con <code>No matching version found for reactflow@^12.0.0</code> porque
+-ese paquete nunca pasó de la 11. La 12 es otro paquete. Eso no estaba en ningún informe: se descubrió
+chocando contra el error.</li>
+</ul>
+<p>El resultado compila (<code>vite build</code> genera los assets) y la app corre en modo desarrollo con
+el lienzo funcionando. <b>Lo que falta:</b> commitear, rebasar sobre <code>main</code> (el worktree quedó
+parado en <code>637c328</code>, antes de los 4 merges) y abrir el PR con los árbitros en verde.</p>
+
+<h3>3.7 · El flujo de delegación: cómo se fabricó todo lo anterior</h3>
+<p>Esta es la pieza que no se ve pero que cambió la forma de trabajar. Se armó un contrato de repositorio
+(<code>AGENTS.md</code>) que declara comandos canónicos, convenciones y lo que no se toca; un script de
+delegación (<code>scripts/delegar.sh</code>) que prepara un worktree, calienta el build, enlaza
+<code>node_modules</code> y lanza al worker; y <b>árbitros</b> — la suite de tests y el chequeo de tipos —
+que deciden si el trabajo del worker se acepta o se descarta.</p>
+<p>La regla es simple y es la que evita el desastre: <b>el worker propone, los tests deciden.</b> Los PRs
+#9 y #11 salieron de workers delegados; ninguno se mergeó sin que la suite pasara entera.</p>
+<div class="card bad">
+<h4>Dos cicatrices que valen</h4>
+<ul>
+<li>El <b>contrato tiene que estar commiteado antes de crear el worktree</b>. Si no, el worker lee una
+versión vieja del repo y produce trabajo que no encaja.</li>
+<li>Un worktree «frío» (sin <code>target/</code>) hace que el worker devuelva una edición vacía: parece
+que falló cuando en realidad no llegó a compilar. Hay que calentarlo antes.</li>
+<li>Y la lección más cara, de antes: <b>un bot con escritura en el repo puede romper el estado de la app</b>
+(un reinicio dejó el lienzo en blanco). De ahí la regla de worktree propio, alcance declarado y revisión
+por tests antes de mergear.</li>
+</ul>
+</div>
+
+<h2>4 · Las investigaciones</h2>
+<p>Se produjeron dos informes, cada uno sondeado contra la fuente autoritativa (npm, crates.io, la API de
+GitHub y el propio repositorio) el mismo día. Están en <code>docs/informes/</code>.</p>
+
+<h3>4.1 · Ecosistema de orquestación de agentes</h3>
+<p class="mini">14 páginas · <code>NodeFlow-ecosistema-agentes-2026-09-19.pdf</code></p>
+<p>Relevó qué hay instalado en esta máquina, qué protocolos son estándar de verdad, qué agentes-CLI se
+pueden llamar, y qué frameworks de orquestación siguen vivos. Termina con teorías de continuación
+ordenadas por costo: lo que multiplica ya (Nivel A), lo que abre techo (B) y las apuestas grandes (C).</p>
+
+<h3>4.2 · La pila de NodeFlow</h3>
+<p class="mini">8 páginas · <code>NodeFlow-pila-2026-09-19.pdf</code></p>
+<p>Qué capacidades de Tauri ya están pagadas y sin usar, qué plugins son realmente oficiales, qué le falta
+al lienzo comparado con un editor de nodos típico, y qué del ecosistema de Rust conviene. Cierra con
+«qué haría yo, en este orden» — que es de donde salieron los tres movimientos que ejecutamos hoy.</p>
+
+<h3>4.3 · Cómo se verificó</h3>
+<p>Se corrió un fan-out de tres subagentes para el relevamiento inicial, y <b>todo lo que devolvieron se
+sondeó después contra la fuente</b>. Eso fue lo que detectó los errores: la investigación delegada
+afirmaba que <code>tauri-plugin-frameless-window</code> era oficial (no lo es: es de un particular, con
+195 descargas en total), que <code>sled</code> iba por la 1.0.0-alpha (la última publicada es 0.34.7, de
+octubre de 2024), y citaba como estables dos release candidates. Nada de eso entró al informe como hecho.
+<b>La regla que quedó: el delegado investiga, el sondeo decide.</b></p>
+<div class="card good">
+<h4>Y el hallazgo que no era de nadie: Kùzu</h4>
+<p>Los informes y el contrato de agentes hablaban de «grafo Kùzu». Al ir a verificar el código, resultó que
+<b>NodeFlow no usa Kùzu</b>: el grafo es una implementación propia en JSON, en <code>grafo.rs</code>, con
+<code>serde_json</code>. La dependencia nunca existió. Se corrigió la documentación y el contrato. Si no se
+hubiera sondeado, hoy habría decisiones tomadas sobre una base que no existe.</p>
+</div>
+
+<h2>5 · Los hallazgos que cambian decisiones</h2>
+<table>
+<tr><th>Hallazgo</th><th>Consecuencia</th></tr>
+<tr><td><b>React Flow v11 está en la rama muerta.</b> La viva es <code>@xyflow/react</code> 12.</td>
+<td>Era el riesgo estructural más grande: toda la app depende de esa librería. La migración dejó de ser cosmética y pasó a ser la tarea de fondo.</td></tr>
+<tr><td><b>No existe <code>reactflow@12</code>.</b> El nombre del paquete cambió.</td>
+<td>Explica por qué la migración no era un bump de versión. Cualquier plan que la tratara como tal estaba mal.</td></tr>
+<tr><td><b>Claude Desktop, Qwen, Antigravity y Copilot no tienen CLI en el PATH.</b></td>
+<td>No se pueden usar como trabajadores. Cualquier arquitectura que las trate como workers necesita un puente que hoy no existe. Su rol real es <i>cliente</i> con humano en el medio.</td></tr>
+<tr><td><b><code>opencode</code> 1.18.18 es un servidor de agentes</b> (<code>run</code>, <code>serve</code>, <code>acp</code>).</td>
+<td>Fue el hallazgo que habilitó todo: hoy es el worker del flujo de delegación.</td></tr>
+<tr><td><b>GitHub Models está retirado</b> (30/07/2026). El endpoint responde 410 Gone.</td>
+<td>Cualquier rol apoyado en esa API está muerto. No se instala su CLI.</td></tr>
+<tr><td><b>La cuota de búsqueda de Gemini se agota antes que la del modelo.</b> Con herramienta de búsqueda, todos los modelos devolvieron 429; sin ella, el mismo modelo contestó 200.</td>
+<td>El diseño de investigación por fases tiene que declarar cuota y plan B por rol. Ya está implementado el fallback Gemini → Tavily → Hermes.</td></tr>
+<tr><td><b>Un agente-CLI como buscador es lento:</b> una búsqueda delegada pasó los 300 s y se cortó.</td>
+<td>Sirve como worker de código, no como buscador en camino caliente.</td></tr>
+<tr><td><b>MCP es el único estándar con adopción real</b> (9.254 ★, actividad diaria).</td>
+<td>El servidor MCP propio (<code>nodeflow_mcp.py</code>) ya montado es la inversión que se multiplica: sirve a todos los clientes a la vez.</td></tr>
+<tr><td><b>El formato <code>AGENTS.md</code> tiene 24.471 ★ y lo leen todos los agentes.</b></td>
+<td>Es el contrato más barato del ecosistema: se escribe una vez y trabaja para cualquier worker que entre al repo.</td></tr>
+<tr><td><b>El ecosistema de agentes es medio, no fin.</b></td>
+<td>Lo que se vende es el resultado (visuales, automatizaciones, NodeFlow como demostración de criterio). Si el ecosistema se vuelve el proyecto, el imán deja de atraer.</td></tr>
+</table>
+
+<h2>6 · Lo que falta</h2>
+
+<h3>6.1 · Bloqueantes reales</h3>
+<table>
+<tr><th>Qué</th><th>Estado</th><th>Qué hace falta</th><th>Esfuerzo</th></tr>
+<tr><td><b>Firma Authenticode real</b></td><td><span class="badge med">parcial</span></td>
+<td>El auto-firmado prueba que la tubería funciona, pero <code>signtool verify</code> da «raíz no confiable» — o sea, <b>no quita SmartScreen</b>. La firma que sí lo quita es un certificado OV/EV o la firma en la nube (Azure Trusted Signing, que con el crédito de Azure ya disponible es la vía barata). Después va <code>bundle.windows.signCommand</code> en <code>tauri.conf.json</code>. El MSI además quedó sin firmar.</td>
+<td>Un rato de configuración + la validación del certificado</td></tr>
+<tr><td><b>Migración a React Flow 12</b></td><td><span class="badge med">en curso</span></td>
+<td>Commit, rebase sobre <code>main</code> (el worktree quedó en <code>637c328</code>), PR con los árbitros. El riesgo honesto: los tests de layout cubren las funciones puras, no el render del lienzo — hay que probar a mano arrastrar, conectar y el minimapa.</td>
+<td>Media tarde</td></tr>
+<tr><td><b>Publicar el instalador firmado</b></td><td><span class="badge med">pendiente</span></td>
+<td>Release <code>v0.3.8</code> en GitHub con NSIS y MSI. Hoy hay release <code>v0.3.7</code> publicada, pero es anterior a la CSP, los tests y el estado atómico.</td>
+<td>Una hora</td></tr>
+</table>
+
+<h3>6.2 · Pendientes elegidos <span class="badge med">una tarde corta</span></h3>
+<p>El Movimiento 3 del informe: pulir como programa de escritorio. Son cinco cosas que juntas cambian la
+sensación de «app de verdad»:</p>
+<ul>
+<li><b>Bandeja del sistema</b> + <b>atajo global</b> + <b>window-state</b> (recordar tamaño y posición) — los tres juntos, y los tres son plugins oficiales de Tauri.</li>
+<li><b>Soltar archivos sobre el lienzo</b> — alrededor de una hora, y es una función que ningún competidor local tiene.</li>
+<li><b>Paleta de comandos</b> con <code>cmdk</code> + <code>fuse.js</code>.</li>
+</ul>
+<p class="mini">Extra gratis: efectos de ventana (Mica) y menú nativo, que ya vienen en el core de Tauri sin plugin.</p>
+
+<h3>6.3 · La clave de API propia: no resuelta</h3>
+<div class="card bad">
+<p><b>Síntoma reportado:</b> al poner la API en la opción de la interfaz, no se guarda ni se usa.</p>
+<p><b>Lo que está verificado en el código:</b> el modal guarda la clave en <code>localStorage</code> bajo
+<code>user_gemini_api_key</code>; el cliente la adjunta como cabecera <code>x-gemini-api-key</code> en cada
+llamada; y el backend la prioriza por sobre la del entorno. La tubería <i>existe</i>.</p>
+<p><b>Hipótesis, sin verificar todavía:</b> (a) el camino que realmente corre la app es el de <b>motores</b>
+(catálogo con DeepSeek como principal), y ese camino <b>sólo consume la clave propia en el proveedor
+<code>gemini</code></b> — si el motor activo es otro, la clave guardada nunca se toca; (b) el indicador de
+la interfaz («activa» / «sin configurar») se inicializa una sola vez al montar y no se refresca después de
+guardar, así que puede estar mostrando el estado viejo; (c) el modo de inferencia (<code>local</code> /
+<code>nube</code> / <code>auto</code>) redirige la cadena, y en modo local no hay proveedor que use la clave.</p>
+<p><b>Qué falta:</b> reproducirlo con la consola abierta — mirar si la cabecera sale en la petición
+(eso separa (a) de (b)) — y después decidir el arreglo. <b>No está resuelto.</b></p>
+</div>
+
+<h3>6.4 · El resto del roadmap, por versión</h3>
+<table>
+<tr><th>Versión</th><th>Qué trae</th><th>Estado</th></tr>
+<tr><td>v0.2</td><td>Motor de condensación (Fase A hecha: Norte Estratégico + macro-nodo con linaje), runtime local independiente, interruptor Local/Cloud visible, streaming de tokens</td><td>Fase A <span class="badge si">hecho</span> · Fases B y C <span class="badge med">pendiente</span></td></tr>
+<tr><td>v0.3</td><td>Co-agente de voz: dictado, respuesta hablada, conversación por turnos</td><td><span class="badge info">construido</span> — el idioma de la voz ya está desacoplado de la interfaz y el eco filtrado</td></tr>
+<tr><td>v0.4</td><td>Control móvil human-in-the-loop por WebSocket, panel para autorizar escrituras</td><td><span class="badge no">cortado</span> hasta que haya uso real</td></tr>
+<tr><td>v0.5</td><td>Pipeline de ingesta y síntesis</td><td><span class="badge med">pendiente</span></td></tr>
+<tr><td>v1.0</td><td>Distribución: instaladores firmados + updater, builds macOS/Linux, onboarding desde la UI</td><td>Cortado (macOS/Linux) hasta que haya uso real. La firma es lo único vivo de este bloque.</td></tr>
+</table>
+<p class="mini">También hay 8 PRs abiertos de Dependabot. Ojo con uno: el bump de TypeScript 5.8 → 7.0.2
+<b>falla la CI</b>. Los demás (notify, reqwest, tower-http, actions/checkout, setup-node, @types/node)
+están verdes o sin verificar.</p>
+
+<h2>7 · Riesgos y puntos ciegos</h2>
+<table>
+<tr><th>Riesgo</th><th>Por qué importa</th></tr>
+<tr><td><b>El lienzo no tiene tests de render.</b></td><td>Los 10 tests cubren funciones puras. Arrastrar nodos, conectar aristas y el minimapa se verifican a mano. Después de la migración a la v12 eso es el hueco más grande.</td></tr>
+<tr><td><b>La atención es el recurso escaso.</b></td><td>Seis clientes MCP, cinco apps de agente, tres CLIs: el costo no es la factura, es el ruido. Sin un registro de qué hizo cada worker, no hay decisión sobre cuál mantener.</td></tr>
+<tr><td><b>Permisos de los agentes.</b></td><td>Un worker con escritura en el repo y acceso al llavero es un riesgo real, y ya se materializó una vez. Regla vigente: alcance declarado, worktree propio, revisión por tests antes de mergear.</td></tr>
+<tr><td><b>Las cuotas como variable de diseño.</b></td><td>El grounding de Gemini se agotó y GitHub Models se retiró. Todo rol debe declarar su cuota, su límite y su plan B antes de asignársele trabajo.</td></tr>
+<tr><td><b>16 GB de RAM y una sola GPU.</b></td><td>Con 12 GB de VRAM, dos workers con modelos locales se pisan. Los locales se serializan; los de nube pueden paralelizar.</td></tr>
+<tr><td><b>Bus factor.</b></td><td>Sin <code>AGENTS.md</code> commiteado, sin demo pública y sin instalador firmado, nadie más puede aportar y quedás como único punto de falla. (Dos de esos tres ya están.)</td></tr>
+<tr><td><b>Licencias.</b></td><td><code>elkjs</code> es EPL/GPL — descartado para un producto distribuido; <code>dagre</code> es MIT y alcanza. Si NodeFlow se distribuye (MIT), la matriz de licencias de dependencias y modelos hay que mirarla antes de vender, no después.</td></tr>
+</table>
+
+<h3>Lo que decidimos NO hacer ahora</h3>
+<ul>
+<li><b>Base embebida (redb / SQLite):</b> el JSON todavía sirve y deja auditar. Primero medir.</li>
+<li><b>CRDT (yjs):</b> es la base de la fase móvil, pero es un proyecto en sí. Va cuando esa fase empiece.</li>
+<li><b><code>elkjs</code>:</b> licencia EPL/GPL en un producto que se distribuye.</li>
+<li><b>MSIX / Microsoft Store:</b> cuenta paga y empaquetado, sin usuarios todavía.</li>
+<li><b>Migrar a la <code>2.0-rc</code> de <code>tauri-specta</code>:</b> es un release candidate; primero verificar compatibilidad con Tauri 2.11.</li>
+</ul>
+
+<h2>8 · Los próximos tres movimientos</h2>
+<ol>
+<li><b>Cerrar la migración a React Flow 12</b> — commit, rebase sobre <code>main</code>, PR con los árbitros en verde, y prueba manual del lienzo. Media tarde.</li>
+<li><b>Resolver la clave BYOK</b> — reproducir con la consola abierta, aislar cuál de las tres hipótesis es, y arreglarla. Es lo que hace que la app sirva para que otro la use con su propia cuota.</li>
+<li><b>Los cinco detalles de programa</b> — bandeja, atajo global, window-state, soltar archivos, paleta de comandos. Una tarde corta, y es lo que más se nota al abrir la app.</li>
+</ol>
+<p>Y en paralelo, lo que no es código: <b>el video demo y los 30 prospectos cierran el 30/09</b>. El
+instalador firmado de verdad y la release <code>v0.3.8</code> son el soporte material de ese envío.</p>
+
+<h2>9 · Fuentes y método</h2>
+<p>Todo lo marcado como <span class="badge si">medido</span> se verificó el 19/09/2026 contra:</p>
+<ul>
+<li>El repositorio real: <code>git log</code>, <code>gh pr list</code>, <code>git worktree list</code>, <code>tauri.conf.json</code>, <code>package.json</code>, <code>Cargo.toml</code>.</li>
+<li>La suite: <code>cargo test</code> y <code>vitest run</code> corridos en esta sesión — 282 + 10 en verde.</li>
+<li>Los artefactos: los dos instaladores en <code>src-tauri/target/release/bundle/</code>, con <code>signtool verify</code>.</li>
+<li>El registro de GitHub: PRs, releases, runs de CI, y los certificados en el almacén de Windows.</li>
+<li>Las fuentes autoritativas para la investigación: <code>registry.npmjs.org</code> (versión, fecha, licencia, peerDependencies), <code>crates.io/api/v1</code> (versión estable, fecha, autoría) y <code>gh api</code> (existencia, estrellas, actividad, licencia).</li>
+</ul>
+<p class="mini">Las afirmaciones de la investigación delegada se conservaron sólo cuando el sondeo las
+confirmó; las que no se sostienen están listadas con su prueba en el informe de la pila. Lo que está
+marcado como hipótesis (§6.3) <b>no</b> está verificado y se dice explícitamente.</p>
+
+<footer>
+Informe generado para TOMAS.WAV · NodeFlow 0.3.7 · 19 de septiembre de 2026 · rama <code>main</code> en <code>d11f5d3</code><br>
+Marcas: <b>medido</b> (corrido en esta sesión) · <b>construido</b> (en <code>main</code>, CI verde) ·
+<b>pendiente</b> (identificado, con esfuerzo estimado) · <b>descartado</b> (evaluado y no conviene ahora).
+</footer>
+
+</body></html>
