@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8">
+<title>La pila de NodeFlow: qué nos estamos salteando</title>
+<style>
+  @page { size: A4; margin: 17mm 15mm 16mm; }
+  * { box-sizing: border-box; }
+  body { font-family: "Segoe UI", system-ui, sans-serif; font-size: 10.2pt; line-height: 1.5; color: #1c2b30; margin: 0; }
+  h1 { font-size: 21pt; line-height: 1.15; margin: 0 0 3mm; color: #0d3b45; }
+  h2 { font-size: 13.5pt; margin: 9mm 0 3mm; padding-bottom: 1.5mm; border-bottom: 2.5px solid #0d7c8c; color: #0d3b45; break-after: avoid; }
+  h3 { font-size: 11.2pt; margin: 6mm 0 2mm; color: #0d5c69; break-after: avoid; }
+  h4 { font-size: 10.4pt; margin: 4mm 0 1.5mm; color: #24424a; break-after: avoid; }
+  p { margin: 0 0 2.5mm; }
+  .lead { font-size: 11.6pt; color: #3a5a63; }
+  .fecha { font-size: 8.6pt; letter-spacing: .09em; text-transform: uppercase; color: #0d7c8c; font-weight: 600; }
+  table { width: 100%; border-collapse: collapse; margin: 2.5mm 0 4mm; font-size: 9pt; break-inside: avoid; }
+  th { background: #0d3b45; color: #fff; text-align: left; padding: 2mm 2.4mm; font-weight: 600; font-size: 8.8pt; }
+  td { border-bottom: 1px solid #dae4e7; padding: 1.9mm 2.4mm; vertical-align: top; }
+  tr:nth-child(even) td { background: #f6fafb; }
+  code { font-family: Consolas, monospace; font-size: 8.6pt; background: #eef4f6; padding: .3mm 1mm; border-radius: 2px; }
+  .card { border: 1px solid #d3dee2; border-left: 4px solid #0d7c8c; border-radius: 3px; padding: 3mm 3.6mm; margin: 3mm 0; background: #fbfdfe; break-inside: avoid; }
+  .card.bad { border-left-color: #b03030; background: #fdf8f8; }
+  .card.good { border-left-color: #1d7a3f; background: #f7fdf9; }
+  .card.warn { border-left-color: #b7791f; background: #fffdf6; }
+  .badge { display: inline-block; font-size: 8pt; padding: .6mm 2mm; border-radius: 8px; color: #fff; font-weight: 600; }
+  .badge.si { background: #1d7a3f; } .badge.no { background: #b03030; } .badge.med { background: #b7791f; }
+  ul, ol { margin: 0 0 3mm; padding-left: 5mm; } li { margin-bottom: 1.2mm; }
+  .flow table { break-inside: auto; } .flow tr { break-inside: avoid; } .card.flow { break-inside: auto; }
+  footer { margin-top: 8mm; border-top: 1px solid #d3dde2; padding-top: 2.5mm; font-size: 8pt; color: #66787f; }
+  a { color: #0b7f8f; text-decoration: none; word-break: break-all; }
+  .grid { display: flex; gap: 3mm; flex-wrap: wrap; }
+  .grid > div { flex: 1 1 46%; }
+  .mini { font-size: 8.6pt; color: #55707a; }
+</style></head><body>
+
+<div class="fecha">Informe técnico · 19 de septiembre de 2026</div>
+<h1>La pila de NodeFlow: qué nos estamos salteando</h1>
+<p class="lead">Tauri 2 · React Flow · Rust · grafo propio en JSON. Qué capacidades existen, cuáles ya vienen en el
+core sin plugin, cuáles son realmente oficiales — y en qué orden conviene tocar algo.</p>
+<p class="mini">Cada fila de este informe se sondeó contra la fuente autoritativa (npm, crates.io, GitHub) el
+19/09/2026. Lo que la investigación delegada afirmó y no se sostiene está en la §6, con la prueba.</p>
+
+<h2>0 · Cómo leer esto</h2>
+<p>Marcas, siempre visibles: <span class="badge si">verificado</span> lo comprobé contra el registro o el código ·
+<span class="badge med">a probar</span> existe y es plausible, pero no lo corrí en tu máquina ·
+<span class="badge no">descartado</span> no existe, está muerto o no sirve para un producto distribuible.</p>
+
+<div class="card bad flow">
+<h4><span class="badge no">descartado</span> Correcciones a lo que devolvió la investigación delegada</h4>
+<table>
+<tr><th>Afirmación recibida</th><th>Realidad medida</th></tr>
+<tr><td><code>tauri-plugin-frameless-window</code>, «plugin oficial» con efectos Mica/Acrylic</td>
+<td><b>No es oficial</b>: es de un particular (<code>github.com/insd47/…</code>) y tiene <b>195 descargas</b> en total. No hace falta: los efectos vienen en el core (§3).</td></tr>
+<tr><td><code>tauri-plugin-wdio</code> y <code>tauri-plugin-wdio-webdriver</code>, «plugins oficiales»</td>
+<td>Existen y son serios (1.4.0, 87k y 128k descargas), pero son de <b>WebdriverIO</b> (<code>github.com/webdriverio/desktop-mobile</code>), no de Tauri. El oficial para E2E es <code>tauri-driver</code> (<code>tauri-apps/tauri</code>).</td></tr>
+<tr><td><code>sled</code> «1.0.0-alpha.124»</td><td>La última publicada es <b>0.34.7</b>, del <b>11/10/2024</b>: 23 meses sin releases. La fecha coincide, la versión no.</td></tr>
+<tr><td><code>dashmap</code> «7.0.0-rc2» y <code>tauri-specta</code> «2.0.0-rc.25» citados como versiones actuales</td>
+<td>Son <b>release candidates</b>: la estable de dashmap es <b>6.2.1</b> y la de tauri-specta <b>1.0.2</b>. Un RC no es una versión para meter en producción sin decidirlo.</td></tr>
+<tr><td>URL de <code>cmdk</code> → <code>codingdunia.com</code>; <code>zustand</code> → <code>zustand.site</code></td>
+<td>Paquetes reales, <b>URLs equivocadas</b>. Las oficiales: <code>github.com/pacocoursey/cmdk</code> y <code>github.com/pmndrs/zustand</code>.</td></tr>
+<tr><td><code>rustfmt</code> y <code>clippy</code> citados como crates de crates.io (2017/2018)</td>
+<td>El consejo es correcto (<code>cargo fmt --check</code> y <code>cargo clippy -D warnings</code> en CI) pero <b>no son dependencias</b>: vienen con el toolchain de Rust.</td></tr>
+<tr><td>Evento de archivos soltados <code>tauri://file-drop</code></td><td>En Tauri 2 el evento es <b><code>tauri://drag-drop</code></b> (la API JS es <code>onDragDropEvent</code>).</td></tr>
+</table>
+</div>
+
+<h2>1 · Qué usa NodeFlow hoy (medido, no recordado)</h2>
+<table>
+<tr><th>Pieza</th><th>Versión en el proyecto</th><th>Última disponible</th><th>Estado</th></tr>
+<tr><td>React Flow (<code>reactflow</code>)</td><td><b>11.11.4</b></td><td><code>@xyflow/react</code> <b>12.11.6</b></td><td><span class="badge no">rama congelada</span> desde jun-2024</td></tr>
+<tr><td>Tauri (Rust)</td><td>2.11.3</td><td>2.11.5 (15/09/2026)</td><td><span class="badge med">2 parches atrás</span></td></tr>
+<tr><td>Plugin oficiales en uso</td><td><code>log</code>, <code>single-instance</code>, <code>updater</code> 2.11.0, <code>process</code> 2.3.1</td><td>—</td><td><span class="badge si">de 25 oficiales, usás 4</span></td></tr>
+<tr><td>ACL / capacidades</td><td><code>core:default</code>, <code>updater:default</code>, <code>process:default</code> + 2 permisos de ventana</td><td>—</td><td><span class="badge si">mínima y prolija</span></td></tr>
+<tr><td>Política de seguridad de contenido (CSP)</td><td><code>"csp": null</code></td><td>—</td><td><span class="badge no">hueco real</span></td></tr>
+<tr><td>Frontend</td><td>React 19.0.1, Vite 6.2.3, Tailwind 4, Motion 12, <code>motion</code>, <code>lucide-react</code></td><td>—</td><td><span class="badge si">al día</span></td></tr>
+<tr><td>Tests del frontend</td><td>ninguno (sólo <code>tsc --noEmit</code>)</td><td>—</td><td><span class="badge no">hueco real</span></td></tr>
+<tr><td>Backend</td><td>~11.000 líneas Rust, 30 módulos, 281 tests</td><td>—</td><td><span class="badge si">con tests y CI</span></td></tr>
+<tr><td>Grafo</td><td>propio: <code>grafo.rs</code> (1.338 líneas) + <code>serde_json</code></td><td>—</td><td><span class="badge si">sin dependencia externa</span></td></tr>
+</table>
+<p class="mini">Ya tenés drag&amp;drop habilitado en la ventana (<code>dragDropEnabled: true</code>) y el servidor MCP
+viaja empaquetado como recurso (<code>bundle.resources</code>).</p>
+
+<h2>2 · El hallazgo que más pesa: tu librería central está en la rama muerta</h2>
+<div class="card warn">
+<table>
+<tr><th></th><th>versión</th><th>última publicación</th><th>línea</th></tr>
+<tr><td><code>reactflow</code> (lo que usás)</td><td>11.11.4</td><td><b>20/06/2024</b></td><td>congelada</td></tr>
+<tr><td><code>@xyflow/react</code> (su sucesora)</td><td><b>12.11.6</b></td><td><b>01/09/2026</b></td><td>85 releases desde 12.0.0 (jul-2024)</td></tr>
+</table>
+<p>Dos años de arreglos, rendimiento y API que no estás recibiendo. <b>Ambas aceptan React ≥17</b>, así que la
+migración no es urgente por incompatibilidad: es una mejora disponible. La v12 además deja de traer subpaquetes
+sueltos (<code>@reactflow/minimap</code>, <code>-node-resizer</code>, <code>-node-toolbar</code>) y pasa a depender de
+<code>@xyflow/system</code> + su propio store con <code>zustand</code>.</p>
+</div>
+<h4>Qué te llevás migrando</h4>
+<ul>
+<li><b>Rendimiento en lienzos grandes</b>: el render sólo de lo visible ya existe en v11
+(<code>onlyRenderVisibleElements</code>) pero la v12 suma memorización de nodos y menos re-renders del store.
+Es justo lo que vas a necesitar cuando el lienzo pase de 200 nodos.</li>
+<li><b>Piezas de UI que hoy escribís a mano</b>: <code>NodeToolbar</code> y <code>NodeResizer</code> ya existen como
+componentes (y en v11 también, pero como paquetes separados).</li>
+<li><b>Sub-flows</b>: nodos que contienen un lienzo. Tu <code>ZonaNode</code> es exactamente eso, hecho a mano.</li>
+<li><b>SSR y tipos más finos</b>, con utilidades nuevas (<code>useNodesData</code>, flujos computados).</li>
+</ul>
+<div class="card"><h4>Riesgo honesto de migrar</h4>
+<p>Es un renombre de paquete + cambios de API en tus nodos y en los tipos: <b>el trabajo no está en el
+<code>package.json</code>, está en <code>App.tsx</code> (4.812 líneas) y en 34 componentes</b>. Con la rama de
+trabajo y los árbitros que ya tenés, se hace en un worktree y no toca el grafo ni el backend. Si algo sale mal,
+volver atrás es revertir la rama.</p></div>
+
+<h2>3 · Tauri: lo que ya tenés pagado y no estás usando</h2>
+<p>Verifiqué las dependencias directas de <code>tauri</code> 2.11.5: trae <b><code>tray-icon</code></b>,
+<b><code>muda</code></b> (menús) y <b><code>window-vibrancy</code></b> (efectos Mica/Acrylic en Windows) como parte del
+core. O sea: <b>no hace falta ningún plugin de terceros</b> para bandeja, menús ni efectos de ventana.</p>
+<table>
+<tr><th>Capacidad</th><th>Cómo se activa</th><th>Para qué en NodeFlow</th><th>Esfuerzo</th></tr>
+<tr><td><b>Bandeja del sistema</b> <span class="badge si">core</span></td><td>feature <code>tray-icon</code> + <code>TrayIconBuilder</code></td><td>La app queda viva sin ventana; menú con «capturar idea», «abrir bóveda», «salir»</td><td>2 h</td></tr>
+<tr><td><b>Menús nativos</b> <span class="badge si">core</span></td><td><code>muda</code> vía <code>tauri::menu</code></td><td>Menú de app correcto (y atajos visibles), en lugar de sólo atajos propios</td><td>2 h</td></tr>
+<tr><td><b>Efectos de ventana</b> <span class="badge si">core</span></td><td><code>window-vibrancy</code>: Mica/Acrylic</td><td>Aspecto nativo de Windows 11 sin tocar la UI</td><td>2 h</td></tr>
+<tr><td><b>Archivos soltados</b> <span class="badge si">core</span></td><td>evento <code>tauri://drag-drop</code> (ya tenés <code>dragDropEnabled</code>)</td><td>Soltar un PDF/imagen sobre el lienzo y que nazca un nodo</td><td>1 h</td></tr>
+<tr><td><b>Canales IPC</b> <span class="badge si">core</span></td><td><code>tauri::ipc::Channel</code></td><td>Streaming de tokens al nodo activo (hoy va por SSE propio)</td><td>a probar</td></tr>
+<tr><td><b>Sidecar</b></td><td><code>tauri-plugin-shell</code> (<code>Command.sidecar</code>)</td><td>Empaquetar el servidor MCP de Python y el TTS sin exigir Python instalado</td><td>3 h</td></tr>
+<tr><td>CSP y endurecimiento</td><td><code>app.security.csp</code> en <code>tauri.conf.json</code></td><td>Cerrar el <code>csp: null</code> antes de que agentes externos toquen la app</td><td>2 h</td></tr>
+</table>
+<h3>Plugins oficiales que valen la pena (todos verificados, publicados el 13/09/2026)</h3>
+<table>
+<tr><th>Plugin</th><th>Versión</th><th>Para qué acá</th><th>Esfuerzo</th></tr>
+<tr><td><code>tauri-plugin-global-shortcut</code></td><td>2.3.2</td><td>Atajo global para capturar una idea sin abrir la ventana: es <i>tu</i> caso de uso</td><td>3 h</td></tr>
+<tr><td><code>tauri-plugin-notification</code></td><td>2.4.0</td><td>Avisar cuando el cerebro terminó una tarea o una investigación</td><td>3 h</td></tr>
+<tr><td><code>tauri-plugin-window-state</code></td><td>2.4.1</td><td>Recordar tamaño, posición y maximizado entre sesiones</td><td>2 h</td></tr>
+<tr><td><code>tauri-plugin-autostart</code></td><td>2.5.1</td><td>Arrancar con Windows (opcional, y con la bandeja tiene sentido)</td><td>2 h</td></tr>
+<tr><td><code>tauri-plugin-clipboard-manager</code></td><td>2.3.3</td><td>Copiar/pegar nodos, exportar a markdown al portapapeles</td><td>2 h</td></tr>
+<tr><td><code>tauri-plugin-deep-link</code></td><td>2.4.10</td><td><code>nodeflow://</code>: abrir la app desde un link — la pieza que hace falta para el imán de leads</td><td>4 h</td></tr>
+<tr><td><code>tauri-plugin-store</code> / <code>-sql</code></td><td>2.4.5 / 2.4.1</td><td>Persistencia tipada del lado oficial, si algún día querés dejar de escribir tus propios JSON</td><td>a probar</td></tr>
+<tr><td><code>tauri-plugin-stronghold</code></td><td>2.3.2</td><td>Caja fuerte cifrada; hoy usás el llavero de Windows (decisión válida, esto es la alternativa)</td><td>a probar</td></tr>
+<tr><td><code>tauri-plugin-positioner</code></td><td>2.3.4</td><td>Abrir la ventana pegada al cursor o a la bandeja</td><td>1 h</td></tr>
+</table>
+<h3>Distribución en Windows (y qué exige cada canal)</h3>
+<table>
+<tr><th>Canal</th><th>Qué exige</th><th>Veredicto</th></tr>
+<tr><td><b>winget</b> (<code>winget-pkgs</code>)</td><td>Manifiesto YAML + URL del instalador + hash. La firma ayuda pero no bloquea</td><td><span class="badge si">el más barato y el de más alcance</span>: <code>winget install NodeFlow</code></td></tr>
+<tr><td><b>Microsoft Store</b> (MSIX)</td><td>Cuenta de desarrollador paga + empaquetado MSIX + firma</td><td><span class="badge med">después, si hay usuarios</span></td></tr>
+<tr><td><b>Chocolatey</b></td><td>Paquete <code>.nupkg</code> + script + checksum</td><td><span class="badge med">sirve si el público es técnico</span></td></tr>
+<tr><td><b>Scoop</b></td><td>Manifiesto JSON + SHA256</td><td><span class="badge med">2 horas y quedás instalable en el mundo dev</span></td></tr>
+<tr><td>Firma Authenticode</td><td>Certificado o Azure Trusted Signing (ya tenés Azure con crédito)</td><td>Prerequisito de la experiencia «programa serio»: sin eso, SmartScreen avisa</td></tr>
+</table>
+
+<h2>4 · El lienzo: lo que un editor de nodos suele tener y acá no</h2>
+<table>
+<tr><th>Pieza</th><th>Paquete / API</th><th>Para qué</th><th>Nota de verificación</th></tr>
+<tr><td>Paleta de comandos (⌘K)</td><td><code>cmdk</code> 1.1.1 + <code>fuse.js</code> 7.5.0</td><td>Toda acción de la app a dos teclas, con búsqueda difusa: es la mejora de UX más grande por hora invertida</td><td><span class="badge si">verificado</span> (MIT)</td></tr>
+<tr><td>Avisos transitorios</td><td><code>sonner</code> 2.0.8 (o <code>react-hot-toast</code>)</td><td>Confirmar «guardado», «propuesta aplicada», errores de motor</td><td><span class="badge si">verificado</span></td></tr>
+<tr><td>Estado del lienzo</td><td><code>zustand</code> 5.0.15 (+ <code>immer</code> 11.1.18)</td><td>La v12 de React Flow ya usa zustand puertas adentro: alinearse evita dos modelos de estado</td><td><span class="badge si">verificado</span> (MIT)</td></tr>
+<tr><td>Layout automático</td><td><code>@dagrejs/dagre</code> 3.1.1</td><td>Reordenar el árbol por niveles cuando el lienzo se desordena (alternativa a tu <code>layout.ts</code>)</td><td><span class="badge si">verificado</span> MIT</td></tr>
+<tr><td>Layout jerárquico avanzado</td><td><code>elkjs</code> 0.12.0</td><td>Layout tipo Sugiyama, más ordenado en grafos con cruces</td><td><span class="badge no">licencia EPL-2.0 OR GPL</span>: cuidado en un producto que distribuís</td></tr>
+<tr><td>Mini-mapa</td><td><code>&lt;MiniMap /&gt;</code></td><td>Orientación con lienzos grandes; son 5 líneas</td><td><span class="badge si">existe en v11 y v12</span></td></tr>
+<tr><td>Tests del frontend</td><td><code>vitest</code> 5.0.1 + <code>@testing-library/react</code> 16.3.3</td><td>Hoy no hay ni un test de UI: cualquier refactor de <code>App.tsx</code> es a ciegas</td><td><span class="badge si">verificado</span> MIT</td></tr>
+<tr><td>E2E de escritorio</td><td><code>tauri-driver</code> 2.0.6 (oficial) o Playwright 1.63.0 sobre el dev server</td><td>Probar el flujo completo (dictar, crear nodos, guardar) sin manos</td><td><span class="badge si">verificado</span></td></tr>
+<tr><td>Colaboración / multi-dispositivo (tu fase móvil)</td><td><code>yjs</code> 13.6.32 + <code>y-websocket</code> 3.1.0</td><td>CRDT: dos clientes editan el mismo grafo sin servidor central ni conflictos</td><td><span class="badge si">verificado</span> MIT</td></tr>
+<tr><td><code>automerge</code></td><td>2.0.0-alpha.3</td><td>Alternativa CRDT en Rust/WASM</td><td><span class="badge no">en alpha</span>: no para producción</td></tr>
+</table>
+
+<h2>5 · Rust: fiabilidad, observabilidad y velocidad</h2>
+<h3>5.1 · Si algún día hace falta una base (la que creíamos Kùzu)</h3>
+<table>
+<tr><th>Opción</th><th>Versión</th><th>Última publicación</th><th>Lectura</th></tr>
+<tr><td><b><code>redb</code></b></td><td><b>4.3.0</b></td><td><b>15/09/2026</b></td><td>KV puro Rust, vivísima. Es la candidata natural si el JSON deja de alcanzar</td></tr>
+<tr><td><code>rusqlite</code></td><td>0.40.2</td><td>08/08/2026</td><td>SQLite: SQL y transacciones, con el costo de un C embebido</td></tr>
+<tr><td><code>fjall</code></td><td>3.1.10</td><td>30/08/2026</td><td>B-tree alternativo, activo</td></tr>
+<tr><td><code>sqlx</code></td><td>0.9.0</td><td>21/05/2026</td><td>Sobredimensionado para hoy (async + macros)</td></tr>
+<tr><td><code>sled</code></td><td>0.34.7</td><td><b>11/10/2024</b></td><td><span class="badge no">descartado</span>: 23 meses sin releases</td></tr>
+</table>
+<p class="mini">Regla de la casa que conviene sostener: el JSON legible es lo que hace auditable tu estado (y lo que
+te deja inspeccionar la bóveda con Obsidian). Una base entra sólo si una medición muestra que el JSON ya no alcanza.</p>
+
+<h3>5.2 · Lo que sí mejoraría el día a día</h3>
+<table>
+<tr><th>Crate</th><th>Versión</th><th>Qué resuelve en tu proyecto</th><th>Esfuerzo</th></tr>
+<tr><td><code>thiserror</code></td><td>2.0.20</td><td>Hoy todos los errores viajan como <code>String</code>: no se pueden distinguir ni testear por tipo</td><td>bajo</td></tr>
+<tr><td><code>tracing</code> + <code>tracing-subscriber</code></td><td>0.1.44 / 0.3.23</td><td>Trazas estructuradas y filtrables por módulo: hoy usás <code>log</code> y depurás leyendo líneas</td><td>bajo</td></tr>
+<tr><td><code>schemars</code> + <code>tauri-specta</code></td><td>1.2.2 / 1.0.2 (estable)</td><td>Generar los tipos TypeScript desde el Rust: contratos que no se pueden desincronizar. <span class="badge med">hay 2.0.0-rc: verificar cuál corresponde a Tauri 2</span></td><td>medio</td></tr>
+<tr><td><code>proptest</code></td><td>1.11.0</td><td>Invariantes del grafo generadas al azar: tu ADR 0003 hecho test</td><td>medio</td></tr>
+<tr><td><code>insta</code></td><td>1.48.0</td><td>Snapshots del JSON del lienzo: detecta cambios no intencionados en el formato</td><td>bajo</td></tr>
+<tr><td><code>criterion</code></td><td>0.8.2</td><td>Medir carga/guardado del grafo antes de optimizar a ojo</td><td>bajo</td></tr>
+<tr><td><code>cargo-nextest</code></td><td>0.9.145</td><td>Correr los 281 tests más rápido y en paralelo</td><td>bajo</td></tr>
+<tr><td><code>cargo-mutants</code></td><td>27.1.0</td><td>Medir si tus tests detectan bugs de verdad (no cuántos son)</td><td>medio</td></tr>
+<tr><td><code>cargo-deny</code> / <code>cargo-audit</code></td><td>0.20.2 / 0.22.2</td><td>Licencias y CVE en CI: con un producto que distribuís, esto deja de ser opcional</td><td>bajo</td></tr>
+<tr><td><code>sccache</code></td><td>0.18.0</td><td>Builds de Windows y de CI mucho más rápidos</td><td>bajo</td></tr>
+<tr><td><code>parking_lot</code> / <code>arc-swap</code> / <code>once_cell</code></td><td>0.12.5 / 1.9.2 / 1.21.4</td><td>Locks más rápidos y configuración que se relee sin bloquear</td><td>bajo</td></tr>
+<tr><td><code>bincode</code> / <code>rmp-serde</code></td><td>3.0.0 / 1.3.1</td><td>Sólo para cachés internas: el estado del usuario queda en JSON legible</td><td>bajo</td></tr>
+</table>
+
+<h2>6 · Qué haría yo, en este orden</h2>
+<div class="card good">
+<h4>Movimiento 1 — Cerrar los dos huecos que ya son deuda (una tarde)</h4>
+<ol>
+<li><b>CSP</b>: poner una política en <code>tauri.conf.json</code> (<code>csp: null</code> hoy) y verificar que la app
+siga cargando la bóveda y las voces locales.</li>
+<li><b>Tests del frontend</b>: montar <code>vitest</code> + <code>@testing-library/react</code> y escribir el primer
+test de una función pura (el layout, la exportación a Obsidian, la construcción de nodos). Con eso, la migración de
+React Flow deja de ser a ciegas.</li>
+</ol>
+</div>
+<div class="card good">
+<h4>Movimiento 2 — Migrar a <code>@xyflow/react</code> 12 en un worktree (un día)</h4>
+<p>Después del Movimiento 1 (necesitás los tests para saber que no rompiste nada). Se hace con la rama de trabajo, los
+árbitros y PR: el <code>package.json</code> es lo fácil; el trabajo está en los nodos y los tipos.</p>
+</div>
+<div class="card good">
+<h4>Movimiento 3 — Pulir como programa de verdad (una tarde corta, mucho retorno percibido)</h4>
+<ul>
+<li><b>Bandeja + atajo global + window-state</b>: los tres juntos cambian la sensación de app de escritorio.</li>
+<li><b>Soltar archivos sobre el lienzo</b>: 1 hora y ya tenés una función que ningún competidor local tiene.</li>
+<li><b>Paleta de comandos</b> con <code>cmdk</code> + <code>fuse.js</code>.</li>
+<li><b>Efectos de ventana</b> (Mica) y menú nativo: gratis en el core de Tauri.</li>
+</ul>
+</div>
+<div class="card warn">
+<h4>Lo que NO haría ahora</h4>
+<ul>
+<li><b>Base embebida</b> (redb/SQLite): el JSON todavía te sirve y te deja auditar. Primero medí.</li>
+<li><b>CRDT</b> (yjs): es la base de tu fase móvil, pero es un proyecto en sí. Va cuando esa fase empiece.</li>
+<li><b>Automerge</b>: en alpha.</li>
+<li><b>elkjs</b>: licencia EPL/GPL en un producto que distribuís; dagre es MIT y alcanza.</li>
+<li><b>Migrar a la 2.0-rc de tauri-specta</b> sin verificar compatibilidad con Tauri 2.11.</li>
+<li><b>MSIX / Microsoft Store</b>: cuenta paga y empaquetado, sin usuarios todavía.</li>
+</ul>
+</div>
+
+<h2>7 · Fuentes y método</h2>
+<p class="mini">Todo lo de este informe se sondeó el 19/09/2026 contra: <code>registry.npmjs.org</code> (versión,
+fecha de publicación, licencia, peerDependencies) · <code>crates.io/api/v1</code> (versión estable, fecha,
+dependencias declaradas y autoría) · <code>gh api</code> (existencia, estrellas, actividad, licencia) · y el propio
+repositorio de NodeFlow (<code>Cargo.toml</code>, <code>package.json</code>, <code>tauri.conf.json</code>,
+<code>capabilities/default.json</code>, y un barrido de <code>kuzu|tldraw|reactflow|fs::write</code> sobre el código).
+Las afirmaciones de la investigación delegada se conservaron sólo cuando el sondeo las confirmó; el resto está en la
+§0 con su prueba. Los esfuerzos son estimaciones, no mediciones.</p>
+
+<footer>
+Informe generado para TOMAS.WAV · NodeFlow 0.3.7 · 19 de septiembre de 2026 · Las marcas
+verificado / a probar / descartado distinguen lo comprobado de lo plausible y de lo caído.
+</footer>
+</body></html>
