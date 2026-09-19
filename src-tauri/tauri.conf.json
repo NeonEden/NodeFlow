@@ -30,6 +30,14 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "publisher": "TOMAS.WAV",
+    "copyright": "© 2026 TOMAS.WAV (Tomas Pieruz)",
+    "homepage": "https://github.com/NeonEden/NodeFlow",
+    "license": "MIT",
+    "licenseFile": "../LICENSE",
+    "category": "Productivity",
+    "shortDescription": "Lienzo local-first de pensamiento aumentado",
+    "longDescription": "NodeFlow convierte ideas sueltas en artefactos: pensás sobre un lienzo de nodos, la app guarda todo en tu bóveda local y el motor asiste sin depender de la nube.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -43,7 +51,21 @@
     "createUpdaterArtifacts": true,
     "resources": [
       "../mcp-server/nodeflow_mcp.py"
-    ]
+    ],
+    "windows": {
+      "nsis": {
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico",
+        "headerImage": "installer/encabezado.bmp",
+        "uninstallerHeaderImage": "installer/encabezado.bmp",
+        "sidebarImage": "installer/lateral.bmp",
+        "languages": ["Spanish", "English"],
+        "displayLanguageSelector": false,
+        "installMode": "currentUser",
+        "compression": "lzma",
+        "installerHooks": "windows/instalador-hooks.nsh"
+      }
+    }
   },
   "plugins": {
     "updater": {
