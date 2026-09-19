@@ -42,6 +42,13 @@ if [ ! -d "$wt/src-tauri/target" ]; then
   ( cd "$wt/src-tauri" && cargo build --lib >/dev/null 2>&1 )
 fi
 
+# node_modules por enlace (junction), no copia: así los árbitros del frontend corren en el worktree.
+# OJO AL BORRAR: hay que quitar el enlace ANTES de `git worktree remove`, porque un `rm -rf` que
+# siga el junction borra el node_modules del repo principal. Ver el bloque de cierre.
+if [ ! -e "$wt/node_modules" ]; then
+  powershell -NoProfile -Command "New-Item -ItemType Junction -Path '$wt\node_modules' -Target '$repo\node_modules' | Out-Null" 2>/dev/null
+fi
+
 # --- 3. lanzar el worker ------------------------------------------------------------------------
 echo "== worker: $worker (tope ${tope}s) · log: $log.json =="
 case "$worker" in
@@ -87,10 +94,24 @@ echo
 echo "== árbitro 2 · tests =="
 ( cd "$wt/src-tauri" && cargo test --lib 2>&1 | tail -3 )
 
+# El frontend sólo se verifica si el diff lo tocó: compilar tipos siempre cuesta ~15 s y no dice nada
+# de un cambio en Rust.
+if git -C "$wt" status --porcelain | grep -qE "^\s*\S+\s+src/|\.(tsx|ts|css)\b"; then
+  echo
+  echo "== árbitro 3 · tipos del frontend (el diff toca src/) =="
+  ( cd "$wt" && npx tsc --noEmit && echo "tipos OK" )
+  echo "   (npm run build queda a criterio: escribe dist/ dentro del worktree)"
+else
+  echo
+  echo "== árbitro 3 · frontend: no aplica (el diff no toca src/) =="
+fi
+
 # --- 5. cierre (lo decide la persona) -----------------------------------------------------------
 echo
 echo "== rama lista: $rama en $wt =="
 echo "   commit + PR (vos, no el worker):"
 echo "     git -C \"$wt\" add -A && git -C \"$wt\" commit -F <mensaje>"
 echo "     git -C \"$wt\" push -u origin $rama && gh pr create --base main --head $rama --fill"
-echo "   descartar:  git worktree remove --force \"$wt\" && git branch -D $rama"
+echo "   descartar (¡quitá el enlace de node_modules primero!):"
+echo "     cmd //c rmdir '$(cygpath -w "$wt/node_modules" 2>/dev/null || echo "$wt/node_modules")'"
+echo "     git worktree remove --force \"$wt\" && git branch -D $rama"
