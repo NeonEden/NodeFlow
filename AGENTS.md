@@ -7,8 +7,9 @@ humana. Si algo de acá contradice lo que creés saber del proyecto, manda este 
 ## Qué es esto
 
 **NodeFlow** — app de escritorio *local-first* para convertir ideas sueltas en artefactos: un lienzo de nodos
-(Tauri v2 + React) con backend HTTP propio en Rust (axum, `127.0.0.1:37371`), grafo embebido (Kùzu), bóveda
-Obsidian, voz (STT AssemblyAI/Speechmatics + TTS local Kokoro en `127.0.0.1:8125`) y un servidor MCP propio
+(Tauri v2 + **React Flow** en el frontend) con backend HTTP propio en Rust (axum, `127.0.0.1:37371`), **grafo
+propio en `grafo.rs` persistido con `serde_json`** (no hay base de datos de grafos: nada de Kùzu ni similares),
+bóveda Obsidian, voz (STT AssemblyAI/Speechmatics + TTS local Kokoro en `127.0.0.1:8125`) y un servidor MCP propio
 (`mcp-server/nodeflow_mcp.py`). El estado del usuario **no vive en el repo**.
 
 ## Comandos canónicos (usá estos; no inventes otros)
