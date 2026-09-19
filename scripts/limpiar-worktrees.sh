@@ -106,6 +106,10 @@ done < <(git worktree list --porcelain | awk '
 git worktree prune 2>/dev/null
 
 if [ "$podados" -gt 0 ] || [ "$saltados" -gt 0 ]; then
-  anotar "resumen: $podados podado(s), $saltados saltado(s)"
+  if [ "$SOLO_VER" = "1" ]; then
+    anotar "resumen: $podados podable(s), $saltados saltado(s) — modo --ver, no se borró nada"
+  else
+    anotar "resumen: $podados podado(s), $saltados saltado(s)"
+  fi
 fi
 exit 0
