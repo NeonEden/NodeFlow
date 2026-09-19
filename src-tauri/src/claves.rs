@@ -15,11 +15,14 @@
 //! Regla que no se rompe: la clave **nunca** sale al frontend. `estado()` dice dónde está y publica una
 //! huella no invertible; jamás el valor.
 
-use std::collections::HashMap;
 use std::path::Path;
-use std::sync::Mutex;
 
 use serde_json::{json, Value};
+
+#[cfg(test)]
+use std::collections::HashMap;
+#[cfg(test)]
+use std::sync::Mutex;
 
 /// Nombre del servicio en el llavero del sistema (Windows Credential Manager).
 pub const SERVICIO: &str = "com.nodeflow.desktop";
@@ -87,6 +90,7 @@ pub enum Origen {
 
 pub struct Resuelta {
     pub valor: String,
+    #[allow(dead_code, reason = "Parte de la API pública de obtener_con; hoy solo se inspecciona en tests")]
     pub origen: Origen,
 }
 
@@ -94,6 +98,7 @@ pub struct Resuelta {
 pub trait Store: Send + Sync {
     fn leer(&self, campo: &str) -> Option<String>;
     fn escribir(&self, campo: &str, valor: &str) -> Result<(), String>;
+    #[allow(dead_code, reason = "Parte de la trait pública Store; hoy solo se usa en tests y migración futura")]
     fn borrar(&self, campo: &str) -> Result<(), String>;
 }
 
@@ -125,9 +130,11 @@ impl Store for Llavero {
 }
 
 /// Almacén en memoria: para tests y para simulaciones sin tocar el sistema.
+#[cfg(test)]
 #[derive(Default)]
 pub struct Memoria(pub Mutex<HashMap<String, String>>);
 
+#[cfg(test)]
 impl Memoria {
     pub fn nueva(pares: &[(&str, &str)]) -> Self {
         let m = Memoria::default();
@@ -141,6 +148,7 @@ impl Memoria {
     }
 }
 
+#[cfg(test)]
 impl Store for Memoria {
     fn leer(&self, campo: &str) -> Option<String> {
         self.0.lock().unwrap().get(campo).cloned()
