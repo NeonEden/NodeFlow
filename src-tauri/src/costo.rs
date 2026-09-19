@@ -562,7 +562,8 @@ impl Cache {
         }
         let txt = serde_json::to_string(c)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        std::fs::write(&self.ruta, txt)
+        crate::estado::escribir_atomico(&self.ruta, &txt)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
     }
 
     /// Para verificar la caché desde la API, sin adivinar.

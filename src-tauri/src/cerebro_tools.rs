@@ -222,9 +222,10 @@ pub fn escribir(raiz_boveda: &Path, h: &Herramienta, codigo: &str) -> Result<Vec
         "riesgo": h.riesgo,
     }))
     .map_err(|e| e.to_string())?;
-    std::fs::write(&ficha, format!("{json}\n"))
+    let ficha_txt = format!("{json}\n");
+    crate::estado::escribir_atomico(&ficha, &ficha_txt)
         .map_err(|e| format!("no pude escribir la ficha: {e}"))?;
-    std::fs::write(&guion, codigo).map_err(|e| format!("no pude escribir run.py: {e}"))?;
+    crate::estado::escribir_atomico(&guion, codigo).map_err(|e| format!("no pude escribir run.py: {e}"))?;
     Ok(vec![ficha, guion])
 }
 

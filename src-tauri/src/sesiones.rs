@@ -32,12 +32,7 @@ pub fn carpeta(boveda: &Path) -> PathBuf {
 
 /// Escribe `tmp` + `rename` para que nadie lea un archivo a medio escribir (misma regla que la bóveda).
 fn escribir_atomico(path: &Path, contenido: &str) -> Result<usize, String> {
-    if let Some(padre) = path.parent() {
-        std::fs::create_dir_all(padre).map_err(|e| e.to_string())?;
-    }
-    let tmp = path.with_extension("tmp-nf");
-    std::fs::write(&tmp, contenido.as_bytes()).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, path).map_err(|e| e.to_string())?;
+    crate::estado::escribir_atomico(path, contenido)?;
     Ok(contenido.len())
 }
 

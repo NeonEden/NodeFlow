@@ -93,10 +93,8 @@ fn anotar(data_dir: &Path, fase: &str, que: &str, comandos: Vec<Value>) {
         "pasos": pasos,
         "terminado": false,
     });
-    let _ = std::fs::write(
-        archivo(data_dir),
-        serde_json::to_string_pretty(&estado).unwrap_or_default(),
-    );
+    let estado_txt = serde_json::to_string_pretty(&estado).unwrap_or_default();
+    let _ = crate::estado::escribir_atomico(&archivo(data_dir), &estado_txt);
 }
 
 fn terminar(data_dir: &Path, resumen: &str, ok: bool) {
@@ -106,10 +104,8 @@ fn terminar(data_dir: &Path, resumen: &str, ok: bool) {
         obj.insert("ok".into(), json!(ok));
         obj.insert("salida".into(), json!(resumen));
     }
-    let _ = std::fs::write(
-        archivo(data_dir),
-        serde_json::to_string_pretty(&estado).unwrap_or_default(),
-    );
+    let estado_txt = serde_json::to_string_pretty(&estado).unwrap_or_default();
+    let _ = crate::estado::escribir_atomico(&archivo(data_dir), &estado_txt);
     let _ = std::fs::remove_file(data_dir.join("investigacion.corriendo"));
 }
 
@@ -585,7 +581,8 @@ pub fn cuota_agotada(data_dir: &Path) -> bool {
 }
 
 fn marcar_cuota_agotada(data_dir: &Path) {
-    let _ = std::fs::write(archivo_cuota(data_dir), ahora_s().to_string());
+    let ahora = ahora_s().to_string();
+    let _ = crate::estado::escribir_atomico(&archivo_cuota(data_dir), &ahora);
 }
 
 /// **El investigador.** Devuelve `(fuentes, panorama)`:
@@ -914,15 +911,14 @@ pub async fn iniciar(st: &AppState, pedido: String) -> Result<(), String> {
         return Err("ya hay una investigación corriendo".into());
     }
     let inicial = json!({ "pedido": pedido, "fase": "semilla", "pasos": [], "terminado": false });
-    std::fs::write(
-        archivo(&st.data_dir),
-        serde_json::to_string_pretty(&inicial).map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| e.to_string())?;
+    let inicial_txt = serde_json::to_string_pretty(&inicial).map_err(|e| e.to_string())?;
+    crate::estado::escribir_atomico(&archivo(&st.data_dir), &inicial_txt)
+        .map_err(|e| e.to_string())?;
     // El instante de arranque, no un "1": así la bandera puede vencer (ver `en_curso`).
-    let _ = std::fs::write(
-        st.data_dir.join("investigacion.corriendo"),
-        ahora_s().to_string(),
+    let ahora = ahora_s().to_string();
+    let _ = crate::estado::escribir_atomico(
+        &st.data_dir.join("investigacion.corriendo"),
+        &ahora,
     );
     let st2 = st.clone();
     tokio::spawn(async move { correr(&st2, pedido).await });

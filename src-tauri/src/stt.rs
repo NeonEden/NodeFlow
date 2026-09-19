@@ -374,7 +374,7 @@ fn leer_config(data_dir: &Path) -> Option<Value> {
 fn escribir_config(data_dir: &Path, cfg: &Value) -> Result<(), String> {
     let ruta = data_dir.join("nodeflow.config.json");
     let txt = serde_json::to_string_pretty(cfg).map_err(|e| e.to_string())?;
-    std::fs::write(ruta, txt).map_err(|e| e.to_string())
+    crate::estado::escribir_atomico(&ruta, &txt).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

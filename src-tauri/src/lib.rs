@@ -12,6 +12,7 @@ mod costo;
 mod curador;
 mod dialogo;
 mod eval;
+pub mod estado;
 mod expertos;
 mod grafo;
 mod idioma;
