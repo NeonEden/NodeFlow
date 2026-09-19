@@ -101,6 +101,12 @@ if git -C "$wt" status --porcelain | grep -qE "^\s*\S+\s+src/|\.(tsx|ts|css)\b";
   echo "== árbitro 3 · tipos del frontend (el diff toca src/) =="
   ( cd "$wt" && npx tsc --noEmit && echo "tipos OK" )
   echo "   (npm run build queda a criterio: escribe dist/ dentro del worktree)"
+  # Los tests de frontend son el árbitro fuerte: si el proyecto define un script `test`, se corre.
+  if grep -q '"test"' "$wt/package.json" 2>/dev/null; then
+    echo
+    echo "== árbitro 4 · tests de frontend =="
+    ( cd "$wt" && npm test 2>&1 | tail -8 )
+  fi
 else
   echo
   echo "== árbitro 3 · frontend: no aplica (el diff no toca src/) =="
