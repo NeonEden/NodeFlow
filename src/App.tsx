@@ -130,6 +130,7 @@ import {
   IdeaMaturityLevel,
   MATURITY_CONFIGS,
 } from './types';
+import { planEsConsulta, temasDeConsulta } from './utils/voz';
 
 // IMPORTANTE: Declarados fuera del componente funcional para evitar recreación en cada render y warnings de React Flow
 const NODE_TYPES = {
@@ -1999,6 +2000,11 @@ export default function App() {
   const aplicarPlanVoz = useCallback(
     async (plan: PlanVoz) => {
       if (!plan.comandos?.length) return null;
+      // Una CONSULTA no es una operación: se responde con lo que ya está en el lienzo. Sin snapshot
+      // y sin una sola escritura, así el grafo queda idéntico (es lo que se verifica al probarla).
+      if (planEsConsulta(plan.comandos)) {
+        return { creados: 0, afectados: 0, consultas: temasDeConsulta(plan.comandos) };
+      }
       takeSnapshot(nodes, edges);
 
       const nuevos: CustomNode[] = [];

@@ -13,7 +13,7 @@
 use serde_json::{json, Value};
 
 /// Lo que la voz puede pedir. Todo lo demás se descarta.
-pub const ACCIONES: [&str; 10] = [
+pub const ACCIONES: [&str; 11] = [
     "crear",
     "enlazar",
     "enfocar",
@@ -25,6 +25,8 @@ pub const ACCIONES: [&str; 10] = [
     "responder",
     "aceptar",
     "descartar",
+    // Sólo lectura: pregunta por lo que ya está en el lienzo y se responde hablando. No opera.
+    "consultar",
 ];
 
 /// Hermes como motor profundo de NodeFlow: cuando el pedido necesita lo que el modelo local no
@@ -76,6 +78,8 @@ pub fn debe_hablar(plan: &Value) -> bool {
                     // Estructurales + los cierres del ciclo: responder una pregunta y decidir son
                     // hallazgos, se dicen. Crear o enlazar se ven en el lienzo: silencio.
                     "enfocar" | "condensar" | "criticar" | "responder" | "aceptar" | "descartar"
+                        // Una consulta ES la respuesta: si no se dice, no existe.
+                        | "consultar"
                 )
             })
         })
@@ -125,6 +129,14 @@ mod tests_voz_selectiva {
         // maturity fuera de rango se acota, no se descarta
         let raro = json!({"comandos": [{"accion": "actualizar", "nodo": "n-1", "maturity": 99}]});
         assert_eq!(super::validar(&raro, &ids)["comandos"][0]["maturity"], 5);
+    }
+
+    #[test]
+    fn consultar_habla_siempre() {
+        // La consulta ES la respuesta: si no se dice en voz alta, no sirvió de nada.
+        let plan = json!({"intencion": "comando", "descartados": 0,
+            "comandos": [{"accion": "consultar", "tema": "qué quedó abierto"}]});
+        assert!(super::debe_hablar(&plan));
     }
 
     #[test]
@@ -526,6 +538,21 @@ pub fn validar(plan: &Value, ids_validos: &[String]) -> Value {
                 limpio["desde"] = json!(desde);
                 limpio["hasta"] = json!(hasta);
             }
+            "consultar" => {
+                // Leer, no operar: es la única acción SIN efecto sobre el grafo. El prompt ya le lleva
+                // el lienzo con ids, así que se responde con lo que está ahí. Por eso no se mezcla con
+                // operaciones: un plan que consulta Y escribe no es una consulta, es otra cosa.
+                if plan["comandos"].as_array().map(|a| a.len()).unwrap_or(0) > 1 {
+                    descartados.push("una «consultar» junto a otras operaciones".into());
+                    continue;
+                }
+                let tema = recorta(c["tema"].as_str().unwrap_or(""), 200);
+                if tema.chars().count() < 3 {
+                    descartados.push("una «consultar» sin tema".into());
+                    continue;
+                }
+                limpio["tema"] = json!(tema);
+            }
             _ => {}
         }
         limpios.push(limpio);
@@ -600,6 +627,42 @@ mod tests {
                 .len(),
             0
         );
+    }
+
+    #[test]
+    fn consultar_no_operа_y_exige_tema() {
+        let plan = json!({"intencion": "comando", "respuesta": "Tenés 3 preguntas abiertas.",
+            "comandos": [{"accion": "consultar", "tema": "qué quedó abierto"}]});
+        let out = validar(&plan, &lienzo());
+        let c = out["comandos"].as_array().unwrap();
+        assert_eq!(c.len(), 1);
+        assert_eq!(c[0]["accion"], json!("consultar"));
+        assert_eq!(c[0]["tema"], json!("qué quedó abierto"));
+        assert!(c[0].get("nodos").is_none(), "una consulta no lleva nodos: no opera");
+        assert_eq!(out["descartados"], json!(0));
+    }
+
+    #[test]
+    fn consultar_sin_tema_se_cae() {
+        let plan = json!({"intencion": "comando", "respuesta": "x",
+            "comandos": [{"accion": "consultar", "tema": ""}]});
+        let out = validar(&plan, &lienzo());
+        assert_eq!(out["comandos"].as_array().unwrap().len(), 0);
+        assert_eq!(out["descartados"], json!(1));
+    }
+
+    #[test]
+    fn consultar_no_se_mezcla_con_operaciones() {
+        // Un plan que consulta Y escribe no es una consulta: cae la consulta y queda la operación.
+        let plan = json!({"intencion": "comando", "respuesta": "x", "comandos": [
+            {"accion": "consultar", "tema": "qué hay"},
+            {"accion": "crear", "titulo": "Nueva idea"}
+        ]});
+        let out = validar(&plan, &lienzo());
+        let c = out["comandos"].as_array().unwrap();
+        assert_eq!(c.len(), 1);
+        assert_eq!(c[0]["accion"], json!("crear"));
+        assert_eq!(out["descartados"], json!(1));
     }
 
     #[test]

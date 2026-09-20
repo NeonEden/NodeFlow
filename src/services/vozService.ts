@@ -54,7 +54,9 @@ export type AccionVoz =
   // Cierres del ciclo, operables hablando: responder una pregunta y decidir qué queda.
   | 'responder'
   | 'aceptar'
-  | 'descartar';
+  | 'descartar'
+  // Sólo lectura: pregunta por el lienzo y responde hablando, sin tocarlo.
+  | 'consultar';
 
 export interface VozComando {
   accion: AccionVoz;
@@ -67,6 +69,8 @@ export interface VozComando {
   nodos?: string[];
   desde?: string;
   hasta?: string;
+  /** Sólo en `consultar`: la pregunta sobre el lienzo. No viaja al grafo: es materia de la respuesta. */
+  tema?: string;
   /** Sólo en `delegar`: lo que hay que pedirle al motor profundo (Hermes, con sus herramientas). */
   pedido?: string;
   /** Sólo en `actualizar`: el nodo que ya existe y los campos que cambian (fase, descripción…). */
