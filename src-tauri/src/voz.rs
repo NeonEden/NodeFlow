@@ -630,7 +630,7 @@ mod tests {
     }
 
     #[test]
-    fn consultar_no_operа_y_exige_tema() {
+    fn consultar_no_opera_y_exige_tema() {
         let plan = json!({"intencion": "comando", "respuesta": "Tenés 3 preguntas abiertas.",
             "comandos": [{"accion": "consultar", "tema": "qué quedó abierto"}]});
         let out = validar(&plan, &lienzo());
