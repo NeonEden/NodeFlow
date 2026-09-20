@@ -5,7 +5,7 @@ import { crearClienteStt, type ClienteStt } from '../services/sttRt';
 import { apiUrl } from '../services/apiBase';
 import { getVozEstado, getVozJwt, pedirPlanVoz, describirComando, decir, hablarConElSistema, VozEstado, PlanVoz, VozComando } from '../services/vozService';
 import { useIdioma } from '../i18n/useIdioma';
-import { planEsConsulta } from '../utils/voz';
+import { esAfirmativo, planEsConsulta } from '../utils/voz';
 
 interface VozPanelProps {
   isOpen: boolean;
@@ -55,9 +55,8 @@ const ICONO: Record<VozComando['accion'], React.ReactNode> = {
 };
 
 /** «¿qué quedó abierto?» — pedido de estado que se resuelve con regla local, sin motor (0 tokens). */
-/** «Sí» hablado: sirve para aprobar lo que la app propone en modo conversación. */
-const ES_AFIRMATIVO =
-  /^\s*(s[ií]|dale|ok|okey|aplic\w*|vale|claro|obvio|por supuesto|perfecto|hac[eé]lo|vamos|de una|yes)\b/i;
+// El «sí» hablado vive en `utils/voz` (`esAfirmativo`): una sola definición para el guion y el panel.
+// El regex local que estaba acá se fue cuando el panel pasó a usar la función compartida.
 
 const PEDIDO_DE_RETOMAR =
   /(qu[eé]\s+(qued[oó]|ten[eé]s|hay)\s+(abierto|pendiente))|(preguntas?\s+abiertas?)|(^retom)|(le[eé]me la pregunta)/i;
@@ -156,6 +155,13 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
     }
   });
   const [hablando, setHablando] = useState(false);
+  /** Espejo del estado: `hablando` re-renderiza, el ref es el que consultan los bucles async. */
+  const hablandoRef = useRef(false);
+  /**
+   * ¿El guion ya dijo su frase en este turno? Entonces el motor **no** vuelve a hablar: eran dos voces
+   * seguidas y sonaba a bot confundido (medido 20/09/2026 en el modo conversación).
+   */
+  const guionHabloRef = useRef(false);
   // Referencia viva del mute: el sondeo no se reinicia cada vez que se toca el botón.
   const silencioRef = useRef(silencio);
   useEffect(() => {
@@ -225,16 +231,29 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
         .split(/\s+/)
         .filter((p) => p.length > 2);
     const del = palabras(dictado);
-    if (del.length < 3) return false;
-    const suyas = new Set(palabras(dicho));
-    if (!suyas.size) return false;
-    return del.filter((p) => suyas.has(p)).length / del.length >= 0.7;
+    const suyas = palabras(dicho);
+    if (del.length < 4 || suyas.length < 4) return false;
+    // 1) Un fragmento LITERAL de lo que dijo la app, en orden: es eco aunque venga mezclado con tu
+    //    respuesta (medido 20/09: «quiero explorar la idea de comandos por voz. Sí, por favor. Explora
+    //    ramificaciones…» era una sola transcripción con las dos voces). Sólo se mira en turnos largos
+    //    —≥8 palabras—: en uno corto sería un falso positivo.
+    if (del.length >= 8) {
+      for (let i = 0; i + 4 <= del.length; i++) {
+        for (let j = 0; j + 4 <= suyas.length; j++) {
+          if (del.slice(i, i + 4).join(' ') === suyas.slice(j, j + 4).join(' ')) return true;
+        }
+      }
+    }
+    // 2) La red de siempre: si el dictado es casi todo lo que dijo la app. Un «sí», un «dale» o un
+    //    «no» no llegan a cuatro palabras y por eso **nunca** se descartan como eco.
+    return del.filter((p) => suyas.includes(p)).length / del.length >= 0.7;
   };
 
   /** Habla sólo si el backend lo autorizó (regla de voz selectiva) y no está en silencio. */
   const hablar = async (texto: string) => {
     if (!texto.trim()) return;
     dichoRef.current = texto;
+    hablandoRef.current = true;
     setHablando(true);
     try {
       // Primero la voz local (Kokoro). Si esa PC no la tiene —una instalación limpia nunca la
@@ -271,6 +290,7 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
       // Que la voz falle no rompe nada: el lienzo ya cambió y el texto está en pantalla.
       setError((previo) => previo || `Voz: ${e?.message || 'no pude reproducir'}`);
     } finally {
+      hablandoRef.current = false;
       setHablando(false);
     }
   };
@@ -332,8 +352,32 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
    * una, y el proveedor factura el tiempo de conexión abierto. Si la sesión sigue viva, el turno
    * siguiente va sobre la misma (el motor la cierra sólo si se la termina).
    */
+  /**
+   * Espera a que la app TERMINE de hablar antes de abrir el micrófono.
+   *
+   * Medido 20/09/2026: al reutilizar la sesión de streaming el micrófono se reabría ~350 ms después del
+   * corte y la voz de la app —sobre todo la del motor, que arranca más tarde— entraba por el micrófono:
+   * la app se contestaba sola. Antes no pasaba porque abrir el micrófono costaba ~2 s de handshake y esa
+   * latencia tapaba el eco. La solución no es volver a pagar el handshake, es esperar la voz.
+   */
+  const esperarVoz = async (topeMs = 9000) => {
+    const t0 = performance.now();
+    while (hablandoRef.current && performance.now() - t0 < topeMs) {
+      await new Promise((r) => window.setTimeout(r, 120));
+    }
+    // Un respiro para que la última sílaba se apague en la sala antes de abrir el micrófono.
+    await new Promise((r) => window.setTimeout(r, 250));
+  };
+
+  /**
+   * Vuelve a escuchar cuando el turno se cierra por conversación.
+   *
+   * Medido 20/09/2026: abrir una sesión nueva por turno daba **11 sesiones en 90 s** — handshake en cada
+   * una, y el proveedor factura el tiempo de conexión abierto. Si la sesión sigue viva, el turno
+   * siguiente va sobre la misma (el motor la cierra sólo si se la termina).
+   */
   const seguirEscuchando = async () => {
-    await new Promise((r) => window.setTimeout(r, 350));
+    await esperarVoz();
     if (!continuoRef.current) return;
     const rt = rtRef.current;
     if (rt?.viva && rt.reanudar) {
@@ -387,6 +431,7 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
   const cortar = async () => {
     const rt = rtRef.current;
     if (!rt) return;
+    guionHabloRef.current = false; // turno nuevo: el guion todavía no dijo nada
     const asrSeg = Math.round((performance.now() - inicioRef.current) / 100) / 10;
     // Con un motor que sabe cerrar el turno **sin** cerrar la sesión (AssemblyAI: `ForceEndpoint`) la
     // conexión queda viva para el turno siguiente; si no, se corta y se vuelve a abrir como siempre.
@@ -433,7 +478,7 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
     // a) Aprobación hablada: el plan esperaba un «¿lo aplico?» y el contrato sigue siendo el mismo
     //    (el humano aprueba), sólo que aprobás hablando.
     if (continuoRef.current && planPendienteRef.current) {
-      if (ES_AFIRMATIVO.test(dictado)) {
+      if (esAfirmativo(dictado)) {
         setPlanPendiente(false);
         await aplicar();
         if (!silencio) await hablar('Listo, aplicado. ¿Qué más querés hacer?');
@@ -450,7 +495,11 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
     if (continuoRef.current) {
       const turno = await onTurnoConversacion(dictado);
       if (!turno?.alMotor) {
-        if (turno?.decir && !silencio) await hablar(turno.decir);
+        if (turno?.decir && !silencio) {
+          // El guion habla: queda marcado para que el motor no diga una segunda frase en este turno.
+          guionHabloRef.current = true;
+          await hablar(turno.decir);
+        }
         if (turno?.fin) {
           setContinuo(false);
           continuoRef.current = false;
@@ -518,7 +567,9 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
         return;
       }
       // El backend decidió si esto merece voz; acá sólo se obedece.
-      if (p.hablar && !silencio) void hablar(p.respuesta || '');
+      // El backend decidió si esto merece voz; acá sólo se obedece. Si el guion ya dijo su frase en este
+      // turno, el motor NO vuelve a hablar: eran dos voces seguidas y sonaba a bot confundido.
+      if (p.hablar && !silencio && !guionHabloRef.current) void hablar(p.respuesta || '');
     } catch (e: any) {
       setError(e?.message || 'El motor no pudo interpretar el dictado.');
     } finally {

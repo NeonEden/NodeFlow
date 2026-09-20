@@ -106,7 +106,7 @@ export function esAfirmativo(frase: string): boolean {
   if (esNegativo(frase)) return false;
   const p = plano(frase);
   return (
-    /\b(si|claro|dale|de una|obvio|por supuesto|vamos|hacelo|hace lo|perfecto|joya|genial|ok|okey|buenisimo|yes|sure|bueno)\b/.test(
+    /\b(si|claro|dale|de una|obvio|por supuesto|vamos|hacelo|hace lo|perfecto|joya|genial|ok|okey|buenisimo|yes|sure|bueno|aplica|aplicalo)\b/.test(
       p
     ) ||
     /\b(me gustaria|quiero|quisiera|podriamos|seria bueno|estaria bueno|mostrame|explora|exploralo)\b/.test(p)
