@@ -42,6 +42,10 @@ export class AssemblyAiRt {
   private finales: string[] = [];
   private parcial = '';
   private cerrando: (() => void) | null = null;
+  /** Resuelve el `cerrarTurno()` en curso cuando llega el `Turn` con `end_of_turn`. */
+  private finDeTurno: (() => void) | null = null;
+  /** Latido para que la sesión no se cierre sola entre turnos (la conexión se factura abierta). */
+  private latido: number | null = null;
 
   constructor(private cfg: ConfigAssemblyAi, private ev: EventosVoz) {}
 
@@ -106,6 +110,16 @@ export class AssemblyAiRt {
     };
     this.fuente.connect(this.procesador);
     this.procesador.connect(this.ctx.destination); // requerido para que el nodo procese
+    // El servidor cierra la sesión solo si no recibe nada: entre turnos puede haber silencio largo.
+    this.latido = window.setInterval(() => {
+      if (this.ws?.readyState === WebSocket.OPEN) {
+        try {
+          this.ws.send(JSON.stringify({ type: 'KeepAlive' }));
+        } catch {
+          /* la conexión se cayó: onclose se encarga */
+        }
+      }
+    }, 20000);
     this.ev.onEstado?.('escuchando');
   }
 
@@ -130,6 +144,10 @@ export class AssemblyAiRt {
             this.finales.push(t);
             this.ev.onFinal?.(this.texto);
           }
+          // El turno se cerró: si alguien está esperando un `cerrarTurno()`, es su momento.
+          const fin = this.finDeTurno;
+          this.finDeTurno = null;
+          fin?.();
         } else if (t) {
           // Los transcripts de v3 son inmutables: el parcial sólo crece dentro del turno.
           this.parcial = t;
@@ -172,9 +190,64 @@ export class AssemblyAiRt {
     this.ctx = null;
   }
 
+  /**
+   * Cierra el **turno** sin cerrar la sesión.
+   *
+   * `ForceEndpoint` es el mensaje que documenta el WS v3 para esto (junto a `KeepAlive` y `Terminate`).
+   * Medido 20/09/2026 en el log de la app: abrir una sesión por turno daba **11 sesiones en 90 s**, cada
+   * una con su handshake — y la facturación es por tiempo de conexión abierta, no por audio.
+   */
+  async cerrarTurno(): Promise<string> {
+    this.pausar();
+    const ws = this.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return this.texto;
+    return await new Promise<string>((resolve) => {
+      const fin = () => {
+        this.finDeTurno = null;
+        resolve(this.texto);
+      };
+      this.finDeTurno = fin;
+      window.setTimeout(fin, 2500); // red de seguridad: si el turno no cierra, seguimos igual
+      try {
+        ws.send(JSON.stringify({ type: 'ForceEndpoint' }));
+      } catch {
+        fin();
+      }
+    });
+  }
+
+  /** Corta el envío de audio sin cerrar la conexión (mientras el motor piensa o suena el TTS). */
+  pausar(): void {
+    try {
+      this.fuente?.disconnect();
+    } catch {
+      /* ya estaba desconectada */
+    }
+  }
+
+  /** Vuelve a enviar audio sobre la MISMA sesión: el turno siguiente no paga handshake. */
+  reanudar(): void {
+    if (!this.ctx || !this.fuente || !this.procesador) return;
+    try {
+      this.fuente.connect(this.procesador);
+    } catch {
+      /* ya estaba conectada */
+    }
+    this.ev.onEstado?.('escuchando');
+  }
+
+  /** ¿La sesión sigue abierta? El panel decide con esto si reusa la conexión o abre una nueva. */
+  get viva(): boolean {
+    return this.ws?.readyState === WebSocket.OPEN;
+  }
+
   /** Corta el micrófono, pide el cierre del turno y devuelve la transcripción completa. */
   async stop(): Promise<string> {
     this.ev.onEstado?.('cerrando');
+    if (this.latido !== null) {
+      window.clearInterval(this.latido);
+      this.latido = null;
+    }
     this.limpiarAudio();
     const ws = this.ws;
     if (!ws || ws.readyState !== WebSocket.OPEN) {
