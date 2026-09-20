@@ -162,6 +162,9 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
    * seguidas y sonaba a bot confundido (medido 20/09/2026 en el modo conversación).
    */
   const guionHabloRef = useRef(false);
+  /** El audio que está sonando (para poder interrumpirlo) y cómo resolver la espera de `hablar()`. */
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const finAudioRef = useRef<(() => void) | null>(null);
   // Referencia viva del mute: el sondeo no se reinicia cada vez que se toca el botón.
   const silencioRef = useRef(silencio);
   useEffect(() => {
@@ -249,6 +252,48 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
     return del.filter((p) => suyas.includes(p)).length / del.length >= 0.7;
   };
 
+  /**
+   * ¿Este pedazo de transcripción suena a la propia voz de la app?
+   *
+   * Más laxo que `esEco` a propósito: el barge-in tiene que decidir con dos o tres palabras recién
+   * llegadas, no con el turno entero.
+   */
+  const pareceMia = (t: string): boolean => {
+    const w = (s: string) =>
+      s
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9ñ ]+/g, ' ')
+        .split(/\s+/)
+        .filter((p) => p.length > 2);
+    const del = w(t);
+    const suyas = new Set(w(dichoRef.current));
+    if (!del.length || !suyas.size) return false;
+    return del.filter((p) => suyas.has(p)).length / del.length >= 0.5;
+  };
+
+  /**
+   * Barge-in: el usuario tomó la palabra mientras la app hablaba, así que la app se calla ya.
+   *
+   * Resolver la espera de `hablar()` es la mitad del trabajo: si no, el turno seguiría colgado hasta el
+   * timeout del audio y la conversación quedaría sorda varios segundos justo cuando el usuario habló.
+   */
+  const interrumpirVoz = () => {
+    const el = audioRef.current;
+    try {
+      if (el && !el.paused) el.pause();
+      window.speechSynthesis?.cancel();
+    } catch {
+      /* ya estaba detenida */
+    }
+    const fin = finAudioRef.current;
+    finAudioRef.current = null;
+    hablandoRef.current = false;
+    setHablando(false);
+    fin?.();
+  };
+
   /** Habla sólo si el backend lo autorizó (regla de voz selectiva) y no está en silencio. */
   const hablar = async (texto: string) => {
     if (!texto.trim()) return;
@@ -263,15 +308,17 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
         if (motorVoz !== 'kokoro') setMotorVoz('kokoro');
         const url = URL.createObjectURL(audio);
         const el = new Audio(url);
-        // Se espera el FIN del audio, no el comienzo: `play()` resuelve apenas arranca a sonar, y el
-        // micrófono se abría encima de la propia voz (medido 19/09 con parlantes: el motor de
-        // transcripción transcribía a la app y la conversación se mordía la cola).
+        // La app queda «hablando» hasta el final del audio… salvo que el usuario la interrumpa: para eso
+        // el elemento y la resolución de la espera quedan a mano de `interrumpirVoz()`.
+        audioRef.current = el;
         await new Promise<void>((listo) => {
           let cerrado = false;
           const fin = () => {
             if (cerrado) return;
             cerrado = true;
             URL.revokeObjectURL(url);
+            audioRef.current = null;
+            finAudioRef.current = null;
             listo();
           };
           el.onended = fin;
@@ -345,20 +392,9 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
   };
 
   /**
-   * Vuelve a escuchar cuando el turno se cierra por conversación: deja pasar un instante para que el
-   * audio termine de apagarse en la sala antes de abrir el micrófono.
-   *
-   * Medido 20/09/2026: abrir una sesión nueva por turno daba **11 sesiones en 90 s** — handshake en cada
-   * una, y el proveedor factura el tiempo de conexión abierto. Si la sesión sigue viva, el turno
-   * siguiente va sobre la misma (el motor la cierra sólo si se la termina).
-   */
-  /**
-   * Espera a que la app TERMINE de hablar antes de abrir el micrófono.
-   *
-   * Medido 20/09/2026: al reutilizar la sesión de streaming el micrófono se reabría ~350 ms después del
-   * corte y la voz de la app —sobre todo la del motor, que arranca más tarde— entraba por el micrófono:
-   * la app se contestaba sola. Antes no pasaba porque abrir el micrófono costaba ~2 s de handshake y esa
-   * latencia tapaba el eco. La solución no es volver a pagar el handshake, es esperar la voz.
+   * Espera a que la app deje de hablar, **con tope**: con un tope corto (barge-in) alcanza para que no
+   * entre el arranque del TTS; el resto de la voz lo filtran `pareceMia` y `esEco`. Con tope largo se usa
+   * cuando la voz tiene que terminar sí o sí antes de abrir el micrófono.
    */
   const esperarVoz = async (topeMs = 9000) => {
     const t0 = performance.now();
@@ -377,7 +413,10 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
    * siguiente va sobre la misma (el motor la cierra sólo si se la termina).
    */
   const seguirEscuchando = async () => {
-    await esperarVoz();
+    // Con barge-in se espera sólo el ARRANQUE de la voz (600 ms), no su final: el micrófono tiene que
+    // quedar escuchando para poder interrumpirla. Lo que evita que la conversación se muerda la cola no
+    // es la espera sino los filtros: `pareceMia` en los parciales y `esEco` en el turno.
+    await esperarVoz(600);
     if (!continuoRef.current) return;
     const rt = rtRef.current;
     if (rt?.viva && rt.reanudar) {
@@ -412,6 +451,10 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
         onParcial: (t) => {
           fragRef.current = t;
           setParcial(t);
+          // Barge-in (20/09/2026): si el usuario habla encima, la app se calla en el acto. Tres palabras
+          // y que no suenen a la propia voz: con parlantes la app se oiría a sí misma y se cortaría sola.
+          const partes = t.trim().split(/\s+/).filter(Boolean);
+          if (hablandoRef.current && partes.length >= 3 && !pareceMia(t)) interrumpirVoz();
         },
         onFinal: (t) => {
           fragRef.current = t;
