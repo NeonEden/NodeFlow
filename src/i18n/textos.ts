@@ -137,7 +137,7 @@ const ES = {
   'voz.motorProfundo': 'Motor profundo',
   'voz.pie': 'Realtime del proveedor activo + el motor elegido en la app',
   'voz.idiomaAviso': 'La voz usa el idioma de la interfaz.',
-  'voz.atajo': 'Ctrl+Shift+Espacio: dictá desde donde estés, sin abrir la app.',
+  'voz.atajo': 'Ctrl+Alt+Espacio: dictá desde donde estés, sin abrir la app.',
   // Guion de la conversación: VARIAS formas por paso y el tema real adentro, nunca una frase fija.
   'conv.arranque.0': '¿Qué idea querés explorar hoy?',
   'conv.arranque.1': 'Contame la idea que tenés en la cabeza.',
@@ -302,7 +302,7 @@ const EN: Record<Clave, string> = {
   'voz.motorProfundo': 'Deep engine',
   'voz.pie': 'Realtime from the active provider + the engine chosen in the app',
   'voz.idiomaAviso': 'Voice uses the interface language.',
-  'voz.atajo': 'Ctrl+Shift+Space: dictate from anywhere, without opening the app.',
+  'voz.atajo': 'Ctrl+Alt+Space: dictate from anywhere, without opening the app.',
   // Conversation script: SEVERAL shapes per step with the real topic inside, never a fixed sentence.
   'conv.arranque.0': 'What idea do you want to explore today?',
   'conv.arranque.1': 'Tell me the idea you have in mind.',

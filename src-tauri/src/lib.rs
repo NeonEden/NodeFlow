@@ -134,12 +134,31 @@ pub fn run() {
                 use tauri_plugin_global_shortcut::{
                     Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState,
                 };
-                let atajo = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::Space);
-                let mio = atajo.clone();
+                // Cadena de candidatas, no una tecla fija: `Ctrl+Shift+Space` ya está tomado en este
+                // Windows (medido 20/09: «HotKey already registered», lo usa el propio sistema para
+                // cambiar de método de entrada). Se registran TODAS las que estén libres y el handler
+                // responde a cualquiera, así que el atajo existe aunque la primera no se pueda tomar. Un
+                // atajo que no se registra en silencio es peor que no tenerlo: por eso cada intento queda
+                // en el log con su veredicto.
+                let candidatas: [(&str, Shortcut); 3] = [
+                    (
+                        "Ctrl+Alt+Space",
+                        Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::Space),
+                    ),
+                    (
+                        "Ctrl+Shift+F9",
+                        Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::F9),
+                    ),
+                    (
+                        "Ctrl+Alt+V",
+                        Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyV),
+                    ),
+                ];
+                let validas: Vec<Shortcut> = candidatas.iter().map(|(_, s)| s.clone()).collect();
                 app.handle().plugin(
                     tauri_plugin_global_shortcut::Builder::new()
                         .with_handler(move |app, s, evento| {
-                            if s == &mio {
+                            if validas.iter().any(|v| v == s) {
                                 let cual = match evento.state() {
                                     ShortcutState::Pressed => "pressed",
                                     ShortcutState::Released => "released",
@@ -150,9 +169,21 @@ pub fn run() {
                         })
                         .build(),
                 )?;
-                match app.global_shortcut().register(atajo) {
-                    Ok(()) => log::info!("atajo de voz listo: Ctrl+Shift+Space (push-to-talk)"),
-                    Err(e) => log::warn!("no pude registrar Ctrl+Shift+Space: {e}"),
+                let mut libres = 0;
+                for (nombre, atajo) in candidatas.iter() {
+                    match app.global_shortcut().register(atajo.clone()) {
+                        Ok(()) => {
+                            libres += 1;
+                            log::info!("atajo de voz listo: {nombre} (push-to-talk)");
+                        }
+                        Err(e) => log::warn!("no pude registrar {nombre}: {e}"),
+                    }
+                }
+                if libres == 0 {
+                    log::warn!(
+                        "sin atajo de dictado: las {} candidatas estaban tomadas. El panel de voz sigue andando desde la app.",
+                        candidatas.len()
+                    );
                 }
             }
 
