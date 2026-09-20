@@ -436,7 +436,17 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
     void empezar();
   };
 
+  /** El atajo pidió cortar mientras `empezar()` todavía estaba abriendo la sesión. */
+  const cancelarRef = useRef(false);
+
   const empezar = async () => {
+    // Una sesión a la vez: sin este guard, cada pulsación del atajo apilaba otra sesión de streaming
+    // (medido 20/09: 7 sesiones en 25 s). Si ya hay una viva, se reanuda en vez de apilar.
+    if (rtRef.current) {
+      if (rtRef.current.viva && rtRef.current.reanudar) rtRef.current.reanudar();
+      return;
+    }
+    cancelarRef.current = false;
     setError('');
     setResultado('');
     setPlan(null);
@@ -470,6 +480,14 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
       rtRef.current = rt;
       inicioRef.current = performance.now();
       await rt.start();
+      // El atajo ya se soltó mientras abríamos: el turno se cancela acá, sin dejar el micrófono abierto.
+      if (cancelarRef.current) {
+        cancelarRef.current = false;
+        rtRef.current = null;
+        void rt.stop();
+        setEstado('inactivo');
+        setDetalleEstado('');
+      }
     } catch (e: any) {
       setError(e?.message || 'No pude empezar a escuchar.');
       setEstado('error');
@@ -478,7 +496,16 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
 
   const cortar = async () => {
     const rt = rtRef.current;
-    if (!rt) return;
+    if (!rt) {
+      // Todavía no hay cliente: `empezar()` está abriendo la sesión (pide el token por HTTP) y el atajo ya
+      // se soltó. Sin esto el corte caía en el vacío y el micrófono quedaba escuchando para siempre
+      // (medido 20/09 a las 23:29: 7 sesiones emitidas y ningún corte). Queda marcado para que `empezar()`
+      // cierre la sesión apenas termine de abrirla.
+      cancelarRef.current = true;
+      setEstado('inactivo');
+      setDetalleEstado('');
+      return;
+    }
     guionHabloRef.current = false; // turno nuevo: el guion todavía no dijo nada
     const asrSeg = Math.round((performance.now() - inicioRef.current) / 100) / 10;
     // Con un motor que sabe cerrar el turno **sin** cerrar la sesión (AssemblyAI: `ForceEndpoint`) la
@@ -627,6 +654,9 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
 
   cortarRef.current = cortar;
 
+  /** El HUD (panel cerrado) necesita aplicar el plan sin abrir el modal. */
+  const aplicarRef = useRef<(() => Promise<void>) | null>(null);
+
   /** El atajo global necesita llamar a `empezar` desde afuera del render (mismo motivo que `cortarRef`). */
   const empezarRef = useRef<(() => Promise<void>) | null>(null);
   empezarRef.current = empezar;
@@ -636,12 +666,14 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
    * Se observa el contador `n` y no el objeto: dos pulsaciones seguidas tienen que ejecutarse las dos.
    */
   useEffect(() => {
-    if (!isOpen || !pedidoExterno) return;
+    if (!pedidoExterno) return;
+    // El pedido del atajo se atiende también con el panel CERRADO: es justamente así como se usa (dictar
+    // sin abrir el modal, con el lienzo a la vista).
     if (pedidoExterno.accion === 'empezar') void empezarRef.current?.();
     else void cortarRef.current?.();
     // Sólo el contador: el pedido se ejecuta una vez por pulsación.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pedidoExterno?.n, isOpen]);
+  }, [pedidoExterno?.n]);
 
   /** Arranca la conversación: la app pregunta primero y después escucha. */
   const conversar = async () => {
@@ -682,7 +714,58 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
     }
   };
 
-  if (!isOpen) return null;
+  // Después de la definición (no antes: `aplicar` es const y usarla antes sería un error de inicialización).
+  aplicarRef.current = aplicar;
+
+  // ── HUD flotante: dictar sin abrir el modal ────────────────────────────────────────────────
+  // Con el atajo global el panel NO se abre: el lienzo tiene que quedar a la vista, porque el grafo es el
+  // resultado y el modal lo tapaba. Mientras hay voz en curso se muestra este indicador abajo a la derecha:
+  // el parcial mientras hablás y, si quedó un plan, cuántos cambios hay y el botón para aplicarlos.
+  if (!isOpen) {
+    const n = plan?.comandos?.length ?? 0;
+    const activo = estado !== 'inactivo' || pensando || n > 0;
+    if (!activo) return null;
+    return (
+      <div className="fixed bottom-4 right-4 z-40 w-[22rem] rounded-xl border border-cyan-500/40 bg-slate-900/90 px-3 py-2 text-[11px] text-slate-200 shadow-xl backdrop-blur">
+        <div className="flex items-center gap-2">
+          <Mic
+            size={13}
+            className={estado === 'escuchando' ? 'text-cyan-300 animate-pulse' : 'text-slate-400'}
+          />
+          <span className="font-medium">
+            {estado === 'escuchando'
+              ? t('voz.hud.escuchando')
+              : pensando
+                ? t('voz.hud.pensando')
+                : t('voz.hud.voz')}
+          </span>
+          {(estado === 'escuchando' || estado === 'conectando') && (
+            <button
+              onClick={() => void cortarRef.current?.()}
+              className="ml-auto flex items-center gap-1 rounded border border-slate-600 px-1.5 py-0.5 text-[10px] text-slate-300 hover:bg-slate-800"
+            >
+              <Square size={9} /> {t('voz.hud.cortar')}
+            </button>
+          )}
+        </div>
+        <div className="mt-1 min-h-[15px] text-slate-400">{parcial || texto || ''}</div>
+        {n > 0 && (
+          <div className="mt-2 flex items-center gap-2 border-t border-slate-700/60 pt-2">
+            <span className="text-cyan-300">
+              {t('voz.hud.cambios').replace('{n}', String(n))}
+            </span>
+            <button
+              onClick={() => void aplicarRef.current?.()}
+              className="ml-auto flex items-center gap-1 rounded bg-cyan-600/90 px-2 py-0.5 text-[10px] font-medium text-white hover:bg-cyan-500"
+            >
+              <Check size={10} /> {t('voz.hud.aplicar')}
+            </button>
+          </div>
+        )}
+        {error && <div className="mt-1 text-amber-300">{error}</div>}
+      </div>
+    );
+  }
 
   const escuchando = estado === 'escuchando' || estado === 'conectando' || estado === 'cerrando';
   const colorEstado = estado === 'escuchando' ? 'bg-emerald-400' : estado === 'error' ? 'bg-rose-400' : estado === 'conectando' || estado === 'cerrando' ? 'bg-amber-400' : 'bg-slate-500';

@@ -341,7 +341,8 @@ export default function App() {
     // Sin Tauri (la interfaz servida por Vite en el navegador) el evento no existe: no es un error.
     listen<string>('voz-atajo', (e) => {
       if (!vivo) return;
-      setIsVozOpen(true);
+      // El atajo NO abre el panel: el lienzo tiene que quedar a la vista (el grafo es el resultado).
+      // Con el panel cerrado, el HUD del panel muestra lo que está pasando y permite aplicar.
       setVozPedido((p) => ({
         accion: e.payload === 'released' ? 'cortar' : 'empezar',
         n: (p?.n ?? 0) + 1,

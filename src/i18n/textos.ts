@@ -138,6 +138,13 @@ const ES = {
   'voz.pie': 'Realtime del proveedor activo + el motor elegido en la app',
   'voz.idiomaAviso': 'La voz usa el idioma de la interfaz.',
   'voz.atajo': 'Ctrl+Alt+Espacio: dictá desde donde estés, sin abrir la app.',
+  // HUD flotante: el atajo dicta sin abrir el modal, así el lienzo queda a la vista.
+  'voz.hud.escuchando': 'Escuchando…',
+  'voz.hud.pensando': 'Armando el plan…',
+  'voz.hud.voz': 'Voz',
+  'voz.hud.cortar': 'Cortar',
+  'voz.hud.aplicar': 'Aplicar',
+  'voz.hud.cambios': '{n} cambio(s) listo(s)',
   // Guion de la conversación: VARIAS formas por paso y el tema real adentro, nunca una frase fija.
   'conv.arranque.0': '¿Qué idea querés explorar hoy?',
   'conv.arranque.1': 'Contame la idea que tenés en la cabeza.',
@@ -303,6 +310,13 @@ const EN: Record<Clave, string> = {
   'voz.pie': 'Realtime from the active provider + the engine chosen in the app',
   'voz.idiomaAviso': 'Voice uses the interface language.',
   'voz.atajo': 'Ctrl+Alt+Space: dictate from anywhere, without opening the app.',
+  // Floating HUD: the shortcut dictates without opening the modal, so the canvas stays visible.
+  'voz.hud.escuchando': 'Listening…',
+  'voz.hud.pensando': 'Building the plan…',
+  'voz.hud.voz': 'Voice',
+  'voz.hud.cortar': 'Stop',
+  'voz.hud.aplicar': 'Apply',
+  'voz.hud.cambios': '{n} change(s) ready',
   // Conversation script: SEVERAL shapes per step with the real topic inside, never a fixed sentence.
   'conv.arranque.0': 'What idea do you want to explore today?',
   'conv.arranque.1': 'Tell me the idea you have in mind.',
