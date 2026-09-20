@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import { listen } from '@tauri-apps/api/event';
 import ReactFlow, {
   addEdge,
   Background,
@@ -328,6 +329,33 @@ export default function App() {
   const [isConocimientoOpen, setIsConocimientoOpen] = useState(false);
   const [isJardinOpen, setIsJardinOpen] = useState(false);
   const [isVozOpen, setIsVozOpen] = useState(false);
+  /**
+   * Push-to-talk global (Ctrl+Shift+Space): el atajo lo registra Rust y avisa por el evento `voz-atajo`.
+   * Al presionar se abre el panel y empieza el turno; al soltar se corta y se procesa. Es la palanca que
+   * saca la última fricción del flujo de voz: hablar sin abrir la app.
+   */
+  const [vozPedido, setVozPedido] = useState<{ accion: 'empezar' | 'cortar'; n: number } | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    let soltar: (() => void) | undefined;
+    // Sin Tauri (la interfaz servida por Vite en el navegador) el evento no existe: no es un error.
+    listen<string>('voz-atajo', (e) => {
+      if (!vivo) return;
+      setIsVozOpen(true);
+      setVozPedido((p) => ({
+        accion: e.payload === 'released' ? 'cortar' : 'empezar',
+        n: (p?.n ?? 0) + 1,
+      }));
+    })
+      .then((f) => {
+        soltar = f;
+      })
+      .catch(() => {});
+    return () => {
+      vivo = false;
+      soltar?.();
+    };
+  }, []);
   const [isAgenteOpen, setIsAgenteOpen] = useState(false);
   const [isEvaluacionOpen, setIsEvaluacionOpen] = useState(false);
   const [isInvestigacionOpen, setIsInvestigacionOpen] = useState(false);
@@ -4659,6 +4687,7 @@ export default function App() {
       <VozPanel
         isOpen={isVozOpen}
         onClose={() => setIsVozOpen(false)}
+        pedidoExterno={vozPedido}
         onAplicar={aplicarPlanVoz}
         onAplicarComandos={aplicarComandosDeFase}
         onPrevisualizar={previsualizarPlanVoz}

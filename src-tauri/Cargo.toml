@@ -51,3 +51,8 @@ keyring = { version = "3.6.3", default-features = false, features = ["windows-na
 sha2 = "0.10"
 hex = "0.4"
 futures-util = "0.3"
+
+# Dictado desde cualquier lado (push-to-talk): el atajo global saca la última fricción del flujo de voz
+# —"abrir la app para hablar"—. Sólo en escritorio: en móvil esta API no existe.
+[target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
+tauri-plugin-global-shortcut = "2"

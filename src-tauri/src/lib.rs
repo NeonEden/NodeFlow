@@ -29,7 +29,7 @@ mod voz;
 mod voz_local;
 
 use std::path::PathBuf;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 /// La API key puede venir (en este orden): del entorno, del `.env` del proyecto (modo desarrollo), o
 /// del `nodeflow.config.json` de la app instalada. Nunca del WebView.
@@ -124,6 +124,38 @@ pub fn run() {
             // Fase 5b: memoria semántica de la bóveda (se indexa en el primer uso)
             let memoria = memoria::Memoria::new(&data_dir);
             server::spawn(data_dir, key, vault, memoria);
+
+            // Atajo global de dictado (Fase B, 20/09/2026): «abrir la app para hablar» era la última
+            // fricción que quedaba. Ctrl+Shift+Space dicta desde donde estés y, al soltar, el turno se
+            // corta y se procesa (push-to-talk, como los dictados del sistema). El frontend escucha
+            // `voz-atajo` y abre el panel solo. Un atajo tomado por otro programa NO rompe el arranque.
+            #[cfg(desktop)]
+            {
+                use tauri_plugin_global_shortcut::{
+                    Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState,
+                };
+                let atajo = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::Space);
+                let mio = atajo.clone();
+                app.handle().plugin(
+                    tauri_plugin_global_shortcut::Builder::new()
+                        .with_handler(move |app, s, evento| {
+                            if s == &mio {
+                                let cual = match evento.state() {
+                                    ShortcutState::Pressed => "pressed",
+                                    ShortcutState::Released => "released",
+                                };
+                                log::info!("atajo de voz: {cual}");
+                                let _ = app.emit("voz-atajo", cual);
+                            }
+                        })
+                        .build(),
+                )?;
+                match app.global_shortcut().register(atajo) {
+                    Ok(()) => log::info!("atajo de voz listo: Ctrl+Shift+Space (push-to-talk)"),
+                    Err(e) => log::warn!("no pude registrar Ctrl+Shift+Space: {e}"),
+                }
+            }
+
             Ok(())
         })
         .run(tauri::generate_context!())

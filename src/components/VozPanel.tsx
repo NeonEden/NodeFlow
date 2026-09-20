@@ -38,6 +38,11 @@ interface VozPanelProps {
   preguntaAbierta: () => { id: string; titulo: string } | null;
   /** Guarda una respuesta dictada: nace el nodo RESPUESTA enlazado y la pregunta se cierra. */
   onResponder: (preguntaId: string, texto: string) => void;
+  /**
+   * Pedido de afuera —el atajo global, Ctrl+Shift+Space—: «empezar» abre el turno y «cortar» lo cierra.
+   * Se reacciona al contador `n`, no al objeto: dos pulsaciones seguidas se ejecutan las dos.
+   */
+  pedidoExterno?: { accion: 'empezar' | 'cortar'; n: number } | null;
 }
 
 const ICONO: Record<VozComando['accion'], React.ReactNode> = {
@@ -71,7 +76,7 @@ const EJEMPLOS = [
  * Panel de Voz (Speechmatics). Hablás, la transcripción aparece en vivo y al cortar el motor
  * propone un PLAN de operaciones sobre el lienzo — que se aprueba antes de aplicarse.
  */
-export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, onPrevisualizar, onAplicarComandos, tituloNodo, preguntaAbierta, onResponder, onInicioConversacion, onTurnoConversacion }) => {
+export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, onPrevisualizar, onAplicarComandos, tituloNodo, preguntaAbierta, onResponder, onInicioConversacion, onTurnoConversacion, pedidoExterno }) => {
   // Textos del panel en el idioma activo. La voz (entrada y salida) sigue el mismo idioma desde el
   // backend, así que acá sólo se traduce la interfaz.
   const { t } = useIdioma();
@@ -622,6 +627,22 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
 
   cortarRef.current = cortar;
 
+  /** El atajo global necesita llamar a `empezar` desde afuera del render (mismo motivo que `cortarRef`). */
+  const empezarRef = useRef<(() => Promise<void>) | null>(null);
+  empezarRef.current = empezar;
+
+  /**
+   * Pedido del atajo global (Ctrl+Shift+Space): al presionar empieza el turno, al soltar se corta.
+   * Se observa el contador `n` y no el objeto: dos pulsaciones seguidas tienen que ejecutarse las dos.
+   */
+  useEffect(() => {
+    if (!isOpen || !pedidoExterno) return;
+    if (pedidoExterno.accion === 'empezar') void empezarRef.current?.();
+    else void cortarRef.current?.();
+    // Sólo el contador: el pedido se ejecuta una vez por pulsación.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pedidoExterno?.n, isOpen]);
+
   /** Arranca la conversación: la app pregunta primero y después escucha. */
   const conversar = async () => {
     setError('');
@@ -1006,6 +1027,7 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
               : 'El costo y la latencia de cada dictado se miden acá'}
           </span>
           <span>{t('voz.pie')}</span>
+          <span className="ml-2 text-cyan-500/80">{t('voz.atajo')}</span>
         </div>
       </div>
     </div>
