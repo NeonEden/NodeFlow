@@ -19,6 +19,19 @@ export interface ClienteStt {
   start(): Promise<void>;
   stop(): Promise<string>;
   readonly texto: string;
+  /**
+   * Cierra el turno **sin cerrar la sesión** (AssemblyAI: `ForceEndpoint`), para que el turno siguiente
+   * vaya sobre la misma conexión. Opcional a propósito: un motor que no lo implemente sigue funcionando
+   * —el panel corta y vuelve a abrir, como antes—. Medido 20/09/2026: abrir una sesión por turno sumaba
+   * ~2 s de handshake y se facturaba por tiempo de conexión, no por audio.
+   */
+  cerrarTurno?(): Promise<string>;
+  /** Deja de enviar audio sin cerrar la conexión (el motor no se escucha a sí mismo). */
+  pausar?(): void;
+  /** Vuelve a enviar audio sobre la MISMA sesión. */
+  reanudar?(): void;
+  /** ¿La sesión sigue abierta y lista para el próximo turno? */
+  readonly viva?: boolean;
 }
 
 /** Sesión que devuelve `GET /api/voz/jwt` (agnóstica del motor). */

@@ -1759,12 +1759,16 @@ fn cadena_de_proveedores(st: &AppState) -> Vec<String> {
 ///
 /// El ruteo es determinista a propósito (ver ADR 0005: un modelo chico clasificando acertó 1 de 5).
 /// - `local`/`edge` → sólo el modelo local: sin cuota, sin red, costo cero.
-/// - `nube`/`cloud` → sólo el proveedor en la nube: razonamiento profundo sobre varias ramas.
+/// - `nube`/`cloud` → la nube: **la cadena configurada**, no un nombre fijo.
 /// - ausente, vacío o desconocido → la cadena configurada (`auto`).
+///
+/// Medido 20/09/2026: la rama de nube devolvía `["gemini"]` fijo y, sin clave de Gemini, esa cadena no
+/// podía responder nunca — la escalada de la voz moría con «tampoco la nube propuso nada» en cada
+/// turno. Quién está disponible de verdad **no se decide acá**: lo decide `motores::plan` sobre el
+/// catálogo real (y con red de seguridad). Esta función sólo reporta el orden de intentos.
 fn cadena_por_modo(modo: Option<&str>, base: Vec<String>) -> Vec<String> {
     match modo.map(|m| m.trim().to_lowercase()).as_deref() {
         Some("local") | Some("edge") => vec!["ollama".to_string()],
-        Some("nube") | Some("cloud") => vec!["gemini".to_string()],
         _ => base,
     }
 }
@@ -5781,10 +5785,13 @@ mod tests_modo {
     }
 
     #[test]
-    fn el_modo_nube_fuerza_el_proveedor_en_la_nube() {
+    fn el_modo_nube_no_fuerza_un_proveedor_fijo() {
+        // Antes devolvía `["gemini"]` y, sin clave de Gemini, el modo nube no podía responder nunca
+        // (medido 20/09/2026: «tampoco la nube propuso nada» en cada turno). Ahora reporta la cadena
+        // configurada: quién puede responder lo decide `motores::plan` sobre el catálogo real.
         assert_eq!(
             cadena_por_modo(Some("nube"), v(&["ollama"])),
-            v(&["gemini"])
+            v(&["ollama"])
         );
     }
 
@@ -5799,7 +5806,12 @@ mod tests_modo {
     #[test]
     fn los_alias_edge_y_cloud_no_distinguen_mayusculas_ni_espacios() {
         assert_eq!(cadena_por_modo(Some(" LOCAL "), vec![]), v(&["ollama"]));
-        assert_eq!(cadena_por_modo(Some("Cloud"), vec![]), v(&["gemini"]));
+        // El modo nube reporta la cadena configurada: fijaba `gemini` y sin esa clave la escalada de
+        // la voz no podía responder (medido 20/09/2026).
+        assert_eq!(
+            cadena_por_modo(Some("Cloud"), v(&["openai", "ollama"])),
+            v(&["openai", "ollama"])
+        );
     }
 }
 

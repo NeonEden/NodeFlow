@@ -388,19 +388,37 @@ pub fn plan(catalogo: &[Motor], seleccionado: Option<&str>, modo: Option<&str>) 
     if salto_de_id {
         return catalogo.iter().filter(disponible).cloned().collect();
     }
-    // 1) el elegido, si existe y entra en el grupo pedido
+    // 1) el elegido, si existe y entra en el grupo pedido: primero él, y **detrás su red**.
     if let Some(id) = seleccionado {
         if let Some(m) = catalogo.iter().find(|m| m.id == id).filter(disponible) {
-            return vec![m.clone()];
+            return con_red(catalogo, m, disponible);
         }
     }
-    // 2) el primero disponible del grupo (determinista por orden del catálogo)
+    // 2) el primero disponible del grupo (determinista por orden del catálogo), también con red.
     catalogo
         .iter()
-        .find(disponible)
-        .cloned()
-        .into_iter()
-        .collect()
+        .find(|m| disponible(m))
+        .map(|m| con_red(catalogo, m, disponible))
+        .unwrap_or_default()
+}
+
+/// El elegido primero y **detrás el resto de los disponibles**: la red de seguridad.
+///
+/// Medido 20/09/2026: con `motor_activo` fijado a un id concreto, este plan traía **un solo** motor y
+/// un 429 de la cuota lo dejaba sin respuesta — «el motor «openai:foundry-0731» no respondió; no hay
+/// otro en el plan». `call_model` ya sabe seguir con el siguiente (deja «no alcanzó, sigo con …» en el
+/// log): lo que faltaba era que hubiera siguiente. Los `auto:*` ya devolvían el grupo entero por el
+/// mismo motivo; esto sólo hace que elegir un motor a mano no sea **peor** que dejarlo en automático.
+fn con_red(catalogo: &[Motor], elegido: &Motor, disponible: impl Fn(&&Motor) -> bool) -> Vec<Motor> {
+    let mut plan = vec![elegido.clone()];
+    plan.extend(
+        catalogo
+            .iter()
+            .filter(|m| disponible(m))
+            .filter(|x| x.id != elegido.id)
+            .cloned(),
+    );
+    plan
 }
 
 /// Lee la selección guardada (`motor_activo`) del config de la app.
@@ -507,8 +525,22 @@ mod tests {
     fn sin_seleccion_usa_el_primero_del_catalogo() {
         let c = cat();
         let p = plan(&c, None, None);
-        assert_eq!(p.len(), 1);
         assert_eq!(p[0].id, c[0].id);
+        // Desde el 20/09/2026 el plan **siempre** trae red (el primero manda, los demás son respaldo):
+        // antes el que quedaba sin plan B era justo el usuario que eligió un motor a mano.
+        assert!(p.len() > 1, "el plan tiene que traer respaldo");
+    }
+
+    #[test]
+    fn el_elegido_a_mano_trae_red_detras() {
+        let c = cat();
+        let p = plan(&c, Some("gemini:gemini-3.6-flash"), None);
+        assert_eq!(p[0].modelo, "gemini-3.6-flash", "el elegido manda");
+        assert!(p.len() > 1, "y detrás viene la red: {}", p.len());
+        assert!(
+            !p[1..].iter().any(|m| m.id == p[0].id),
+            "la red no repite al elegido"
+        );
     }
 
     #[test]
@@ -842,7 +874,14 @@ mod tests_ruteo_por_tarea {
             "voz",
             None,
         );
-        assert_eq!(ids(&manual), vec!["deepseek:deepseek-flash"]);
+        assert_eq!(ids(&manual)[0], "deepseek:deepseek-flash");
+        // Y **detrás su red**: elegir a mano ya no es peor que dejarlo en automático. Antes el plan
+        // traía un solo motor y un 429 de la cuota dejaba la voz sin respuesta (medido 20/09/2026).
+        assert!(
+            ids(&manual).len() > 1,
+            "el elegido a mano tiene que traer respaldo: {:?}",
+            ids(&manual)
+        );
     }
 
     #[test]

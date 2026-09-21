@@ -317,13 +317,35 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
     return () => window.clearTimeout(t);
   }, [continuo, estado, parcial, texto]);
 
+  /** Cierra la sesión de voz de verdad (fin de conversación, eco, cambio de modo). */
+  const cerrarSesion = () => {
+    const rt = rtRef.current;
+    rtRef.current = null;
+    if (rt) void rt.stop();
+  };
+
   /**
    * Vuelve a escuchar cuando el turno se cierra por conversación: deja pasar un instante para que el
    * audio termine de apagarse en la sala antes de abrir el micrófono.
+   *
+   * Medido 20/09/2026: abrir una sesión nueva por turno daba **11 sesiones en 90 s** — handshake en cada
+   * una, y el proveedor factura el tiempo de conexión abierto. Si la sesión sigue viva, el turno
+   * siguiente va sobre la misma (el motor la cierra sólo si se la termina).
    */
   const seguirEscuchando = async () => {
     await new Promise((r) => window.setTimeout(r, 350));
-    if (continuoRef.current) void empezar();
+    if (!continuoRef.current) return;
+    const rt = rtRef.current;
+    if (rt?.viva && rt.reanudar) {
+      fragRef.current = '';
+      setError('');
+      setParcial('');
+      setTexto('');
+      inicioRef.current = performance.now();
+      rt.reanudar();
+      return;
+    }
+    void empezar();
   };
 
   const empezar = async () => {
@@ -366,8 +388,12 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
     const rt = rtRef.current;
     if (!rt) return;
     const asrSeg = Math.round((performance.now() - inicioRef.current) / 100) / 10;
-    const dictado = (await rt.stop()).trim();
-    rtRef.current = null;
+    // Con un motor que sabe cerrar el turno **sin** cerrar la sesión (AssemblyAI: `ForceEndpoint`) la
+    // conexión queda viva para el turno siguiente; si no, se corta y se vuelve a abrir como siempre.
+    const reusa = Boolean(rt.cerrarTurno);
+    const dictado = (await (reusa ? rt.cerrarTurno!() : rt.stop())).trim();
+    // Fuera de una conversación no se deja una conexión abierta ocupando el micrófono ni facturando.
+    if (!reusa || !continuoRef.current) cerrarSesion();
     setParcial('');
     setTexto(dictado);
     if (!dictado) {
@@ -393,6 +419,7 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
         setContinuo(false);
         continuoRef.current = false;
         setEstado('inactivo');
+        cerrarSesion();
         setError(
           'Cerré la conversación: el micrófono estaba escuchando la voz de la app. Usá auriculares, o apagá la voz de salida, y volvé a empezar.'
         );
@@ -428,6 +455,7 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
           setContinuo(false);
           continuoRef.current = false;
           setEstado('inactivo');
+          cerrarSesion();
           return;
         }
         void seguirEscuchando();
@@ -507,6 +535,7 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
     if (continuo) {
       setContinuo(false);
       continuoRef.current = false;
+      cerrarSesion();
       setResultado('Conversación terminada.');
       return;
     }
