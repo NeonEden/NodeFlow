@@ -347,6 +347,99 @@ fn recorta(v: &str, n: usize) -> String {
     v.chars().take(n).collect::<String>().trim().to_string()
 }
 
+/// Sin tildes y en minúsculas, sin dependencias nuevas: el motor transcribe «sí», «si» o «SI».
+/// Sólo mapea las vocales del castellano (y la eñe), que es lo que aparece en las muletillas.
+fn sin_tildes(s: &str) -> String {
+    s.chars()
+        .map(|c| match c {
+            'á' | 'à' | 'ä' | 'â' => 'a',
+            'é' | 'è' | 'ë' | 'ê' => 'e',
+            'í' | 'ì' | 'ï' | 'î' => 'i',
+            'ó' | 'ò' | 'ö' | 'ô' => 'o',
+            'ú' | 'ù' | 'ü' | 'û' => 'u',
+            'ñ' => 'n',
+            otro => otro,
+        })
+        .collect::<String>()
+        .to_lowercase()
+}
+
+/// Las muletillas con las que se arranca una idea hablada. **Un solo prefijo, y el más largo primero**
+/// («quiero explorar la idea de» antes que «quiero»), o la corta se come a la larga. Van sin tildes
+/// porque se comparan contra el texto ya normalizado.
+const MULETILLAS: [&str; 12] = [
+    "quiero explorar la idea de",
+    "quiero explorar",
+    "tengo una idea de",
+    "tengo ganas de",
+    "estaria bueno",
+    "seria bueno",
+    "me gustaria",
+    "la idea es",
+    "pense en",
+    "podriamos",
+    "necesito",
+    "quiero",
+];
+
+/// El TEMA de lo dictado, sin las muletillas del habla.
+///
+/// Medido 20/09/2026: el nodo quedaba titulado con la frase entera («quiero explorar la idea de comandos por
+/// voz»). El título es el tema; la frase completa, tal como se dijo, va en la descripción.
+///
+/// Es la MISMA regla que `temaDe` en `src/utils/voz.ts` —el guion local del frontend—: el título llega por
+/// los dos caminos (el guion y el plan del modelo), así que hay un test en cada extremo. Si cambia la lista
+/// en un lado, cambia en el otro.
+pub fn normalizar_titulo(t: &str) -> String {
+    let mut s = t.trim().to_string();
+    // Bordes: comillas y puntuación vienen alternadas («…».), así que se limpia en rondas hasta que no
+    // cambie nada. Una sola pasada deja el «» colgando cuando el punto va después de la comilla.
+    for _ in 0..3 {
+        let antes = s.clone();
+        s = s
+            .trim_start_matches(|c: char| "\"'«“”»".contains(c))
+            .trim_end_matches(|c: char| "\"'«“”»".contains(c))
+            .trim_end_matches(|c: char| ".;,".contains(c))
+            .trim()
+            .to_string();
+        if s == antes {
+            break;
+        }
+    }
+    if s.is_empty() {
+        return String::new();
+    }
+    // La comparación es por chars (no por bytes): una tilde ocupa dos bytes y desalinearía el corte.
+    let plano: Vec<char> = sin_tildes(&s).chars().collect();
+    for m in MULETILLAS {
+        let muletilla: Vec<char> = m.chars().collect();
+        if plano.len() >= muletilla.len() && plano[..muletilla.len()] == muletilla[..] {
+            let resto: String = s.chars().skip(muletilla.len()).collect();
+            let resto = resto
+                .trim_start_matches(|c: char| c.is_whitespace() || c == ',' || c == ':')
+                .trim();
+            // Sólo se saca si queda algo con sentido: «quiero» solo no puede quedar en vacío.
+            if resto.chars().count() >= 2 {
+                s = resto.to_string();
+                break;
+            }
+        }
+    }
+    let mut cs = s.chars();
+    s = match cs.next() {
+        Some(p) => p.to_uppercase().collect::<String>() + cs.as_str(),
+        None => return String::new(),
+    };
+    if s.chars().count() > 60 {
+        let corte: String = s.chars().take(60).collect();
+        s = match corte.rfind(' ') {
+            Some(i) if i > 20 => corte[..i].trim().to_string(),
+            _ => corte.trim().to_string(),
+        };
+    }
+    s
+}
+
 /// Valida el plan del motor contra los ids reales del lienzo.
 /// Devuelve el plan limpio (con `descartados` y `motivo_descarte`) listo para mostrar y aplicar.
 pub fn validar(plan: &Value, ids_validos: &[String]) -> Value {
@@ -405,9 +498,17 @@ pub fn validar(plan: &Value, ids_validos: &[String]) -> Value {
                     continue;
                 }
                 let mut campos = serde_json::Map::new();
+                // El título se normaliza igual que en `crear`: si el motor propone «me gustaría cambiarle el
+                // nombre a esto», el nodo no se llama así.
+                if let Some(v) = c["titulo"]
+                    .as_str()
+                    .map(normalizar_titulo)
+                    .filter(|s| !s.is_empty())
+                {
+                    campos.insert("titulo".to_string(), json!(v));
+                }
                 for (clave, tope) in [
-                    ("titulo", 140usize),
-                    ("descripcion", 700),
+                    ("descripcion", 700usize),
                     ("categoria", 40),
                 ] {
                     if let Some(v) = c[clave]
@@ -445,7 +546,8 @@ pub fn validar(plan: &Value, ids_validos: &[String]) -> Value {
                 }
             }
             "crear" => {
-                let titulo = recorta(c["titulo"].as_str().unwrap_or(""), 140);
+                // El título es el TEMA: «Comandos por voz», no «quiero explorar la idea de comandos por voz».
+                let titulo = normalizar_titulo(c["titulo"].as_str().unwrap_or(""));
                 if titulo.is_empty() {
                     descartados.push("un «crear» sin título".into());
                     continue;
@@ -695,5 +797,48 @@ mod tests {
         let out = validar(&json!({}), &[]);
         assert_eq!(out["comandos"].as_array().unwrap().len(), 0);
         assert_eq!(out["intencion"], json!("comando"));
+    }
+
+    #[test]
+    fn el_titulo_de_una_idea_es_el_tema_y_no_la_frase() {
+        // Medido 20/09/2026: el nodo quedaba titulado «quiero explorar la idea de comandos por voz».
+        let casos = [
+            ("quiero explorar la idea de comandos por voz", "Comandos por voz"),
+            ("me gustaría que la app hable sola", "Que la app hable sola"),
+            ("la idea es un cerebro local", "Un cerebro local"),
+            ("estaría bueno probar el canvas infinito", "Probar el canvas infinito"),
+            ("pensé en vender el one-pager", "Vender el one-pager"),
+            ("comandos por voz", "Comandos por voz"),
+            ("«voz en tiempo real».", "Voz en tiempo real"),
+        ];
+        for (dicho, esperado) in casos {
+            assert_eq!(normalizar_titulo(dicho), esperado, "dictado: «{dicho}»");
+        }
+        // Una muletilla sola no puede dejar el título vacío; el vacío sigue siendo vacío.
+        assert_eq!(normalizar_titulo("quiero"), "Quiero");
+        assert_eq!(normalizar_titulo("   "), "");
+        // Y una frase larga corta en palabra completa, sin «…».
+        let largo = normalizar_titulo(
+            "una idea que ocupa muchísimos caracteres y sigue y sigue sin parar nunca jamás",
+        );
+        assert!(
+            largo.chars().count() <= 60,
+            "quedó en {} caracteres: {largo}",
+            largo.chars().count()
+        );
+        assert!(!largo.ends_with(' '));
+        assert!(!largo.contains('…'));
+    }
+
+    #[test]
+    fn el_plan_de_voz_trae_el_titulo_normalizado_y_la_frase_en_la_descripcion() {
+        let dicho = "quiero explorar la idea de comandos por voz";
+        let plan = json!({"intencion": "capturar", "respuesta": "x", "comandos": [
+            {"accion": "crear", "titulo": dicho, "descripcion": dicho}
+        ]});
+        let out = validar(&plan, &lienzo());
+        assert_eq!(out["comandos"][0]["titulo"], json!("Comandos por voz"));
+        // La frase completa no se pierde: queda en la descripción.
+        assert_eq!(out["comandos"][0]["descripcion"], json!(dicho));
     }
 }

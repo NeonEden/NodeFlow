@@ -130,7 +130,28 @@ import {
   IdeaMaturityLevel,
   MATURITY_CONFIGS,
 } from './types';
-import { planEsConsulta, temasDeConsulta } from './utils/voz';
+import {
+  elegirVariante,
+  esAfirmativo,
+  esCorte,
+  planEsConsulta,
+  temaDe,
+  temasDeConsulta,
+} from './utils/voz';
+import type { Clave } from './i18n/textos';
+
+/**
+ * Las formas de cada paso del guion conversacional (todas existen en los dos idiomas).
+ *
+ * Medido 20/09/2026: con UNA frase fija por paso la conversación se sentía un bot. Varias formas + el tema
+ * real adentro + nunca la misma dos veces seguidas es lo que la hace sonar viva sin gastar un solo token.
+ */
+const CLAVES_ARRANQUE: Clave[] = ['conv.arranque.0', 'conv.arranque.1', 'conv.arranque.2'];
+const CLAVES_IDEA: Clave[] = ['conv.idea.0', 'conv.idea.1', 'conv.idea.2'];
+const CLAVES_RAMAS_SI: Clave[] = ['conv.ramas.si.0', 'conv.ramas.si.1'];
+const CLAVES_RAMAS_NO: Clave[] = ['conv.ramas.no.0', 'conv.ramas.no.1'];
+const CLAVES_PREGUNTAS_SI: Clave[] = ['conv.preguntas.si.0', 'conv.preguntas.si.1'];
+const CLAVES_PREGUNTAS_NO: Clave[] = ['conv.preguntas.no.0', 'conv.preguntas.no.1'];
 
 // IMPORTANTE: Declarados fuera del componente funcional para evitar recreación en cada render y warnings de React Flow
 const NODE_TYPES = {
@@ -2455,36 +2476,55 @@ export default function App() {
   // ── Modo conversación: el guion ──────────────────────────────────────────────────────────────
   // La app pregunta primero y encadena turnos. Los pasos guiados NO gastan motor: son reglas
   // locales sobre el lienzo (0 tokens). Lo que no es del guion cae al motor, como siempre.
+  //
+  // Medido 20/09/2026 (con el usuario hablando): con las frases FIJAS la conversación se sentía un bot
+  // —«¿qué idea querés explorar hoy?» una y otra vez— y el «sí» se decidía con un regex de una sola
+  // palabra, así que «bueno, me gustaría ver qué sale» caía del lado del NO. Ahora: varias formas por
+  // paso, nunca la misma dos veces seguidas, el TEMA real adentro, y el título del nodo es el tema
+  // (`temaDe`) en vez de la frase dictada entera.
   const [convPaso, setConvPaso] = useState<'idea' | 'ramas' | 'preguntas' | 'libre'>('idea');
   const convNodoRef = useRef<string | null>(null);
+  const convTemaRef = useRef('');
+  const convVarianteRef = useRef(-1);
+
+  /** Una de las formas de este paso, sin repetir la anterior. */
+  const decirPaso = useCallback(
+    (claves: Clave[], tema: string): string => {
+      const i = elegirVariante(claves.length, convVarianteRef.current);
+      convVarianteRef.current = i;
+      return t(claves[i]).replace('{tema}', tema);
+    },
+    [t]
+  );
 
   /** La primera frase de la conversación. */
   const inicioConversacion = useCallback(() => {
     setConvPaso('idea');
     convNodoRef.current = null;
-    return '¿Qué idea querés explorar hoy?';
-  }, []);
+    convTemaRef.current = '';
+    convVarianteRef.current = -1;
+    return decirPaso(CLAVES_ARRANQUE, '');
+  }, [decirPaso]);
 
   /** Un turno hablado: devuelve qué decir, si termina, y si hay que pedirle el plan al motor. */
   const turnoConversacion = useCallback(
     async (texto: string): Promise<{ decir: string; fin?: boolean; alMotor?: boolean }> => {
       const limpio = texto.trim();
-      const ES_CORTE = /^\s*(cort[aá]|chau|adi[oó]s|gracias|nada m[aá]s|suficiente|terminemos|paramos)\b/i;
-      const ES_SI = /^\s*(s[ií]|dale|ok|okey|vale|claro|obvio|por supuesto|perfecto|de una|vamos|hacelo|hac[eé]lo|yes)\b/i;
-      if (ES_CORTE.test(limpio)) {
-        return { decir: 'Listo. Todo lo que hicimos quedó guardado en tu lienzo.', fin: true };
+      if (esCorte(limpio)) {
+        return { decir: t('conv.fin'), fin: true };
       }
       if (convPaso === 'idea') {
-        // Capturar: la idea nace como nodo del lienzo (visible al instante, sin motor).
+        // Capturar: la idea nace como nodo del lienzo (visible al instante, sin motor). El título es el
+        // TEMA —«Comandos por voz»— y la frase completa, tal como se dijo, queda de descripción.
+        const tema = temaDe(limpio) || limpio.slice(0, 60).trim();
         const id = `node-conv-${Date.now()}`;
-        const titulo = limpio.length > 120 ? `${limpio.slice(0, 117)}…` : limpio;
         const nuevo: CustomNode = {
           id,
           type: 'ideaNode',
           position: posicionLibre(nodes, { x: 220, y: 160 }),
           data: {
             id,
-            title: titulo,
+            title: tema,
             description: limpio,
             category: 'VOZ',
             label: 'VOZ',
@@ -2496,38 +2536,33 @@ export default function App() {
         };
         setNodes((nds) => [...nds, nuevo]);
         convNodoRef.current = id;
+        convTemaRef.current = tema;
         setConvPaso('ramas');
-        return { decir: `Idea creada: ${titulo}. ¿Querés que explore ramificaciones para esa idea?` };
+        return { decir: decirPaso(CLAVES_IDEA, tema) };
       }
       const nodoId = convNodoRef.current;
       const nodo = nodes.find((n) => n.id === nodoId);
+      const tema = convTemaRef.current;
       if (convPaso === 'ramas') {
         setConvPaso('preguntas');
-        if (ES_SI.test(limpio) && nodoId && nodo) {
+        if (esAfirmativo(limpio) && nodoId && nodo) {
           handleAIActionRef.current?.('branch', nodoId, nodo.data);
-          return {
-            decir: 'Listo, te dejé las ramas conectadas a esa idea. ¿Querés que te haga preguntas para destrabarla?',
-          };
+          return { decir: decirPaso(CLAVES_RAMAS_SI, tema) };
         }
-        return { decir: 'Dale. ¿Querés que te haga preguntas para destrabarla?' };
+        return { decir: decirPaso(CLAVES_RAMAS_NO, tema) };
       }
       if (convPaso === 'preguntas') {
         setConvPaso('libre');
-        if (ES_SI.test(limpio) && nodoId && nodo) {
+        if (esAfirmativo(limpio) && nodoId && nodo) {
           handleAIActionRef.current?.('socratic', nodoId, nodo.data);
-          return {
-            decir: 'Ahí van las preguntas: quedan abiertas para que las respondas. ¿Qué más querés hacer?',
-          };
+          return { decir: decirPaso(CLAVES_PREGUNTAS_SI, tema) };
         }
-        return {
-          decir:
-            'Perfecto. Decime qué querés: puedo crear otra idea, responder una pregunta abierta o limpiar el lienzo.',
-        };
+        return { decir: decirPaso(CLAVES_PREGUNTAS_NO, tema) };
       }
       // Paso libre: lo que no es del guion se resuelve con el motor, como un dictado normal.
       return { decir: '', alMotor: true };
     },
-    [convPaso, nodes]
+    [convPaso, nodes, t, decirPaso]
   );
 
   /** Aplica un cambio de fase, con su evidencia y la fecha si la hay. */
