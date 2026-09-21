@@ -83,17 +83,24 @@ git push -u origin "$BRANCH"
 PR="$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')"
 if [ -z "$PR" ]; then
   TITULO="$(git log -1 --format=%s)"
-  PR="$(gh pr create --title "$TITULO" --body "$(cat <<'EOF'
+  # `gh pr create` NO tiene --json: devuelve la URL y punto (intentarlo con --json falla en silencio y el
+  # script queda sin número de PR, que es como se rompió la primera corrida).
+  gh pr create --title "$TITULO" --body "$(cat <<'EOF'
 Publicado con `scripts/publicar.sh`.
 
 - **Qué cambia**: ver los commits de la rama.
 - **Árbitros**: los corre el CI (`tsc --noEmit`, `npm run build`, `cargo test --lib` en windows-latest).
 - **Verificación local** (opcional): `bash scripts/publicar.sh --local` antes de pushear.
 EOF
-)" --json number --jq .number 2>/dev/null || gh pr view --json number --jq .number)"
+)" >/dev/null
+  PR="$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number')"
   echo "→ PR #$PR abierto"
 else
   echo "→ PR #$PR ya existía para esta rama"
+fi
+if [ -z "$PR" ]; then
+  echo "✗ no pude crear ni encontrar el PR de $BRANCH"
+  exit 1
 fi
 
 echo "→ esperando el check del CI (esto no compila en tu máquina)…"
