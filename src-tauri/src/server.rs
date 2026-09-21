@@ -1333,7 +1333,9 @@ fn build_context(
     );
 
     // Voz (Fase B): lo que dijo el usuario + el lienzo REAL con ids, para que el plan sólo pueda
-    // referirse a nodos que existen. Se acota a 120 nodos para no inflar el prompt.
+    // referirse a nodos que existen, y con el ESTADO de cada uno (madurez, pregunta abierta,
+    // decisión). El estado es lo que hace posible `consultar`: sin él la única respuesta honesta a
+    // «¿qué quedó abierto?» es «no tengo la información» (medido 20/09). Se acota a 120 nodos.
     if action == "voz" {
         ctx.insert(
             "texto".into(),
@@ -1378,7 +1380,30 @@ fn build_context(
                             if id.is_empty() || titulo.is_empty() {
                                 None
                             } else {
-                                Some(format!("{id} · {titulo} · {cat}"))
+                                // Madurez y marcas del ciclo: es lo que el motor necesita para
+                                // contestar una consulta sin inventar. Formato corto a propósito.
+                                let madurez = d["maturity"].as_u64().unwrap_or(1).clamp(1, 5);
+                                let mut marcas: Vec<&str> = Vec::new();
+                                if let Some(p) = d["pregunta"].as_object() {
+                                    marcas.push(if p["estado"].as_str() == Some("respondida") {
+                                        "pregunta respondida"
+                                    } else {
+                                        "PREGUNTA ABIERTA"
+                                    });
+                                }
+                                if let Some(dec) = d["decision"].as_object() {
+                                    marcas.push(if dec["estado"].as_str() == Some("descartada") {
+                                        "descartada"
+                                    } else {
+                                        "aceptada"
+                                    });
+                                }
+                                let estado_txt = if marcas.is_empty() {
+                                    String::new()
+                                } else {
+                                    format!(" · {}", marcas.join(" · "))
+                                };
+                                Some(format!("{id} · {titulo} · {cat} · m{madurez}{estado_txt}"))
                             }
                         })
                         .collect::<Vec<_>>()

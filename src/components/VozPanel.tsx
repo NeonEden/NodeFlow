@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { X, Mic, Square, Loader2, Sparkles, Check, AlertTriangle, Wand2, Target, Layers, MessageSquarePlus, Link2, Quote, Gauge, Volume2, VolumeX, PenLine, CornerDownRight } from 'lucide-react';
+import { X, Mic, Square, Loader2, Sparkles, Check, AlertTriangle, Wand2, Target, Layers, MessageSquarePlus, Link2, Quote, Gauge, Volume2, VolumeX, PenLine, CornerDownRight, MessageCircleQuestion } from 'lucide-react';
 import { type EstadoVoz } from '../services/speechmaticsRt';
 import { crearClienteStt, type ClienteStt } from '../services/sttRt';
 import { apiUrl } from '../services/apiBase';
 import { getVozEstado, getVozJwt, pedirPlanVoz, describirComando, decir, hablarConElSistema, VozEstado, PlanVoz, VozComando } from '../services/vozService';
 import { useIdioma } from '../i18n/useIdioma';
+import { planEsConsulta } from '../utils/voz';
 
 interface VozPanelProps {
   isOpen: boolean;
@@ -13,6 +14,8 @@ interface VozPanelProps {
   onAplicar: (plan: PlanVoz) => Promise<{
     creados: number;
     afectados: number;
+    /** Consultas respondidas: no hubo cambios en el lienzo (acción de sólo lectura). */
+    consultas?: string[];
     /** Si el plan pidió el motor profundo: se disparó y la respuesta llega después, por su cuenta. */
     delegando?: boolean;
   } | null>;
@@ -48,6 +51,7 @@ const ICONO: Record<VozComando['accion'], React.ReactNode> = {
   responder: <CornerDownRight size={12} />,
   aceptar: <Check size={12} />,
   descartar: <X size={12} />,
+  consultar: <MessageCircleQuestion size={12} />,
 };
 
 /** «¿qué quedó abierto?» — pedido de estado que se resuelve con regla local, sin motor (0 tokens). */
@@ -473,7 +477,8 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
         cache: uso?.cache ?? 'miss',
       });
       // En conversación, el plan no se aplica solo: se pide en voz alta y espera un «sí».
-      if (continuoRef.current && p.comandos?.length) {
+      // Una consulta no se aprueba: no hay nada que aplicar. Se dice la respuesta y sigue el turno.
+      if (continuoRef.current && p.comandos?.length && !planEsConsulta(p.comandos)) {
         setPlanPendiente(true);
         await hablar(`Voy a ${onPrevisualizar(p)}. ¿Lo aplico?`);
         void empezar();
@@ -520,7 +525,11 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
     try {
       const r = await onAplicar(plan);
       if (r) {
-        setResultado(`Listo: ${r.creados} nodo(s) creado(s), ${r.afectados} afectado(s).`);
+        setResultado(
+          r.consultas?.length
+            ? `Consulta respondida · sin cambios en el lienzo.`
+            : `Listo: ${r.creados} nodo(s) creado(s), ${r.afectados} afectado(s).`
+        );
         if (r.delegando) setInvestigando(true);
       }
       setPlan(null);
