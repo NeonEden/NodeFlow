@@ -3,6 +3,7 @@ import { X, Mic, Square, Loader2, Sparkles, Check, AlertTriangle, Wand2, Target,
 import { type EstadoVoz } from '../services/speechmaticsRt';
 import { crearClienteStt, type ClienteStt } from '../services/sttRt';
 import { apiUrl } from '../services/apiBase';
+import { trazaVoz } from '../services/trazaVoz';
 import { getVozEstado, getVozJwt, pedirPlanVoz, describirComando, decir, hablarConElSistema, VozEstado, PlanVoz, VozComando } from '../services/vozService';
 import { useIdioma } from '../i18n/useIdioma';
 import { esAfirmativo, planEsConsulta } from '../utils/voz';
@@ -44,6 +45,9 @@ interface VozPanelProps {
    */
   pedidoExterno?: { accion: 'empezar' | 'cortar'; n: number } | null;
 }
+
+/** Id corto de sesión de STT: sólo sirve para correlacionar y contar las trazas del log. */
+const nuevoIdSesion = () => Math.random().toString(36).slice(2, 8);
 
 const ICONO: Record<VozComando['accion'], React.ReactNode> = {
   crear: <MessageSquarePlus size={12} />,
@@ -176,6 +180,21 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
     silencioRef.current = silencio;
   }, [silencio]);
   const rtRef = useRef<ClienteStt | null>(null);
+  /**
+   * Identidad de la sesión y del turno: es lo que hace **contable** la traza del log
+   * (`grep -c "voz(ui).turno.cerrado"`). Sin esto el diagnóstico vuelve a ser deducción: medido el
+   * 20/09/2026, 10 pulsaciones del atajo emitieron 13 sesiones de STT y no había ni una línea del
+   * webview que dijera por qué.
+   */
+  const sesionRef = useRef('');
+  const sesionInicioRef = useRef(0);
+  const turnosServidosRef = useRef(0);
+  const turnoRef = useRef(0);
+  const t0PedidoRef = useRef(0);
+  const t0ListoRef = useRef(0);
+  const primerParcialRef = useRef(false);
+  /** Último turno cerrado: el cierre real de la sesión a los 90 s de inactividad se mide desde acá. */
+  const ultimaActividadRef = useRef(0);
   const inicioRef = useRef(0);
 
   const consultarEstado = useCallback(async () => {
@@ -193,8 +212,7 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
   // Al cerrar el panel, cortamos cualquier captura en curso: no dejamos el micrófono abierto.
   useEffect(() => {
     if (!isOpen && rtRef.current) {
-      void rtRef.current.stop();
-      rtRef.current = null;
+      cerrarSesion('panel_cerrado');
       setEstado('inactivo');
     }
   }, [isOpen]);
@@ -389,11 +407,25 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
     return () => window.clearTimeout(t);
   }, [continuo, estado, parcial, texto]);
 
-  /** Cierra la sesión de voz de verdad (fin de conversación, eco, cambio de modo). */
-  const cerrarSesion = () => {
+  /**
+   * Cierra la sesión de voz de verdad (fin de conversación, eco, inactividad, cambio de modo).
+   *
+   * El `motivo` viaja a la traza: sin él, «se cerró la sesión» no distingue si lo pidió el usuario, el
+   * eco del micrófono o el reloj de inactividad — y el diagnóstico vuelve a ser una deducción.
+   */
+  const cerrarSesion = (motivo = 'salida') => {
     const rt = rtRef.current;
     rtRef.current = null;
-    if (rt) void rt.stop();
+    if (!rt) return;
+    trazaVoz('sesion.cerrada', {
+      sesion: sesionRef.current,
+      motivo,
+      ms_vida: Math.round(performance.now() - sesionInicioRef.current),
+      turnos: turnosServidosRef.current,
+    });
+    sesionRef.current = '';
+    turnosServidosRef.current = 0;
+    void rt.stop();
   };
 
   /**
@@ -433,18 +465,37 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
       rt.reanudar();
       return;
     }
-    void empezar();
+    void empezar('conv');
   };
 
   /** El atajo pidió cortar mientras `empezar()` todavía estaba abriendo la sesión. */
   const cancelarRef = useRef(false);
 
-  const empezar = async () => {
+  const empezar = async (origen: 'ui' | 'atajo' | 'conv' = 'ui') => {
+    // Cada pedido abre un turno numerado: es lo que después se cuenta en el log.
+    turnoRef.current += 1;
+    t0PedidoRef.current = performance.now();
+    primerParcialRef.current = false;
+    trazaVoz('pedido', { turno: turnoRef.current, origen, sesion_viva: Boolean(rtRef.current?.viva) });
     // Una sesión a la vez: sin este guard, cada pulsación del atajo apilaba otra sesión de streaming
     // (medido 20/09: 7 sesiones en 25 s). Si ya hay una viva, se reanuda en vez de apilar.
     if (rtRef.current) {
-      if (rtRef.current.viva && rtRef.current.reanudar) rtRef.current.reanudar();
-      return;
+      if (rtRef.current.viva && rtRef.current.reanudar) {
+        fragRef.current = '';
+        setParcial('');
+        setTexto('');
+        inicioRef.current = performance.now();
+        t0ListoRef.current = performance.now();
+        ultimaActividadRef.current = performance.now();
+        rtRef.current.reanudar();
+        // `reanudar` no paga handshake: este es el número que prueba que el corte ya no reabre la sesión.
+        trazaVoz('listo', { turno: turnoRef.current, modo: 'reanudar', ms_desde_pedido: Math.round(performance.now() - t0PedidoRef.current), sesion: sesionRef.current });
+        return;
+      }
+      // El cliente quedó creado pero la conexión ya no está viva (se cayó, o el motor la cerró). Si no se
+      // descarta, la pulsación muere en el vacío: el guard de arriba sale sin abrir nada y el micrófono
+      // nunca arranca (caso borde medido el 20/09/2026).
+      cerrarSesion('caida');
     }
     cancelarRef.current = false;
     setError('');
@@ -458,6 +509,11 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
       // El motor lo decide el backend: acá sólo se instancia el cliente del protocolo que devuelva.
       // El aviso se fija antes para que no lo pise el primer `onEstado` (habla antes de escuchar).
       if (sesion.aviso) setDetalleEstado(sesion.aviso);
+      // Identidad de la sesión ANTES de abrir: así todo lo que pasa durante el handshake queda
+      // correlacionado con la misma sesión en el log.
+      sesionRef.current = nuevoIdSesion();
+      sesionInicioRef.current = performance.now();
+      turnosServidosRef.current = 0;
       const rt = crearClienteStt(sesion, {
         onEstado: (e, d) => {
           setEstado(e);
@@ -466,6 +522,16 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
         onParcial: (t) => {
           fragRef.current = t;
           setParcial(t);
+          // Primera marca de que el audio ENTRA: si el turno empieza a llegar tarde, se ve acá y no en la
+          // transcripción final (que es donde el síntoma aparecía como «no me toma las palabras»).
+          if (!primerParcialRef.current && t.trim()) {
+            primerParcialRef.current = true;
+            trazaVoz('parcial.primero', {
+              turno: turnoRef.current,
+              ms_desde_listo: Math.round(performance.now() - t0ListoRef.current),
+              chars: t.trim().length,
+            });
+          }
           // Barge-in (20/09/2026): si el usuario habla encima, la app se calla en el acto. Tres palabras
           // y que no suenen a la propia voz: con parlantes la app se oiría a sí misma y se cortaría sola.
           const partes = t.trim().split(/\s+/).filter(Boolean);
@@ -475,20 +541,36 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
           fragRef.current = t;
           setTexto(t);
         },
-        onError: (m) => setError(m),
+        onError: (m) => {
+          trazaVoz('error', { fase: 'motor', mensaje: m });
+          setError(m);
+        },
       });
       rtRef.current = rt;
       inicioRef.current = performance.now();
       await rt.start();
+      t0ListoRef.current = performance.now();
+      ultimaActividadRef.current = performance.now();
+      // El número que decide si el arranque sigue costando ~1 s (abrir) o decenas de ms (reanudar).
+      trazaVoz('listo', {
+        turno: turnoRef.current,
+        modo: 'abrir',
+        ms_desde_pedido: Math.round(performance.now() - t0PedidoRef.current),
+        sesion: sesionRef.current,
+        motor: sesion.proveedor || '',
+      });
       // El atajo ya se soltó mientras abríamos: el turno se cancela acá, sin dejar el micrófono abierto.
       if (cancelarRef.current) {
         cancelarRef.current = false;
         rtRef.current = null;
+        sesionRef.current = '';
         void rt.stop();
+        trazaVoz('turno.cancelado', { turno: turnoRef.current, motivo: 'soltado_durante_el_arranque' });
         setEstado('inactivo');
         setDetalleEstado('');
       }
     } catch (e: any) {
+      trazaVoz('error', { fase: 'abrir', mensaje: e?.message || 'desconocido' });
       setError(e?.message || 'No pude empezar a escuchar.');
       setEstado('error');
     }
@@ -502,6 +584,7 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
       // (medido 20/09 a las 23:29: 7 sesiones emitidas y ningún corte). Queda marcado para que `empezar()`
       // cierre la sesión apenas termine de abrirla.
       cancelarRef.current = true;
+      trazaVoz('turno.cancelado', { turno: turnoRef.current, motivo: 'soltado_durante_el_arranque' });
       setEstado('inactivo');
       setDetalleEstado('');
       return;
@@ -511,9 +594,23 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
     // Con un motor que sabe cerrar el turno **sin** cerrar la sesión (AssemblyAI: `ForceEndpoint`) la
     // conexión queda viva para el turno siguiente; si no, se corta y se vuelve a abrir como siempre.
     const reusa = Boolean(rt.cerrarTurno);
+    const fuente: 'ForceEndpoint' | 'stop' = reusa ? 'ForceEndpoint' : 'stop';
     const dictado = (await (reusa ? rt.cerrarTurno!() : rt.stop())).trim();
-    // Fuera de una conversación no se deja una conexión abierta ocupando el micrófono ni facturando.
-    if (!reusa || !continuoRef.current) cerrarSesion();
+    turnosServidosRef.current += 1;
+    ultimaActividadRef.current = performance.now();
+    trazaVoz('turno.cerrado', {
+      turno: turnoRef.current,
+      fuente,
+      ms: Math.round(performance.now() - t0ListoRef.current),
+      chars: dictado.length,
+      vacio: !dictado,
+    });
+    // Con un motor que sabe cerrar el turno sin cerrar la sesión, la conexión queda **pausada** y el turno
+    // siguiente la reusa. Cerrarla acá costaba ~1 s de handshake con el micrófono abierto al final, que es
+    // justo donde se perdían las primeras palabras del turno siguiente (medido 20/09/2026: 10 pulsaciones
+    // del atajo → 13 sesiones de STT emitidas). El cierre real lo hace el reloj de inactividad de 90 s, y
+    // el cambio de modo (fin de conversación, panel cerrado) cierra en el acto.
+    if (!reusa) cerrarSesion('sin_reuso');
     setParcial('');
     setTexto(dictado);
     if (!dictado) {
@@ -539,7 +636,7 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
         setContinuo(false);
         continuoRef.current = false;
         setEstado('inactivo');
-        cerrarSesion();
+        cerrarSesion('eco');
         setError(
           'Cerré la conversación: el micrófono estaba escuchando la voz de la app. Usá auriculares, o apagá la voz de salida, y volvé a empezar.'
         );
@@ -579,7 +676,7 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
           setContinuo(false);
           continuoRef.current = false;
           setEstado('inactivo');
-          cerrarSesion();
+          cerrarSesion('fin_dialogo');
           return;
         }
         void seguirEscuchando();
@@ -633,12 +730,12 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
       if (continuoRef.current && p.comandos?.length && !planEsConsulta(p.comandos)) {
         setPlanPendiente(true);
         await hablar(`Voy a ${onPrevisualizar(p)}. ¿Lo aplico?`);
-        void empezar();
+        void empezar('conv');
         return;
       }
       if (continuoRef.current) {
         await hablar(p.respuesta || 'Listo.');
-        void empezar();
+        void empezar('conv');
         return;
       }
       // El backend decidió si esto merece voz; acá sólo se obedece.
@@ -658,7 +755,7 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
   const aplicarRef = useRef<(() => Promise<void>) | null>(null);
 
   /** El atajo global necesita llamar a `empezar` desde afuera del render (mismo motivo que `cortarRef`). */
-  const empezarRef = useRef<(() => Promise<void>) | null>(null);
+  const empezarRef = useRef<((origen?: 'ui' | 'atajo' | 'conv') => Promise<void>) | null>(null);
   empezarRef.current = empezar;
 
   /**
@@ -669,11 +766,32 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
     if (!pedidoExterno) return;
     // El pedido del atajo se atiende también con el panel CERRADO: es justamente así como se usa (dictar
     // sin abrir el modal, con el lienzo a la vista).
-    if (pedidoExterno.accion === 'empezar') void empezarRef.current?.();
+    if (pedidoExterno.accion === 'empezar') void empezarRef.current?.('atajo');
     else void cortarRef.current?.();
     // Sólo el contador: el pedido se ejecuta una vez por pulsación.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pedidoExterno?.n]);
+
+  /**
+   * Cierre REAL de la sesión por inactividad.
+   *
+   * Por qué existe y por qué 90 s: con el turno cerrado por `ForceEndpoint` la conexión queda pausada
+   * pero **abierta**, y el proveedor factura el tiempo de conexión, no el audio (medido 20/09/2026). El
+   * reloj sólo corre con la sesión pausada y la app en silencio: mientras escucha, mientras piensa o
+   * mientras habla, no se toca nada.
+   */
+  useEffect(() => {
+    const t = window.setInterval(() => {
+      const rt = rtRef.current;
+      if (!rt?.viva) return;
+      if (estado !== 'inactivo' || hablandoRef.current) return;
+      const quieto = performance.now() - ultimaActividadRef.current;
+      if (quieto < 90_000) return;
+      trazaVoz('sesion.inactiva', { sesion: sesionRef.current, ms: Math.round(quieto) });
+      cerrarSesion('inactividad');
+    }, 5000);
+    return () => window.clearInterval(t);
+  }, [estado]);
 
   /** Arranca la conversación: la app pregunta primero y después escucha. */
   const conversar = async () => {
@@ -682,7 +800,7 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
     if (continuo) {
       setContinuo(false);
       continuoRef.current = false;
-      cerrarSesion();
+      cerrarSesion('fin_conversacion');
       setResultado('Conversación terminada.');
       return;
     }
@@ -692,7 +810,7 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
     setPasoConv('idea');
     setResultado(`Conversación · ${saludo}`);
     await hablar(saludo);
-    void empezar();
+    void empezar('conv');
   };
 
   const aplicar = async () => {

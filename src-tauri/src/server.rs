@@ -241,6 +241,7 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
             .route("/api/voz/jwt", get(voz_jwt))
             .route("/api/voz/proveedores", get(voz_proveedores))
             .route("/api/voz/proveedor", post(voz_proveedor))
+            .route("/api/voz/traza", post(voz_traza))
             .route("/api/claves/estado", get(claves_estado))
             .route("/api/claves/migrar", post(claves_migrar))
             .route("/api/idioma", get(idioma_leer).post(idioma_guardar))
@@ -3004,6 +3005,52 @@ async fn voz_proveedor(State(st): State<AppState>, Json(body): Json<Value>) -> i
             Json(json!({ "success": false, "error": e })),
         ),
     }
+}
+
+/// `POST /api/voz/traza` `{ "evento": "turno.cerrado", "campos": "turno=3 fuente=ForceEndpoint ms=1810" }`
+/// — la traza del ciclo de voz que emite el **webview**.
+///
+/// Por qué existe: el log de Rust sólo veía el atajo (`pressed`/`released`) y la emisión del token. Lo que
+/// pasa del lado del panel —cuánto tarda `start()`, cuándo llega el primer parcial, con qué motivo se cierra
+/// el turno, si el turno se sirvió **reusando** la sesión o abriendo una nueva— no quedaba en ningún lado, así
+/// que cada diagnóstico volvía a ser una deducción (medido 20/09/2026 en el log de la app: 10 pulsaciones del
+/// atajo y 13 sesiones de STT emitidas, sin una sola línea del webview que dijera por qué).
+///
+/// Formato: una línea por evento con prefijo fijo `voz(ui)`, para contarlo con `grep -c "voz(ui)"`.
+/// El texto se recorta y se le sacan los saltos de línea: es una traza, no un canal de datos.
+async fn voz_traza(Json(body): Json<Value>) -> impl IntoResponse {
+    let evento = body["evento"].as_str().unwrap_or("").trim();
+    let campos = body["campos"].as_str().unwrap_or("").trim();
+    if !evento_valido(evento) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "success": false, "error": "Falta `evento`." })),
+        );
+    }
+    log::info!("{}", linea_traza(evento, campos));
+    (StatusCode::OK, Json(json!({ "success": true })))
+}
+
+/// ¿Hay algo que valga la pena escribir? Un evento con sólo espacios o saltos de línea no es una traza:
+/// escribirla deja una línea `voz(ui)   ` que ensucia el log y no cuenta nada.
+fn evento_valido(evento: &str) -> bool {
+    !limpiar_traza(evento, 40).trim().is_empty()
+}
+
+/// Saca saltos de línea y recorta: una traza no puede desordenar el log ni crecer sin techo.
+fn limpiar_traza(s: &str, tope: usize) -> String {
+    s.replace(['\n', '\r'], " ").chars().take(tope).collect()
+}
+
+/// La línea que se escribe en el log: prefijo fijo y una sola línea, para poder contarla con `grep -c`.
+fn linea_traza(evento: &str, campos: &str) -> String {
+    format!(
+        "voz(ui) {} {}",
+        limpiar_traza(evento.trim(), 40),
+        limpiar_traza(campos.trim(), 220)
+    )
+    .trim_end()
+    .to_string()
 }
 
 /// `POST /api/ai/evaluar` — corre la planilla sobre los motores pedidos (por defecto, los locales).
@@ -5928,5 +5975,41 @@ mod tests_turno_ia {
             ia_tomar_en(&m, &claves(&["ia:placa"]), 201.0),
             "tras soltar, la placa vuelve a estar libre"
         );
+    }
+}
+
+#[cfg(test)]
+mod tests_traza_voz {
+    use super::*;
+
+    /// Una traza = una línea, con el prefijo que se cuenta con `grep -c`. Si esto cambia, los conteos del
+    /// diagnóstico dejan de significar lo mismo.
+    #[test]
+    fn una_traza_es_una_sola_linea_con_prefijo_contable() {
+        let l = linea_traza("turno.cerrado", "turno=3 fuente=ForceEndpoint ms=1810");
+        assert_eq!(l, "voz(ui) turno.cerrado turno=3 fuente=ForceEndpoint ms=1810");
+        assert!(!l.contains('\n'));
+    }
+
+    /// El webview manda el texto que quiere: con saltos de línea el log se desordena; con 10 KB se come el
+    /// archivo. Las dos cosas se cortan acá.
+    #[test]
+    fn los_saltos_de_linea_y_el_texto_largo_se_recortan() {
+        let l = linea_traza("error\nimportante", "mensaje=nada\r\n\nseguimos");
+        assert!(l.starts_with("voz(ui) error importante mensaje=nada"), "{l}");
+        assert_eq!(l.lines().count(), 1);
+        let largo = linea_traza("error", &"x".repeat(1000));
+        assert!(largo.len() < 260, "la traza no se recortó: {} chars", largo.len());
+    }
+
+    /// Un evento vacío no es una traza: el handler lo rechaza (400) en vez de escribir una línea sin sentido.
+    #[test]
+    fn un_evento_vacio_se_rechaza() {
+        // Ojo: `limpiar_traza` no recorta espacios (los cambia por espacios, no los borra). La pregunta por
+        // la validez la contesta `evento_valido`, que es lo que usa el handler.
+        assert!(!evento_valido("  \n \t "));
+        assert!(!evento_valido(""));
+        assert!(evento_valido("turno.cerrado"));
+        assert!(evento_valido("  pedido  "));
     }
 }
