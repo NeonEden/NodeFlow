@@ -2210,6 +2210,16 @@ async fn call_model(
     let tarea = tarea_de(st, accion);
     let plan = plan_de_motores(st, modo, tarea, accion).await;
     let total = plan.len();
+    // Tope de motores que pueden contestar «sin nada usable» antes de quedarse con la última respuesta.
+    // Por qué hay tope: sin él, un pedido que ningún motor interpreta bueno barre la cadena entera —plan
+    // de 22 motores, varios de ellos pagos y de segundos de latencia— y el usuario espera medio minuto por
+    // el mismo silencio. Con 3 el dictado sigue vivo (los motores que valen la pena están en los primeros
+    // lugares del plan) y el costo de la duda queda acotado y medido en el log.
+    const MAX_SIN_SIRVE: usize = 3;
+    let mut sin_sirve = 0usize;
+    // La primera respuesta que llegó: si ningún motor propone nada usable, se devuelve ésta (mejor un plan
+    // vacío —que el panel ya sabe explicar— que un error).
+    let mut respaldo: Option<crate::costo::Llamada> = None;
     for (i, m) in plan.into_iter().enumerate() {
         if i > 0 {
             // Estamos en la red de seguridad: quedó registrado para poder medirlo después.
@@ -2221,15 +2231,31 @@ async fn call_model(
             }
             // Contestó, pero con algo que no le sirve a nadie: se sigue en vez de devolverlo. Es el caso
             // que dejaba la voz muda con un motor vivo delante.
-            Some(_) => log::warn!(
-                "el motor «{}» contestó sin nada usable; sigo con el siguiente",
-                m.id
-            ),
+            Some(llamada) => {
+                log::warn!(
+                    "el motor «{}» contestó sin nada usable; sigo con el siguiente",
+                    m.id
+                );
+                if respaldo.is_none() {
+                    respaldo = Some(llamada);
+                }
+                sin_sirve += 1;
+                if sin_sirve >= MAX_SIN_SIRVE {
+                    log::warn!(
+                        "{MAX_SIN_SIRVE} motores contestaron sin nada usable para «{accion}»: me quedo con la \
+                         última respuesta (hay {} sin probar)",
+                        total.saturating_sub(i + 1)
+                    );
+                    return respaldo;
+                }
+            }
             None => log::warn!("el motor «{}» no respondió ({} de {})", m.id, i + 1, total),
         }
     }
-    log::warn!("ningún motor del plan sirvió para «{accion}»");
-    None
+    if respaldo.is_none() {
+        log::warn!("ningún motor respondió para «{accion}»");
+    }
+    respaldo
 }
 
 /// ¿El plan de voz trae algo que hacer? Un plan **sin comandos es silencio** para el usuario, así que
