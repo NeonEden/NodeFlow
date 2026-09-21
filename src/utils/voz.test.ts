@@ -84,6 +84,9 @@ describe('esAfirmativo / esNegativo', () => {
     expect(esAfirmativo('bueno, me gustaría ver qué sale')).toBe(true);
     expect(esAfirmativo('podríamos probar')).toBe(true);
     expect(esAfirmativo('ok, hacelo')).toBe(true);
+    // «Aplicalo» es la forma con la que se aprueba un plan: tiene que contar como sí.
+    expect(esAfirmativo('aplicalo')).toBe(true);
+    expect(esAfirmativo('sí, aplicalo')).toBe(true);
   });
 
   it('el no gana sobre lo que venga después', () => {

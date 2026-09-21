@@ -5,7 +5,7 @@ import { crearClienteStt, type ClienteStt } from '../services/sttRt';
 import { apiUrl } from '../services/apiBase';
 import { getVozEstado, getVozJwt, pedirPlanVoz, describirComando, decir, hablarConElSistema, VozEstado, PlanVoz, VozComando } from '../services/vozService';
 import { useIdioma } from '../i18n/useIdioma';
-import { planEsConsulta } from '../utils/voz';
+import { esAfirmativo, planEsConsulta } from '../utils/voz';
 
 interface VozPanelProps {
   isOpen: boolean;
@@ -38,6 +38,11 @@ interface VozPanelProps {
   preguntaAbierta: () => { id: string; titulo: string } | null;
   /** Guarda una respuesta dictada: nace el nodo RESPUESTA enlazado y la pregunta se cierra. */
   onResponder: (preguntaId: string, texto: string) => void;
+  /**
+   * Pedido de afuera —el atajo global, Ctrl+Shift+Space—: «empezar» abre el turno y «cortar» lo cierra.
+   * Se reacciona al contador `n`, no al objeto: dos pulsaciones seguidas se ejecutan las dos.
+   */
+  pedidoExterno?: { accion: 'empezar' | 'cortar'; n: number } | null;
 }
 
 const ICONO: Record<VozComando['accion'], React.ReactNode> = {
@@ -55,9 +60,8 @@ const ICONO: Record<VozComando['accion'], React.ReactNode> = {
 };
 
 /** «¿qué quedó abierto?» — pedido de estado que se resuelve con regla local, sin motor (0 tokens). */
-/** «Sí» hablado: sirve para aprobar lo que la app propone en modo conversación. */
-const ES_AFIRMATIVO =
-  /^\s*(s[ií]|dale|ok|okey|aplic\w*|vale|claro|obvio|por supuesto|perfecto|hac[eé]lo|vamos|de una|yes)\b/i;
+// El «sí» hablado vive en `utils/voz` (`esAfirmativo`): una sola definición para el guion y el panel.
+// El regex local que estaba acá se fue cuando el panel pasó a usar la función compartida.
 
 const PEDIDO_DE_RETOMAR =
   /(qu[eé]\s+(qued[oó]|ten[eé]s|hay)\s+(abierto|pendiente))|(preguntas?\s+abiertas?)|(^retom)|(le[eé]me la pregunta)/i;
@@ -72,7 +76,7 @@ const EJEMPLOS = [
  * Panel de Voz (Speechmatics). Hablás, la transcripción aparece en vivo y al cortar el motor
  * propone un PLAN de operaciones sobre el lienzo — que se aprueba antes de aplicarse.
  */
-export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, onPrevisualizar, onAplicarComandos, tituloNodo, preguntaAbierta, onResponder, onInicioConversacion, onTurnoConversacion }) => {
+export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, onPrevisualizar, onAplicarComandos, tituloNodo, preguntaAbierta, onResponder, onInicioConversacion, onTurnoConversacion, pedidoExterno }) => {
   // Textos del panel en el idioma activo. La voz (entrada y salida) sigue el mismo idioma desde el
   // backend, así que acá sólo se traduce la interfaz.
   const { t } = useIdioma();
@@ -156,6 +160,16 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
     }
   });
   const [hablando, setHablando] = useState(false);
+  /** Espejo del estado: `hablando` re-renderiza, el ref es el que consultan los bucles async. */
+  const hablandoRef = useRef(false);
+  /**
+   * ¿El guion ya dijo su frase en este turno? Entonces el motor **no** vuelve a hablar: eran dos voces
+   * seguidas y sonaba a bot confundido (medido 20/09/2026 en el modo conversación).
+   */
+  const guionHabloRef = useRef(false);
+  /** El audio que está sonando (para poder interrumpirlo) y cómo resolver la espera de `hablar()`. */
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const finAudioRef = useRef<(() => void) | null>(null);
   // Referencia viva del mute: el sondeo no se reinicia cada vez que se toca el botón.
   const silencioRef = useRef(silencio);
   useEffect(() => {
@@ -225,16 +239,71 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
         .split(/\s+/)
         .filter((p) => p.length > 2);
     const del = palabras(dictado);
-    if (del.length < 3) return false;
-    const suyas = new Set(palabras(dicho));
-    if (!suyas.size) return false;
-    return del.filter((p) => suyas.has(p)).length / del.length >= 0.7;
+    const suyas = palabras(dicho);
+    if (del.length < 4 || suyas.length < 4) return false;
+    // 1) Un fragmento LITERAL de lo que dijo la app, en orden: es eco aunque venga mezclado con tu
+    //    respuesta (medido 20/09: «quiero explorar la idea de comandos por voz. Sí, por favor. Explora
+    //    ramificaciones…» era una sola transcripción con las dos voces). Sólo se mira en turnos largos
+    //    —≥8 palabras—: en uno corto sería un falso positivo.
+    if (del.length >= 8) {
+      for (let i = 0; i + 4 <= del.length; i++) {
+        for (let j = 0; j + 4 <= suyas.length; j++) {
+          if (del.slice(i, i + 4).join(' ') === suyas.slice(j, j + 4).join(' ')) return true;
+        }
+      }
+    }
+    // 2) La red de siempre: si el dictado es casi todo lo que dijo la app. Un «sí», un «dale» o un
+    //    «no» no llegan a cuatro palabras y por eso **nunca** se descartan como eco.
+    return del.filter((p) => suyas.includes(p)).length / del.length >= 0.7;
+  };
+
+  /**
+   * ¿Este pedazo de transcripción suena a la propia voz de la app?
+   *
+   * Más laxo que `esEco` a propósito: el barge-in tiene que decidir con dos o tres palabras recién
+   * llegadas, no con el turno entero.
+   */
+  const pareceMia = (t: string): boolean => {
+    const w = (s: string) =>
+      s
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9ñ ]+/g, ' ')
+        .split(/\s+/)
+        .filter((p) => p.length > 2);
+    const del = w(t);
+    const suyas = new Set(w(dichoRef.current));
+    if (!del.length || !suyas.size) return false;
+    return del.filter((p) => suyas.has(p)).length / del.length >= 0.5;
+  };
+
+  /**
+   * Barge-in: el usuario tomó la palabra mientras la app hablaba, así que la app se calla ya.
+   *
+   * Resolver la espera de `hablar()` es la mitad del trabajo: si no, el turno seguiría colgado hasta el
+   * timeout del audio y la conversación quedaría sorda varios segundos justo cuando el usuario habló.
+   */
+  const interrumpirVoz = () => {
+    const el = audioRef.current;
+    try {
+      if (el && !el.paused) el.pause();
+      window.speechSynthesis?.cancel();
+    } catch {
+      /* ya estaba detenida */
+    }
+    const fin = finAudioRef.current;
+    finAudioRef.current = null;
+    hablandoRef.current = false;
+    setHablando(false);
+    fin?.();
   };
 
   /** Habla sólo si el backend lo autorizó (regla de voz selectiva) y no está en silencio. */
   const hablar = async (texto: string) => {
     if (!texto.trim()) return;
     dichoRef.current = texto;
+    hablandoRef.current = true;
     setHablando(true);
     try {
       // Primero la voz local (Kokoro). Si esa PC no la tiene —una instalación limpia nunca la
@@ -244,15 +313,17 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
         if (motorVoz !== 'kokoro') setMotorVoz('kokoro');
         const url = URL.createObjectURL(audio);
         const el = new Audio(url);
-        // Se espera el FIN del audio, no el comienzo: `play()` resuelve apenas arranca a sonar, y el
-        // micrófono se abría encima de la propia voz (medido 19/09 con parlantes: el motor de
-        // transcripción transcribía a la app y la conversación se mordía la cola).
+        // La app queda «hablando» hasta el final del audio… salvo que el usuario la interrumpa: para eso
+        // el elemento y la resolución de la espera quedan a mano de `interrumpirVoz()`.
+        audioRef.current = el;
         await new Promise<void>((listo) => {
           let cerrado = false;
           const fin = () => {
             if (cerrado) return;
             cerrado = true;
             URL.revokeObjectURL(url);
+            audioRef.current = null;
+            finAudioRef.current = null;
             listo();
           };
           el.onended = fin;
@@ -271,6 +342,7 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
       // Que la voz falle no rompe nada: el lienzo ya cambió y el texto está en pantalla.
       setError((previo) => previo || `Voz: ${e?.message || 'no pude reproducir'}`);
     } finally {
+      hablandoRef.current = false;
       setHablando(false);
     }
   };
@@ -325,15 +397,31 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
   };
 
   /**
-   * Vuelve a escuchar cuando el turno se cierra por conversación: deja pasar un instante para que el
-   * audio termine de apagarse en la sala antes de abrir el micrófono.
+   * Espera a que la app deje de hablar, **con tope**: con un tope corto (barge-in) alcanza para que no
+   * entre el arranque del TTS; el resto de la voz lo filtran `pareceMia` y `esEco`. Con tope largo se usa
+   * cuando la voz tiene que terminar sí o sí antes de abrir el micrófono.
+   */
+  const esperarVoz = async (topeMs = 9000) => {
+    const t0 = performance.now();
+    while (hablandoRef.current && performance.now() - t0 < topeMs) {
+      await new Promise((r) => window.setTimeout(r, 120));
+    }
+    // Un respiro para que la última sílaba se apague en la sala antes de abrir el micrófono.
+    await new Promise((r) => window.setTimeout(r, 250));
+  };
+
+  /**
+   * Vuelve a escuchar cuando el turno se cierra por conversación.
    *
    * Medido 20/09/2026: abrir una sesión nueva por turno daba **11 sesiones en 90 s** — handshake en cada
    * una, y el proveedor factura el tiempo de conexión abierto. Si la sesión sigue viva, el turno
    * siguiente va sobre la misma (el motor la cierra sólo si se la termina).
    */
   const seguirEscuchando = async () => {
-    await new Promise((r) => window.setTimeout(r, 350));
+    // Con barge-in se espera sólo el ARRANQUE de la voz (600 ms), no su final: el micrófono tiene que
+    // quedar escuchando para poder interrumpirla. Lo que evita que la conversación se muerda la cola no
+    // es la espera sino los filtros: `pareceMia` en los parciales y `esEco` en el turno.
+    await esperarVoz(600);
     if (!continuoRef.current) return;
     const rt = rtRef.current;
     if (rt?.viva && rt.reanudar) {
@@ -348,7 +436,17 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
     void empezar();
   };
 
+  /** El atajo pidió cortar mientras `empezar()` todavía estaba abriendo la sesión. */
+  const cancelarRef = useRef(false);
+
   const empezar = async () => {
+    // Una sesión a la vez: sin este guard, cada pulsación del atajo apilaba otra sesión de streaming
+    // (medido 20/09: 7 sesiones en 25 s). Si ya hay una viva, se reanuda en vez de apilar.
+    if (rtRef.current) {
+      if (rtRef.current.viva && rtRef.current.reanudar) rtRef.current.reanudar();
+      return;
+    }
+    cancelarRef.current = false;
     setError('');
     setResultado('');
     setPlan(null);
@@ -368,6 +466,10 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
         onParcial: (t) => {
           fragRef.current = t;
           setParcial(t);
+          // Barge-in (20/09/2026): si el usuario habla encima, la app se calla en el acto. Tres palabras
+          // y que no suenen a la propia voz: con parlantes la app se oiría a sí misma y se cortaría sola.
+          const partes = t.trim().split(/\s+/).filter(Boolean);
+          if (hablandoRef.current && partes.length >= 3 && !pareceMia(t)) interrumpirVoz();
         },
         onFinal: (t) => {
           fragRef.current = t;
@@ -378,6 +480,14 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
       rtRef.current = rt;
       inicioRef.current = performance.now();
       await rt.start();
+      // El atajo ya se soltó mientras abríamos: el turno se cancela acá, sin dejar el micrófono abierto.
+      if (cancelarRef.current) {
+        cancelarRef.current = false;
+        rtRef.current = null;
+        void rt.stop();
+        setEstado('inactivo');
+        setDetalleEstado('');
+      }
     } catch (e: any) {
       setError(e?.message || 'No pude empezar a escuchar.');
       setEstado('error');
@@ -386,7 +496,17 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
 
   const cortar = async () => {
     const rt = rtRef.current;
-    if (!rt) return;
+    if (!rt) {
+      // Todavía no hay cliente: `empezar()` está abriendo la sesión (pide el token por HTTP) y el atajo ya
+      // se soltó. Sin esto el corte caía en el vacío y el micrófono quedaba escuchando para siempre
+      // (medido 20/09 a las 23:29: 7 sesiones emitidas y ningún corte). Queda marcado para que `empezar()`
+      // cierre la sesión apenas termine de abrirla.
+      cancelarRef.current = true;
+      setEstado('inactivo');
+      setDetalleEstado('');
+      return;
+    }
+    guionHabloRef.current = false; // turno nuevo: el guion todavía no dijo nada
     const asrSeg = Math.round((performance.now() - inicioRef.current) / 100) / 10;
     // Con un motor que sabe cerrar el turno **sin** cerrar la sesión (AssemblyAI: `ForceEndpoint`) la
     // conexión queda viva para el turno siguiente; si no, se corta y se vuelve a abrir como siempre.
@@ -433,7 +553,7 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
     // a) Aprobación hablada: el plan esperaba un «¿lo aplico?» y el contrato sigue siendo el mismo
     //    (el humano aprueba), sólo que aprobás hablando.
     if (continuoRef.current && planPendienteRef.current) {
-      if (ES_AFIRMATIVO.test(dictado)) {
+      if (esAfirmativo(dictado)) {
         setPlanPendiente(false);
         await aplicar();
         if (!silencio) await hablar('Listo, aplicado. ¿Qué más querés hacer?');
@@ -450,7 +570,11 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
     if (continuoRef.current) {
       const turno = await onTurnoConversacion(dictado);
       if (!turno?.alMotor) {
-        if (turno?.decir && !silencio) await hablar(turno.decir);
+        if (turno?.decir && !silencio) {
+          // El guion habla: queda marcado para que el motor no diga una segunda frase en este turno.
+          guionHabloRef.current = true;
+          await hablar(turno.decir);
+        }
         if (turno?.fin) {
           setContinuo(false);
           continuoRef.current = false;
@@ -518,7 +642,9 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
         return;
       }
       // El backend decidió si esto merece voz; acá sólo se obedece.
-      if (p.hablar && !silencio) void hablar(p.respuesta || '');
+      // El backend decidió si esto merece voz; acá sólo se obedece. Si el guion ya dijo su frase en este
+      // turno, el motor NO vuelve a hablar: eran dos voces seguidas y sonaba a bot confundido.
+      if (p.hablar && !silencio && !guionHabloRef.current) void hablar(p.respuesta || '');
     } catch (e: any) {
       setError(e?.message || 'El motor no pudo interpretar el dictado.');
     } finally {
@@ -527,6 +653,27 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
   };
 
   cortarRef.current = cortar;
+
+  /** El HUD (panel cerrado) necesita aplicar el plan sin abrir el modal. */
+  const aplicarRef = useRef<(() => Promise<void>) | null>(null);
+
+  /** El atajo global necesita llamar a `empezar` desde afuera del render (mismo motivo que `cortarRef`). */
+  const empezarRef = useRef<(() => Promise<void>) | null>(null);
+  empezarRef.current = empezar;
+
+  /**
+   * Pedido del atajo global (Ctrl+Shift+Space): al presionar empieza el turno, al soltar se corta.
+   * Se observa el contador `n` y no el objeto: dos pulsaciones seguidas tienen que ejecutarse las dos.
+   */
+  useEffect(() => {
+    if (!pedidoExterno) return;
+    // El pedido del atajo se atiende también con el panel CERRADO: es justamente así como se usa (dictar
+    // sin abrir el modal, con el lienzo a la vista).
+    if (pedidoExterno.accion === 'empezar') void empezarRef.current?.();
+    else void cortarRef.current?.();
+    // Sólo el contador: el pedido se ejecuta una vez por pulsación.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pedidoExterno?.n]);
 
   /** Arranca la conversación: la app pregunta primero y después escucha. */
   const conversar = async () => {
@@ -567,7 +714,58 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
     }
   };
 
-  if (!isOpen) return null;
+  // Después de la definición (no antes: `aplicar` es const y usarla antes sería un error de inicialización).
+  aplicarRef.current = aplicar;
+
+  // ── HUD flotante: dictar sin abrir el modal ────────────────────────────────────────────────
+  // Con el atajo global el panel NO se abre: el lienzo tiene que quedar a la vista, porque el grafo es el
+  // resultado y el modal lo tapaba. Mientras hay voz en curso se muestra este indicador abajo a la derecha:
+  // el parcial mientras hablás y, si quedó un plan, cuántos cambios hay y el botón para aplicarlos.
+  if (!isOpen) {
+    const n = plan?.comandos?.length ?? 0;
+    const activo = estado !== 'inactivo' || pensando || n > 0;
+    if (!activo) return null;
+    return (
+      <div className="fixed bottom-4 right-4 z-40 w-[22rem] rounded-xl border border-cyan-500/40 bg-slate-900/90 px-3 py-2 text-[11px] text-slate-200 shadow-xl backdrop-blur">
+        <div className="flex items-center gap-2">
+          <Mic
+            size={13}
+            className={estado === 'escuchando' ? 'text-cyan-300 animate-pulse' : 'text-slate-400'}
+          />
+          <span className="font-medium">
+            {estado === 'escuchando'
+              ? t('voz.hud.escuchando')
+              : pensando
+                ? t('voz.hud.pensando')
+                : t('voz.hud.voz')}
+          </span>
+          {(estado === 'escuchando' || estado === 'conectando') && (
+            <button
+              onClick={() => void cortarRef.current?.()}
+              className="ml-auto flex items-center gap-1 rounded border border-slate-600 px-1.5 py-0.5 text-[10px] text-slate-300 hover:bg-slate-800"
+            >
+              <Square size={9} /> {t('voz.hud.cortar')}
+            </button>
+          )}
+        </div>
+        <div className="mt-1 min-h-[15px] text-slate-400">{parcial || texto || ''}</div>
+        {n > 0 && (
+          <div className="mt-2 flex items-center gap-2 border-t border-slate-700/60 pt-2">
+            <span className="text-cyan-300">
+              {t('voz.hud.cambios').replace('{n}', String(n))}
+            </span>
+            <button
+              onClick={() => void aplicarRef.current?.()}
+              className="ml-auto flex items-center gap-1 rounded bg-cyan-600/90 px-2 py-0.5 text-[10px] font-medium text-white hover:bg-cyan-500"
+            >
+              <Check size={10} /> {t('voz.hud.aplicar')}
+            </button>
+          </div>
+        )}
+        {error && <div className="mt-1 text-amber-300">{error}</div>}
+      </div>
+    );
+  }
 
   const escuchando = estado === 'escuchando' || estado === 'conectando' || estado === 'cerrando';
   const colorEstado = estado === 'escuchando' ? 'bg-emerald-400' : estado === 'error' ? 'bg-rose-400' : estado === 'conectando' || estado === 'cerrando' ? 'bg-amber-400' : 'bg-slate-500';
@@ -912,6 +1110,7 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
               : 'El costo y la latencia de cada dictado se miden acá'}
           </span>
           <span>{t('voz.pie')}</span>
+          <span className="ml-2 text-cyan-500/80">{t('voz.atajo')}</span>
         </div>
       </div>
     </div>

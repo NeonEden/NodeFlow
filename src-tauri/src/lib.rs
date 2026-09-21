@@ -29,7 +29,7 @@ mod voz;
 mod voz_local;
 
 use std::path::PathBuf;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 /// La API key puede venir (en este orden): del entorno, del `.env` del proyecto (modo desarrollo), o
 /// del `nodeflow.config.json` de la app instalada. Nunca del WebView.
@@ -124,6 +124,69 @@ pub fn run() {
             // Fase 5b: memoria semántica de la bóveda (se indexa en el primer uso)
             let memoria = memoria::Memoria::new(&data_dir);
             server::spawn(data_dir, key, vault, memoria);
+
+            // Atajo global de dictado (Fase B, 20/09/2026): «abrir la app para hablar» era la última
+            // fricción que quedaba. Ctrl+Shift+Space dicta desde donde estés y, al soltar, el turno se
+            // corta y se procesa (push-to-talk, como los dictados del sistema). El frontend escucha
+            // `voz-atajo` y abre el panel solo. Un atajo tomado por otro programa NO rompe el arranque.
+            #[cfg(desktop)]
+            {
+                use tauri_plugin_global_shortcut::{
+                    Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState,
+                };
+                // Cadena de candidatas, no una tecla fija: `Ctrl+Shift+Space` ya está tomado en este
+                // Windows (medido 20/09: «HotKey already registered», lo usa el propio sistema para
+                // cambiar de método de entrada). Se registran TODAS las que estén libres y el handler
+                // responde a cualquiera, así que el atajo existe aunque la primera no se pueda tomar. Un
+                // atajo que no se registra en silencio es peor que no tenerlo: por eso cada intento queda
+                // en el log con su veredicto.
+                let candidatas: [(&str, Shortcut); 3] = [
+                    (
+                        "Ctrl+Alt+Space",
+                        Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::Space),
+                    ),
+                    (
+                        "Ctrl+Shift+F9",
+                        Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::F9),
+                    ),
+                    (
+                        "Ctrl+Alt+V",
+                        Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyV),
+                    ),
+                ];
+                let validas: Vec<Shortcut> = candidatas.iter().map(|(_, s)| s.clone()).collect();
+                app.handle().plugin(
+                    tauri_plugin_global_shortcut::Builder::new()
+                        .with_handler(move |app, s, evento| {
+                            if validas.iter().any(|v| v == s) {
+                                let cual = match evento.state() {
+                                    ShortcutState::Pressed => "pressed",
+                                    ShortcutState::Released => "released",
+                                };
+                                log::info!("atajo de voz: {cual}");
+                                let _ = app.emit("voz-atajo", cual);
+                            }
+                        })
+                        .build(),
+                )?;
+                let mut libres = 0;
+                for (nombre, atajo) in candidatas.iter() {
+                    match app.global_shortcut().register(atajo.clone()) {
+                        Ok(()) => {
+                            libres += 1;
+                            log::info!("atajo de voz listo: {nombre} (push-to-talk)");
+                        }
+                        Err(e) => log::warn!("no pude registrar {nombre}: {e}"),
+                    }
+                }
+                if libres == 0 {
+                    log::warn!(
+                        "sin atajo de dictado: las {} candidatas estaban tomadas. El panel de voz sigue andando desde la app.",
+                        candidatas.len()
+                    );
+                }
+            }
+
             Ok(())
         })
         .run(tauri::generate_context!())
