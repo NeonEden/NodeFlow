@@ -191,6 +191,20 @@ export class AssemblyAiRt {
   }
 
   /**
+   * Texto del turno que acaba de cerrarse **y limpia el acumulador**.
+   *
+   * Medido 20/09/2026 (al empezar a reusar la sesión entre turnos): `finales` acumulaba toda la vida de la
+   * conexión, así que el segundo turno sobre la misma sesión devolvía el texto del primero pegado —
+   * «idea uno idea dos» en vez de «idea dos». Con una sesión por turno no se notaba; reusando, sí.
+   */
+  private cosechar(): string {
+    const dicho = this.texto;
+    this.finales = [];
+    this.parcial = '';
+    return dicho;
+  }
+
+  /**
    * Cierra el **turno** sin cerrar la sesión.
    *
    * `ForceEndpoint` es el mensaje que documenta el WS v3 para esto (junto a `KeepAlive` y `Terminate`).
@@ -200,11 +214,11 @@ export class AssemblyAiRt {
   async cerrarTurno(): Promise<string> {
     this.pausar();
     const ws = this.ws;
-    if (!ws || ws.readyState !== WebSocket.OPEN) return this.texto;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return this.cosechar();
     return await new Promise<string>((resolve) => {
       const fin = () => {
         this.finDeTurno = null;
-        resolve(this.texto);
+        resolve(this.cosechar());
       };
       this.finDeTurno = fin;
       window.setTimeout(fin, 2500); // red de seguridad: si el turno no cierra, seguimos igual
@@ -216,13 +230,20 @@ export class AssemblyAiRt {
     });
   }
 
-  /** Corta el envío de audio sin cerrar la conexión (mientras el motor piensa o suena el TTS). */
+  /**
+   * Corta el envío de audio sin cerrar la conexión (mientras el motor piensa o suena el TTS).
+   *
+   * El dispositivo queda tomado a propósito: volver a pedirlo cuesta más que el `reanudar()` y el primer
+   * segundo de audio se perdería otra vez, que es justo el defecto que se está arreglando. La sesión
+   * completa se cierra a los 90 s de inactividad (lo decide el panel) y ahí sí se suelta el micrófono.
+   */
   pausar(): void {
     try {
       this.fuente?.disconnect();
     } catch {
       /* ya estaba desconectada */
     }
+    this.ev.onEstado?.('inactivo');
   }
 
   /** Vuelve a enviar audio sobre la MISMA sesión: el turno siguiente no paga handshake. */
@@ -252,7 +273,7 @@ export class AssemblyAiRt {
     const ws = this.ws;
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       this.ev.onEstado?.('cerrado');
-      return this.texto;
+      return this.cosechar();
     }
     return await new Promise<string>((resolve) => {
       const fin = () => {
@@ -262,7 +283,7 @@ export class AssemblyAiRt {
           /* ya cerrado */
         }
         this.ws = null;
-        resolve(this.texto);
+        resolve(this.cosechar());
       };
       this.cerrando = fin;
       window.setTimeout(fin, 4000); // red de seguridad si no llega Termination

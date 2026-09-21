@@ -241,6 +241,7 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
             .route("/api/voz/jwt", get(voz_jwt))
             .route("/api/voz/proveedores", get(voz_proveedores))
             .route("/api/voz/proveedor", post(voz_proveedor))
+            .route("/api/voz/traza", post(voz_traza))
             .route("/api/claves/estado", get(claves_estado))
             .route("/api/claves/migrar", post(claves_migrar))
             .route("/api/idioma", get(idioma_leer).post(idioma_guardar))
@@ -811,6 +812,8 @@ async fn recalibrar_perfil_con_ia(st: &AppState, key: &str) -> Option<Value> {
         "borrador", // rápido y gratis: es el bucle del lienzo
         false,      // los borradores sí usan caché
         None,       // el perfil HITL no es un pedido del usuario
+        None,       // la respuesta se lee entera: no hay clave anidada que juzgar
+        None,       // y no hay nada que exigir: un perfil vacío se descarta más abajo
     )
     .await?;
     let aprendido = llamada.valor["profile"].as_str()?.trim().to_string();
@@ -981,6 +984,14 @@ async fn ai_action(
                 // La planilla de evaluación pide medir al modelo, no a la caché.
                 body["sin_cache"].as_bool().unwrap_or(false),
                 body["texto"].as_str().or_else(|| body["prompt"].as_str()), // el pedido, no el prompt entero
+                nested.as_deref(),
+                // Para la voz, «contestó» no alcanza: si el plan viene sin comandos, la app queda muda.
+                // Con esto el walk sigue con el próximo motor en vez de quedarse con el plan vacío.
+                if action_type == "voz" {
+                    Some(voz_tiene_comandos)
+                } else {
+                    None
+                },
             )
             .await
         }
@@ -1039,6 +1050,8 @@ async fn ai_action(
                         "voz",
                         false,
                         None, // reintento/escalada: no hay un pedido nuevo del usuario
+                        nested.as_deref(),
+                        Some(voz_tiene_comandos),
                     )
                     .await;
                     if escalada.is_none() {
@@ -2182,30 +2195,81 @@ async fn call_model(
     accion: &str,
     sin_cache: bool,
     semilla: Option<&str>,
+    // Clave del objeto donde vive la respuesta (`nested`), para poder juzgarla con `exigir`.
+    nested: Option<&str>,
+    // Predicado que decide si una respuesta **sirve**. Si no sirve, no se devuelve: se sigue con el
+    // próximo motor del plan. Medido el 20/09/2026 a las 01:29: el único motor vivo de la cadena
+    // contestó **200 con 0 comandos**, el walk se quedó con eso (un plan vacío también es un éxito
+    // para HTTP) y los motores pagos de atrás —`deepseek`, `foundry-0731`— nunca se probaron: la voz
+    // quedó muda con la cadena entera disponible.
+    exigir: Option<fn(&Value, Option<&str>) -> bool>,
 ) -> Option<crate::costo::Llamada> {
     // El perfil lo decide la acción… salvo que haya una **conversación en curso**: a partir del segundo
     // turno el pedido ya no es una orden suelta ("ahora enfocá eso"), y el hilo sólo sirve si el modelo
     // lo entiende. Ahí manda el perfil Diálogo (nube primero, local como último recurso).
     let tarea = tarea_de(st, accion);
-    for (i, m) in plan_de_motores(st, modo, tarea, accion)
-        .await
-        .into_iter()
-        .enumerate()
-    {
+    let plan = plan_de_motores(st, modo, tarea, accion).await;
+    let total = plan.len();
+    // Tope de motores que pueden contestar «sin nada usable» antes de quedarse con la última respuesta.
+    // Por qué hay tope: sin él, un pedido que ningún motor interpreta bueno barre la cadena entera —plan
+    // de 22 motores, varios de ellos pagos y de segundos de latencia— y el usuario espera medio minuto por
+    // el mismo silencio. Con 3 el dictado sigue vivo (los motores que valen la pena están en los primeros
+    // lugares del plan) y el costo de la duda queda acotado y medido en el log.
+    const MAX_SIN_SIRVE: usize = 3;
+    let mut sin_sirve = 0usize;
+    // La primera respuesta que llegó: si ningún motor propone nada usable, se devuelve ésta (mejor un plan
+    // vacío —que el panel ya sabe explicar— que un error).
+    let mut respaldo: Option<crate::costo::Llamada> = None;
+    for (i, m) in plan.into_iter().enumerate() {
         if i > 0 {
             // Estamos en la red de seguridad: quedó registrado para poder medirlo después.
             log::info!("ruteo: {} no alcanzó, sigo con {}", tarea.etiqueta(), m.id);
         }
-        if let Some(llamada) = call_provider_cached(
-            st, key, &m, prompt, schema, system, nodo, sin_cache, semilla,
-        )
-        .await
-        {
-            return Some(llamada);
+        match call_provider_cached(st, key, &m, prompt, schema, system, nodo, sin_cache, semilla).await {
+            Some(llamada) if exigir.map(|sirve| sirve(&llamada.valor, nested)).unwrap_or(true) => {
+                return Some(llamada)
+            }
+            // Contestó, pero con algo que no le sirve a nadie: se sigue en vez de devolverlo. Es el caso
+            // que dejaba la voz muda con un motor vivo delante.
+            Some(llamada) => {
+                log::warn!(
+                    "el motor «{}» contestó sin nada usable; sigo con el siguiente",
+                    m.id
+                );
+                if respaldo.is_none() {
+                    respaldo = Some(llamada);
+                }
+                sin_sirve += 1;
+                if sin_sirve >= MAX_SIN_SIRVE {
+                    log::warn!(
+                        "{MAX_SIN_SIRVE} motores contestaron sin nada usable para «{accion}»: me quedo con la \
+                         última respuesta (hay {} sin probar)",
+                        total.saturating_sub(i + 1)
+                    );
+                    return respaldo;
+                }
+            }
+            None => log::warn!("el motor «{}» no respondió ({} de {})", m.id, i + 1, total),
         }
-        log::warn!("el motor «{}» no respondió; no hay otro en el plan", m.id);
     }
-    None
+    if respaldo.is_none() {
+        log::warn!("ningún motor respondió para «{accion}»");
+    }
+    respaldo
+}
+
+/// ¿El plan de voz trae algo que hacer? Un plan **sin comandos es silencio** para el usuario, así que
+/// para el ruteo cuenta como fallo igual que un 500: medido el 20/09/2026, el único motor vivo de la
+/// cadena contestó 200 con 0 comandos y el walk cortó ahí.
+fn voz_tiene_comandos(valor: &Value, nested: Option<&str>) -> bool {
+    let v = match nested {
+        Some(k) => &valor[k],
+        None => valor,
+    };
+    v["comandos"]
+        .as_array()
+        .map(|c| !c.is_empty())
+        .unwrap_or(false)
 }
 
 /// `GET /api/ai/motores` — catálogo real de motores y cuál está elegido.
@@ -3004,6 +3068,52 @@ async fn voz_proveedor(State(st): State<AppState>, Json(body): Json<Value>) -> i
             Json(json!({ "success": false, "error": e })),
         ),
     }
+}
+
+/// `POST /api/voz/traza` `{ "evento": "turno.cerrado", "campos": "turno=3 fuente=ForceEndpoint ms=1810" }`
+/// — la traza del ciclo de voz que emite el **webview**.
+///
+/// Por qué existe: el log de Rust sólo veía el atajo (`pressed`/`released`) y la emisión del token. Lo que
+/// pasa del lado del panel —cuánto tarda `start()`, cuándo llega el primer parcial, con qué motivo se cierra
+/// el turno, si el turno se sirvió **reusando** la sesión o abriendo una nueva— no quedaba en ningún lado, así
+/// que cada diagnóstico volvía a ser una deducción (medido 20/09/2026 en el log de la app: 10 pulsaciones del
+/// atajo y 13 sesiones de STT emitidas, sin una sola línea del webview que dijera por qué).
+///
+/// Formato: una línea por evento con prefijo fijo `voz(ui)`, para contarlo con `grep -c "voz(ui)"`.
+/// El texto se recorta y se le sacan los saltos de línea: es una traza, no un canal de datos.
+async fn voz_traza(Json(body): Json<Value>) -> impl IntoResponse {
+    let evento = body["evento"].as_str().unwrap_or("").trim();
+    let campos = body["campos"].as_str().unwrap_or("").trim();
+    if !evento_valido(evento) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "success": false, "error": "Falta `evento`." })),
+        );
+    }
+    log::info!("{}", linea_traza(evento, campos));
+    (StatusCode::OK, Json(json!({ "success": true })))
+}
+
+/// ¿Hay algo que valga la pena escribir? Un evento con sólo espacios o saltos de línea no es una traza:
+/// escribirla deja una línea `voz(ui)   ` que ensucia el log y no cuenta nada.
+fn evento_valido(evento: &str) -> bool {
+    !limpiar_traza(evento, 40).trim().is_empty()
+}
+
+/// Saca saltos de línea y recorta: una traza no puede desordenar el log ni crecer sin techo.
+fn limpiar_traza(s: &str, tope: usize) -> String {
+    s.replace(['\n', '\r'], " ").chars().take(tope).collect()
+}
+
+/// La línea que se escribe en el log: prefijo fijo y una sola línea, para poder contarla con `grep -c`.
+fn linea_traza(evento: &str, campos: &str) -> String {
+    format!(
+        "voz(ui) {} {}",
+        limpiar_traza(evento.trim(), 40),
+        limpiar_traza(campos.trim(), 220)
+    )
+    .trim_end()
+    .to_string()
 }
 
 /// `POST /api/ai/evaluar` — corre la planilla sobre los motores pedidos (por defecto, los locales).
@@ -5928,5 +6038,65 @@ mod tests_turno_ia {
             ia_tomar_en(&m, &claves(&["ia:placa"]), 201.0),
             "tras soltar, la placa vuelve a estar libre"
         );
+    }
+}
+
+#[cfg(test)]
+mod tests_traza_voz {
+    use super::*;
+
+    /// Una traza = una línea, con el prefijo que se cuenta con `grep -c`. Si esto cambia, los conteos del
+    /// diagnóstico dejan de significar lo mismo.
+    #[test]
+    fn una_traza_es_una_sola_linea_con_prefijo_contable() {
+        let l = linea_traza("turno.cerrado", "turno=3 fuente=ForceEndpoint ms=1810");
+        assert_eq!(l, "voz(ui) turno.cerrado turno=3 fuente=ForceEndpoint ms=1810");
+        assert!(!l.contains('\n'));
+    }
+
+    /// El webview manda el texto que quiere: con saltos de línea el log se desordena; con 10 KB se come el
+    /// archivo. Las dos cosas se cortan acá.
+    #[test]
+    fn los_saltos_de_linea_y_el_texto_largo_se_recortan() {
+        let l = linea_traza("error\nimportante", "mensaje=nada\r\n\nseguimos");
+        assert!(l.starts_with("voz(ui) error importante mensaje=nada"), "{l}");
+        assert_eq!(l.lines().count(), 1);
+        let largo = linea_traza("error", &"x".repeat(1000));
+        assert!(largo.len() < 260, "la traza no se recortó: {} chars", largo.len());
+    }
+
+    /// Un evento vacío no es una traza: el handler lo rechaza (400) en vez de escribir una línea sin sentido.
+    #[test]
+    fn un_evento_vacio_se_rechaza() {
+        // Ojo: `limpiar_traza` no recorta espacios (los cambia por espacios, no los borra). La pregunta por
+        // la validez la contesta `evento_valido`, que es lo que usa el handler.
+        assert!(!evento_valido("  \n \t "));
+        assert!(!evento_valido(""));
+        assert!(evento_valido("turno.cerrado"));
+        assert!(evento_valido("  pedido  "));
+    }
+}
+
+#[cfg(test)]
+mod tests_voz_comandos {
+    use super::*;
+
+    /// Un plan con comandos sirve; uno vacío no. La diferencia es que la voz haga algo o no lo haga.
+    #[test]
+    fn un_plan_vacio_no_sirve() {
+        let con = json!({ "voz": { "intencion": "comando", "comandos": [{ "accion": "crear" }] } });
+        let sin = json!({ "voz": { "intencion": "charla", "comandos": [] } });
+        let raro = json!({ "voz": { "intencion": "charla" } });
+        assert!(voz_tiene_comandos(&con, Some("voz")));
+        assert!(!voz_tiene_comandos(&sin, Some("voz")));
+        assert!(!voz_tiene_comandos(&raro, Some("voz")));
+    }
+
+    /// Sin clave anidada se juzga la respuesta entera: es el caso de una acción que responde plano.
+    #[test]
+    fn sin_clave_anidada_se_juzga_la_respuesta_entera() {
+        let plano = json!({ "comandos": [{ "accion": "enfocar" }] });
+        assert!(voz_tiene_comandos(&plano, None));
+        assert!(!voz_tiene_comandos(&json!({ "comandos": [] }), None));
     }
 }
