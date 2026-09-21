@@ -812,6 +812,8 @@ async fn recalibrar_perfil_con_ia(st: &AppState, key: &str) -> Option<Value> {
         "borrador", // rápido y gratis: es el bucle del lienzo
         false,      // los borradores sí usan caché
         None,       // el perfil HITL no es un pedido del usuario
+        None,       // la respuesta se lee entera: no hay clave anidada que juzgar
+        None,       // y no hay nada que exigir: un perfil vacío se descarta más abajo
     )
     .await?;
     let aprendido = llamada.valor["profile"].as_str()?.trim().to_string();
@@ -982,6 +984,14 @@ async fn ai_action(
                 // La planilla de evaluación pide medir al modelo, no a la caché.
                 body["sin_cache"].as_bool().unwrap_or(false),
                 body["texto"].as_str().or_else(|| body["prompt"].as_str()), // el pedido, no el prompt entero
+                nested.as_deref(),
+                // Para la voz, «contestó» no alcanza: si el plan viene sin comandos, la app queda muda.
+                // Con esto el walk sigue con el próximo motor en vez de quedarse con el plan vacío.
+                if action_type == "voz" {
+                    Some(voz_tiene_comandos)
+                } else {
+                    None
+                },
             )
             .await
         }
@@ -1040,6 +1050,8 @@ async fn ai_action(
                         "voz",
                         false,
                         None, // reintento/escalada: no hay un pedido nuevo del usuario
+                        nested.as_deref(),
+                        Some(voz_tiene_comandos),
                     )
                     .await;
                     if escalada.is_none() {
@@ -2183,30 +2195,55 @@ async fn call_model(
     accion: &str,
     sin_cache: bool,
     semilla: Option<&str>,
+    // Clave del objeto donde vive la respuesta (`nested`), para poder juzgarla con `exigir`.
+    nested: Option<&str>,
+    // Predicado que decide si una respuesta **sirve**. Si no sirve, no se devuelve: se sigue con el
+    // próximo motor del plan. Medido el 20/09/2026 a las 01:29: el único motor vivo de la cadena
+    // contestó **200 con 0 comandos**, el walk se quedó con eso (un plan vacío también es un éxito
+    // para HTTP) y los motores pagos de atrás —`deepseek`, `foundry-0731`— nunca se probaron: la voz
+    // quedó muda con la cadena entera disponible.
+    exigir: Option<fn(&Value, Option<&str>) -> bool>,
 ) -> Option<crate::costo::Llamada> {
     // El perfil lo decide la acción… salvo que haya una **conversación en curso**: a partir del segundo
     // turno el pedido ya no es una orden suelta ("ahora enfocá eso"), y el hilo sólo sirve si el modelo
     // lo entiende. Ahí manda el perfil Diálogo (nube primero, local como último recurso).
     let tarea = tarea_de(st, accion);
-    for (i, m) in plan_de_motores(st, modo, tarea, accion)
-        .await
-        .into_iter()
-        .enumerate()
-    {
+    let plan = plan_de_motores(st, modo, tarea, accion).await;
+    let total = plan.len();
+    for (i, m) in plan.into_iter().enumerate() {
         if i > 0 {
             // Estamos en la red de seguridad: quedó registrado para poder medirlo después.
             log::info!("ruteo: {} no alcanzó, sigo con {}", tarea.etiqueta(), m.id);
         }
-        if let Some(llamada) = call_provider_cached(
-            st, key, &m, prompt, schema, system, nodo, sin_cache, semilla,
-        )
-        .await
-        {
-            return Some(llamada);
+        match call_provider_cached(st, key, &m, prompt, schema, system, nodo, sin_cache, semilla).await {
+            Some(llamada) if exigir.map(|sirve| sirve(&llamada.valor, nested)).unwrap_or(true) => {
+                return Some(llamada)
+            }
+            // Contestó, pero con algo que no le sirve a nadie: se sigue en vez de devolverlo. Es el caso
+            // que dejaba la voz muda con un motor vivo delante.
+            Some(_) => log::warn!(
+                "el motor «{}» contestó sin nada usable; sigo con el siguiente",
+                m.id
+            ),
+            None => log::warn!("el motor «{}» no respondió ({} de {})", m.id, i + 1, total),
         }
-        log::warn!("el motor «{}» no respondió; no hay otro en el plan", m.id);
     }
+    log::warn!("ningún motor del plan sirvió para «{accion}»");
     None
+}
+
+/// ¿El plan de voz trae algo que hacer? Un plan **sin comandos es silencio** para el usuario, así que
+/// para el ruteo cuenta como fallo igual que un 500: medido el 20/09/2026, el único motor vivo de la
+/// cadena contestó 200 con 0 comandos y el walk cortó ahí.
+fn voz_tiene_comandos(valor: &Value, nested: Option<&str>) -> bool {
+    let v = match nested {
+        Some(k) => &valor[k],
+        None => valor,
+    };
+    v["comandos"]
+        .as_array()
+        .map(|c| !c.is_empty())
+        .unwrap_or(false)
 }
 
 /// `GET /api/ai/motores` — catálogo real de motores y cuál está elegido.
@@ -6011,5 +6048,29 @@ mod tests_traza_voz {
         assert!(!evento_valido(""));
         assert!(evento_valido("turno.cerrado"));
         assert!(evento_valido("  pedido  "));
+    }
+}
+
+#[cfg(test)]
+mod tests_voz_comandos {
+    use super::*;
+
+    /// Un plan con comandos sirve; uno vacío no. La diferencia es que la voz haga algo o no lo haga.
+    #[test]
+    fn un_plan_vacio_no_sirve() {
+        let con = json!({ "voz": { "intencion": "comando", "comandos": [{ "accion": "crear" }] } });
+        let sin = json!({ "voz": { "intencion": "charla", "comandos": [] } });
+        let raro = json!({ "voz": { "intencion": "charla" } });
+        assert!(voz_tiene_comandos(&con, Some("voz")));
+        assert!(!voz_tiene_comandos(&sin, Some("voz")));
+        assert!(!voz_tiene_comandos(&raro, Some("voz")));
+    }
+
+    /// Sin clave anidada se juzga la respuesta entera: es el caso de una acción que responde plano.
+    #[test]
+    fn sin_clave_anidada_se_juzga_la_respuesta_entera() {
+        let plano = json!({ "comandos": [{ "accion": "enfocar" }] });
+        assert!(voz_tiene_comandos(&plano, None));
+        assert!(!voz_tiene_comandos(&json!({ "comandos": [] }), None));
     }
 }
