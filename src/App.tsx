@@ -273,6 +273,7 @@ export default function App() {
   const [isSynthesisLoading, setIsSynthesisLoading] = useState(false);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
   const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false);
+  const [isWelcomeOpen, setIsWelcomeOpen] = useState(true);
   const [hasCustomApiKey, setHasCustomApiKey] = useState(() => {
     try {
       return !!(localStorage.getItem('user_gemini_api_key') || '').trim();
