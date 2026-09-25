@@ -65,5 +65,14 @@ const usoOk = typeof u.proveedor === 'string' && typeof u.modelo === 'string' &&
 if (!usoOk) fallos += 1;
 console.log(`${usoOk ? 'ok  ' : 'FALLA'}  uso (proveedor/modelo/tokens/ms)     ${JSON.stringify(u)}`);
 
+// El catálogo de motores del demo no puede listar engines que no existen (los Ollama de la máquina del
+// autor): el visitante cree que corre local y eso desconfía de todo el demo.
+const cat = (await handle({ method: 'GET', ruta: '/api/ai/motores', query: {}, body: {}, ip: 'test' })).json || {};
+const catOk = Array.isArray(cat.motores) && cat.motores.length === 1
+  && cat.motores.every((m) => m.id === cat.efectivo && !/ollama/i.test(String(m.proveedor)))
+  && cat.motores[0].disponible === true;
+if (!catOk) fallos += 1;
+console.log(`${catOk ? 'ok  ' : 'FALLA'}  /api/ai/motores (un solo motor real)  ${JSON.stringify(cat.motores?.[0]?.etiqueta)}`);
+
 console.log(fallos === 0 ? '\nTODO EN VERDE' : `\n${fallos} FALLA(S)`);
 process.exit(fallos === 0 ? 0 : 1);

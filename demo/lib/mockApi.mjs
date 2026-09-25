@@ -647,6 +647,44 @@ function usoDe(proveedor, tokens, ms) {
   return uso;
 }
 
+/**
+ * Catálogo de motores del demo: UN solo motor, el que realmente contesta. El fixture cosechado del backend
+ * real lista los Ollama de la máquina del autor («deepseek-r1:7b · en tu placa») y el visitante creía estar
+ * corriendo local: mentira cosmética que rompe la confianza en todo lo demás. Si hay motor en vivo se
+ * informa ése; si no, que el demo responde con planes grabados — y se dice con esas palabras.
+ */
+function catalogoMotores() {
+  const modelo = process.env.DEMO_MOTOR_MODELO;
+  const vivo = !!(modelo && process.env.DEMO_MOTOR_URL && claveMotor());
+  const id = vivo ? 'demo:azure-foundry' : 'demo:grabado';
+  return {
+    ok: true,
+    efectivo: id,
+    seleccionado: id,
+    motores: [
+      vivo
+        ? {
+            id,
+            etiqueta: `Azure Foundry · ${modelo}`,
+            modelo,
+            proveedor: 'openai',
+            donde: 'pago',
+            disponible: true,
+            nota: 'El demo corre con este motor; no se puede cambiar desde acá.',
+          }
+        : {
+            id,
+            etiqueta: 'Planes grabados del demo · sin costo',
+            modelo: 'grabado',
+            proveedor: 'demo',
+            donde: 'gratis',
+            disponible: true,
+            nota: 'Sin motor en vivo: el demo responde con planes grabados de corridas reales.',
+          },
+    ],
+  };
+}
+
 // ---------------------------------------------------------------- router
 
 const json = (status, body) => ({ status, json: body });
@@ -763,8 +801,8 @@ export async function handle({ method, ruta, query, body, ip = 'anon' }) {
       uso: usoDe(motor, tokens, ms),
     });
   }
-  if (ruta === '/api/ai/motores') return json(200, FIXTURAS.get('/api/ai/motores') || { success: true, motores: [], seleccionado: null });
-  if (ruta === '/api/ai/motor') return json(200, { ok: true, seleccionado: body?.id || null, demo: true });
+  if (ruta === '/api/ai/motores') return json(200, catalogoMotores());
+  if (ruta === '/api/ai/motor') return json(200, { ok: true, seleccionado: catalogoMotores().efectivo, demo: true, nota: 'El demo corre con un único motor.' });
   if (ruta === '/api/ai/cache') return json(200, FIXTURAS.get('/api/ai/cache') || { ok: true });
   if (ruta === '/api/ai/evaluar' || ruta === '/api/ai/delegar' || ruta === '/api/ai/investigar') {
     return json(200, { ...(FIXTURAS.get(ruta) || {}), corriendo: false, demo: true });
