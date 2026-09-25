@@ -56,5 +56,14 @@ const wavOk = tts.status === 200 && Buffer.isBuffer(tts.body) && tts.body.slice(
 if (!wavOk) fallos += 1;
 console.log(`${wavOk ? 'ok  ' : 'FALLA'}  /api/voz/decir (WAV de silencio)     bytes=${tts.body?.length ?? 0}`);
 
+// El uso tiene que venir con forma completa: sin `proveedor`/`tokens` el demo no puede decir qué motor
+// contestó ni cuánto costó (y el costo real sólo se informa si hay tarifa declarada por entorno).
+const conUso = await handle({ method: 'POST', ruta: '/api/ai/action', query: {}, body: { type: 'hybrid', selectedNodes: SELECCION }, ip: 'test' });
+const u = conUso.json?.uso || {};
+const usoOk = typeof u.proveedor === 'string' && typeof u.modelo === 'string' && !!u.tokens
+  && typeof u.tokens.prompt === 'number' && typeof u.tokens.completion === 'number' && typeof u.ms === 'number';
+if (!usoOk) fallos += 1;
+console.log(`${usoOk ? 'ok  ' : 'FALLA'}  uso (proveedor/modelo/tokens/ms)     ${JSON.stringify(u)}`);
+
 console.log(fallos === 0 ? '\nTODO EN VERDE' : `\n${fallos} FALLA(S)`);
 process.exit(fallos === 0 ? 0 : 1);

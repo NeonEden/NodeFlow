@@ -165,7 +165,12 @@ async function motorReal(texto) {
       });
       if (!r.ok) throw new Error(`motor ${r.status}: ${(await r.text()).slice(0, 120)}`);
       const d = await r.json();
-      return { texto: d.choices?.[0]?.message?.content || '', requestId: d.request_id || d.id || null };
+      return {
+        texto: d.choices?.[0]?.message?.content || '',
+        requestId: d.request_id || d.id || null,
+        // Los tokens que informa el proveedor: sin esto el demo no puede decir cuánto costó la llamada.
+        tokens: d.usage ? { prompt: d.usage.prompt_tokens ?? 0, completion: d.usage.completion_tokens ?? 0 } : null,
+      };
     } finally {
       clearTimeout(reloj);
     }
@@ -181,7 +186,7 @@ async function motorReal(texto) {
     },
   ];
 
-  let { texto: txt, requestId } = await pedir(base, maxTokens);
+  let { texto: txt, requestId, tokens } = await pedir(base, maxTokens);
   let plan = null;
   try {
     plan = JSON.parse(txt);
@@ -210,13 +215,17 @@ async function motorReal(texto) {
       if (Array.isArray(p2.comandos)) {
         plan = p2;
         requestId = correccion.requestId || requestId;
+        // El reintento correctivo también se paga: se suman los tokens de las dos pasadas.
+        if (correccion.tokens) {
+          tokens = { prompt: (tokens?.prompt ?? 0) + correccion.tokens.prompt, completion: (tokens?.completion ?? 0) + correccion.tokens.completion };
+        }
       }
     } catch {
       /* sigue sin servir: lo decide el que llama */
     }
   }
   if (!plan || !Array.isArray(plan.comandos)) throw new Error('el motor no devolvió comandos');
-  return { plan, ms: Date.now() - t0, modelo, requestId };
+  return { plan, ms: Date.now() - t0, modelo, requestId, tokens };
 }
 
 async function planDeVoz(texto, ip = 'anon') {
@@ -226,7 +235,7 @@ async function planDeVoz(texto, ip = 'anon') {
     try {
       const real = await motorReal(texto);
       if (real?.plan) {
-        return { plan: real.plan, motor: `demo@${real.modelo}`, ms: real.ms, vivo: true };
+        return { plan: real.plan, motor: `demo@${real.modelo}`, ms: real.ms, vivo: true, tokens: real.tokens };
       }
     } catch (e) {
       // Fallback silencioso: si el motor vivo falla o tarda, el demo sigue respondiendo con lo grabado.
@@ -555,6 +564,7 @@ async function accionConMotor(tipo, body) {
   const modelo = process.env.DEMO_MOTOR_MODELO;
   const clave = claveMotor();
   if (!url || !modelo || !clave || !PEDIDOS[tipo]) return null;
+  const t0 = Date.now();
   const entrada = JSON.stringify({ nodeData: body?.nodeData, selectedNodes: body?.selectedNodes, nodes: body?.nodes?.slice(0, 40), edges: body?.edges, rawText: body?.rawText, objetivo: body?.objetivo }).slice(0, 6000);
   const ctl = new AbortController();
   const reloj = setTimeout(() => ctl.abort(), Number(process.env.DEMO_MOTOR_TIMEOUT_MS || 20000));
@@ -577,7 +587,12 @@ async function accionConMotor(tipo, body) {
     const d = await r.json();
     const txt = d?.choices?.[0]?.message?.content || '';
     const parsed = JSON.parse(txt);
-    return VALIDADORES[tipo](parsed) ? parsed : null;
+    if (!VALIDADORES[tipo](parsed)) return null;
+    return {
+      datos: parsed,
+      ms: Date.now() - t0,
+      tokens: d.usage ? { prompt: d.usage.prompt_tokens ?? 0, completion: d.usage.completion_tokens ?? 0 } : null,
+    };
   } catch (e) {
     console.warn(`demo: motor en vivo falló en ${tipo}, cae al generador local —`, String(e?.message || e));
     return null;
@@ -610,6 +625,26 @@ function accionLocal(tipo, body) {
     default:
       return { sin_datos: true, tipo };
   }
+}
+
+/**
+ * Bloque de uso que el front pinta en la traza (`proveedor · ms · tok · $`). La tarifa es opcional: si no
+ * está declarada, se informan los tokens y NO se inventa un costo (regla de la casa, `costo.rs`).
+ */
+function usoDe(proveedor, tokens, ms) {
+  const entrada = Number(process.env.DEMO_MOTOR_PRECIO_IN || 0);
+  const salida = Number(process.env.DEMO_MOTOR_PRECIO_OUT || 0);
+  const uso = {
+    proveedor,
+    modelo: String(proveedor).replace(/^demo@/, ''),
+    ms: ms ?? 0,
+    tokens: tokens || { prompt: 0, completion: 0 },
+    cache: 'miss',
+  };
+  if (entrada > 0 || salida > 0) {
+    uso.costo_usd = Number((((tokens?.prompt ?? 0) / 1e6) * entrada + ((tokens?.completion ?? 0) / 1e6) * salida).toFixed(6));
+  }
+  return uso;
 }
 
 // ---------------------------------------------------------------- router
@@ -680,28 +715,33 @@ export async function handle({ method, ruta, query, body, ip = 'anon' }) {
       const t0 = Date.now();
       let datos = null;
       let fuente = 'demo@determinista';
+      let tokens = null;
+      let msMotor = null;
       if (permitido(ip)) {
         const vivo = await accionConMotor(tipo, body).catch(() => null);
         if (vivo) {
-          datos = vivo;
+          datos = vivo.datos;
+          tokens = vivo.tokens;
+          msMotor = vivo.ms;
           fuente = `demo@${process.env.DEMO_MOTOR_MODELO}`;
         }
       }
       if (!datos) datos = accionLocal(tipo, body);
+      const ms = msMotor ?? Date.now() - t0;
       return json(200, {
         success: true,
         ...datos,
         source: fuente,
         cadena: ['demo'],
         modo: 'demo',
-        ms: Date.now() - t0,
-        demo: { vivo: fuente !== 'demo@determinista', aviso: 'Acción resuelta en el demo, sin salir del navegador.' },
-        uso: { proveedor: fuente, total_tokens: 0, cache_hit: 0 },
+        ms,
+        demo: { vivo: msMotor !== null, aviso: 'Acción resuelta en el demo, sin salir del navegador.' },
+        uso: usoDe(fuente, tokens, ms),
       });
     }
 
     const texto = body?.texto || body?.prompt || body?.rawText || '';
-    const { plan, motor, ms, vivo, exacto, limitado } = await planDeVoz(texto, ip);
+    const { plan, motor, ms, vivo, exacto, limitado, tokens } = await planDeVoz(texto, ip);
     return json(200, {
       success: true,
       voz: plan,
@@ -720,7 +760,7 @@ export async function handle({ method, ruta, query, body, ip = 'anon' }) {
             ? 'Límite por IP alcanzado: se responde con planes grabados de corridas reales.'
             : 'Plan grabado de una corrida real del motor en la app.',
       },
-      uso: { proveedor: motor, total_tokens: 0, cache_hit: 0 },
+      uso: usoDe(motor, tokens, ms),
     });
   }
   if (ruta === '/api/ai/motores') return json(200, FIXTURAS.get('/api/ai/motores') || { success: true, motores: [], seleccionado: null });
