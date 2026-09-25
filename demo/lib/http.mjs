@@ -36,8 +36,14 @@ export async function apiHandler(req, res) {
     salida = { status: 500, json: { success: false, error: String(e?.message || e) } };
   }
   res.statusCode = salida.status || 200;
-  res.setHeader('content-type', 'application/json; charset=utf-8');
   res.setHeader('access-control-allow-origin', '*');
   res.setHeader('access-control-allow-headers', 'content-type');
+  // Respuestas binarias (el WAV de `/api/voz/decir`): sólo el JSON se serializa.
+  if (salida.body) {
+    res.setHeader('content-type', salida.contentType || 'application/octet-stream');
+    res.end(salida.body);
+    return;
+  }
+  res.setHeader('content-type', 'application/json; charset=utf-8');
   res.end(JSON.stringify(salida.json ?? {}));
 }
