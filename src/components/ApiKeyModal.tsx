@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Key, X, ShieldCheck, Check, AlertCircle, Trash2, ExternalLink, Sparkles } from 'lucide-react';
+import { apiUrl } from '../services/apiBase';
+import { useIdioma } from '../i18n/useIdioma';
 
 interface ApiKeyModalProps {
   isOpen: boolean;
@@ -7,52 +9,115 @@ interface ApiKeyModalProps {
   onKeyChange: (hasKey: boolean) => void;
 }
 
+interface ClaveEstado {
+  campo: string;
+  origen: string;
+  huella: string;
+  largo: number;
+}
+
+interface ClavesEstadoResponse {
+  campos: ClaveEstado[];
+}
+
 export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ isOpen, onClose, onKeyChange }) => {
+  const { t } = useIdioma();
   const [apiKey, setApiKey] = useState('');
   const [showKey, setShowKey] = useState(false);
   const [hasSavedKey, setHasSavedKey] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const checkSavedKey = async () => {
+    try {
+      const res = await fetch(apiUrl('/api/claves/estado'));
+      if (res.ok) {
+        const data: ClavesEstadoResponse = await res.json();
+        const geminiKey = data.campos.find(c => c.campo === 'gemini_api_key');
+        const hasKey = geminiKey && geminiKey.origen !== 'ausente';
+        setHasSavedKey(!!hasKey);
+        onKeyChange(!!hasKey);
+      }
+    } catch {
+      // Fallback: try localStorage
+      const stored = localStorage.getItem('user_gemini_api_key') || '';
+      setHasSavedKey(!!stored.trim());
+      onKeyChange(!!stored.trim());
+    }
+  };
 
   useEffect(() => {
     if (isOpen) {
       const stored = localStorage.getItem('user_gemini_api_key') || '';
       setApiKey(stored);
-      setHasSavedKey(!!stored.trim());
       setSaveSuccess(false);
+      checkSavedKey();
     }
   }, [isOpen]);
 
   if (!isOpen) return null;
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = apiKey.trim();
-    if (trimmed) {
-      localStorage.setItem('user_gemini_api_key', trimmed);
-      setHasSavedKey(true);
-      onKeyChange(true);
-    } else {
-      localStorage.removeItem('user_gemini_api_key');
-      setHasSavedKey(false);
-      onKeyChange(false);
+    setLoading(true);
+    try {
+      if (trimmed) {
+        const res = await fetch(apiUrl('/api/claves'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ campo: 'gemini_api_key', valor: trimmed }),
+        });
+        if (!res.ok) throw new Error('Error al guardar');
+        localStorage.setItem('user_gemini_api_key', trimmed);
+        setHasSavedKey(true);
+        onKeyChange(true);
+      } else {
+        const res = await fetch(apiUrl('/api/claves'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ campo: 'gemini_api_key', borrar: true }),
+        });
+        if (!res.ok) throw new Error('Error al borrar');
+        localStorage.removeItem('user_gemini_api_key');
+        setHasSavedKey(false);
+        onKeyChange(false);
+      }
+      setSaveSuccess(true);
+      setTimeout(() => {
+        setSaveSuccess(false);
+        onClose();
+      }, 900);
+    } catch (err) {
+      console.error('Error guardando/borrando clave:', err);
+    } finally {
+      setLoading(false);
     }
-    setSaveSuccess(true);
-    setTimeout(() => {
-      setSaveSuccess(false);
-      onClose();
-    }, 900);
   };
 
-  const handleRemove = () => {
-    localStorage.removeItem('user_gemini_api_key');
-    setApiKey('');
-    setHasSavedKey(false);
-    onKeyChange(false);
-    setSaveSuccess(true);
-    setTimeout(() => {
-      setSaveSuccess(false);
-      onClose();
-    }, 700);
+  const handleRemove = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(apiUrl('/api/claves'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ campo: 'gemini_api_key', borrar: true }),
+      });
+      if (!res.ok) throw new Error('Error al borrar');
+      localStorage.removeItem('user_gemini_api_key');
+      setApiKey('');
+      setHasSavedKey(false);
+      onKeyChange(false);
+      setSaveSuccess(true);
+      setTimeout(() => {
+        setSaveSuccess(false);
+        onClose();
+      }, 700);
+    } catch (err) {
+      console.error('Error borrando clave:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -75,14 +140,14 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ isOpen, onClose, onKey
             <div>
               <div className="flex items-center gap-2">
                 <h2 id="api-key-modal-title" className="text-base font-bold text-white">
-                  Configuración de API Key (BYOK)
+                  {t('apikey.titulo')}
                 </h2>
                 <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 text-[10px] font-mono border border-emerald-500/20">
-                  Opcional
+                  {t('apikey.opcional')}
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
-                Usa tu propia cuota de Google Gemini o la del servidor
+                {t('apikey.descripcion')}
               </p>
             </div>
           </div>
@@ -90,7 +155,7 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ isOpen, onClose, onKey
             type="button"
             onClick={onClose}
             className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
-            title="Cerrar (Esc)"
+            title={t('modal.cerrarEsc')}
           >
             <X size={18} />
           </button>
@@ -102,10 +167,10 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ isOpen, onClose, onKey
             <ShieldCheck size={16} className="text-emerald-400 shrink-0 mt-0.5" />
             <div className="space-y-1">
               <p className="font-semibold text-slate-200">
-                100% Protegido en Server-Side
+                {t('apikey.seguro.titulo')}
               </p>
               <p className="text-slate-400 leading-relaxed text-[11px]">
-                Ninguna credencial se expone en la consola ni en el código público. El cliente únicamente invoca <code className="text-indigo-300 bg-slate-900 px-1 py-0.5 rounded font-mono">/api/ai/action</code>. Tu clave personal se guarda localmente en tu navegador y viaja de forma segura por cabecera HTTP directa a tu propio backend.
+                {t('apikey.seguro.texto')}
               </p>
             </div>
           </div>
@@ -116,14 +181,14 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ isOpen, onClose, onKey
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <label htmlFor="user-api-key-input" className="text-xs font-semibold text-slate-300">
-                Tu Google Gemini API Key:
+                {t('apikey.label')}
               </label>
               <button
                 type="button"
                 onClick={() => setShowKey(!showKey)}
                 className="text-[11px] text-indigo-400 hover:text-indigo-300 cursor-pointer"
               >
-                {showKey ? 'Ocultar' : 'Mostrar clave'}
+                {showKey ? t('apikey.ocultar') : t('apikey.mostrar')}
               </button>
             </div>
 
@@ -141,14 +206,14 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ isOpen, onClose, onKey
             </div>
 
             <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1">
-              <span>¿No tienes una clave propia?</span>
+              <span>{t('apikey.sinClave')}</span>
               <a
                 href="https://aistudio.google.com/app/apikey"
                 target="_blank"
                 rel="noreferrer"
                 className="text-emerald-400 hover:text-emerald-300 inline-flex items-center gap-1 hover:underline"
               >
-                <span>Obtener clave gratis en Google AI Studio</span>
+                <span>{t('apikey.obtener')}</span>
                 <ExternalLink size={11} />
               </a>
             </div>
@@ -159,18 +224,19 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ isOpen, onClose, onKey
             <div className="flex items-center gap-2">
               <span className={`w-2 h-2 rounded-full ${hasSavedKey ? 'bg-emerald-400 shadow-sm shadow-emerald-400/50' : 'bg-indigo-400 shadow-sm shadow-indigo-400/50'}`} />
               <span className="text-slate-300 font-medium">
-                {hasSavedKey ? 'Usando tu API Key personal' : 'Usando la cuota del servidor por defecto'}
+                {hasSavedKey ? t('apikey.usandoPersonal') : t('apikey.usandoServidor')}
               </span>
             </div>
             {hasSavedKey && (
               <button
                 type="button"
                 onClick={handleRemove}
-                className="text-rose-400 hover:text-rose-300 flex items-center gap-1 text-[11px] cursor-pointer"
+                disabled={loading}
+                className="text-rose-400 hover:text-rose-300 flex items-center gap-1 text-[11px] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 title="Quitar clave personal y volver a la del servidor"
               >
                 <Trash2 size={12} />
-                <span>Restablecer</span>
+                <span>{t('apikey.restablecer')}</span>
               </button>
             )}
           </div>
@@ -180,23 +246,29 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ isOpen, onClose, onKey
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
+              disabled={loading}
+              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Cancelar
+              {t('apikey.cancelar')}
             </button>
             <button
               type="submit"
-              className="flex items-center gap-1.5 px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-emerald-600/20 cursor-pointer"
+              disabled={loading}
+              className="flex items-center gap-1.5 px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-emerald-600/20 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {saveSuccess ? (
                 <>
                   <Check size={14} />
-                  <span>¡Guardado!</span>
+                  <span>{t('apikey.guardado')}</span>
+                </>
+              ) : loading ? (
+                <>
+                  <span>{t('apikey.guardando')}</span>
                 </>
               ) : (
                 <>
                   <Sparkles size={14} />
-                  <span>Guardar Configuración</span>
+                  <span>{t('apikey.guardar')}</span>
                 </>
               )}
             </button>

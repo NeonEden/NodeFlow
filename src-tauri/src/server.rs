@@ -244,6 +244,7 @@ pub fn spawn(data_dir: PathBuf, env_key: Option<String>, vault: Arc<Vault>, memo
             .route("/api/voz/traza", post(voz_traza))
             .route("/api/claves/estado", get(claves_estado))
             .route("/api/claves/migrar", post(claves_migrar))
+            .route("/api/claves", post(claves_guardar))
             .route("/api/idioma", get(idioma_leer).post(idioma_guardar))
             .route("/api/idioma/voz", post(idioma_voz_guardar))
             .route("/api/voz/decir", post(voz_decir))
@@ -1738,6 +1739,7 @@ fn resolve_key(st: &AppState, headers: &HeaderMap) -> Option<String> {
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .or_else(|| st.env_key.clone())
+        .or_else(|| crate::claves::obtener("gemini_api_key", &st.data_dir))
 }
 
 /// La cadena de proveedores también se puede fijar en `nodeflow.config.json` (`ai_chain`), para que
@@ -1790,7 +1792,10 @@ fn cadena_por_modo(modo: Option<&str>, base: Vec<String>) -> Vec<String> {
 /// config en texto plano, en ese orden. Nunca sale de acá.
 fn clave_del_motor(st: &AppState, m: &crate::motores::Motor) -> Option<String> {
     match m.proveedor.as_str() {
-        "gemini" => st.env_key.clone(),
+        "gemini" => st
+            .env_key
+            .clone()
+            .or_else(|| crate::claves::obtener("gemini_api_key", &st.data_dir)),
         "openai" | "ollama" => {
             let nombre = m.clave_ref.clone()?;
             if let Some(v) = crate::claves::obtener(&nombre, &st.data_dir) {
@@ -2935,6 +2940,69 @@ async fn claves_migrar(State(st): State<AppState>) -> impl IntoResponse {
             StatusCode::BAD_REQUEST,
             Json(json!({ "ok": false, "error": e })),
         ),
+    }
+}
+
+/// `POST /api/claves` — guarda o borra una clave en el llavero del sistema.
+/// Cuerpo: `{ "campo": "gemini_api_key", "valor": "..." }` para guardar,
+/// o `{ "campo": "gemini_api_key", "borrar": true }` para borrar.
+/// Responde: `{ "ok": true, "campo": "...", "origen": "llavero", "huella": "...", "largo": N }`.
+/// Nunca devuelve el valor. Rechaza con 400 si el campo no pasa `claves::es_campo_de_clave`.
+async fn claves_guardar(Json(body): Json<Value>) -> impl IntoResponse {
+    let campo = body.get("campo").and_then(|v| v.as_str()).unwrap_or("").trim();
+    if campo.is_empty() || !crate::claves::es_campo_de_clave(campo) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "ok": false, "error": "campo inválido o no es un campo de clave" })),
+        );
+    }
+
+    let borrar = body.get("borrar").and_then(|v| v.as_bool()).unwrap_or(false);
+
+    if borrar {
+        match crate::claves::Store::borrar(&crate::claves::Llavero, campo) {
+            Ok(()) => (
+                StatusCode::OK,
+                Json(json!({
+                    "ok": true,
+                    "campo": campo,
+                    "origen": "llavero",
+                    "huella": "",
+                    "largo": 0,
+                })),
+            ),
+            Err(e) => (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "ok": false, "error": e })),
+            ),
+        }
+    } else {
+        let valor = body.get("valor").and_then(|v| v.as_str()).unwrap_or("").trim();
+        if valor.is_empty() {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "ok": false, "error": "falta \"valor\" para guardar" })),
+            );
+        }
+        match crate::claves::Store::escribir(&crate::claves::Llavero, campo, valor) {
+            Ok(()) => {
+                let h = crate::claves::huella(valor);
+                (
+                    StatusCode::OK,
+                    Json(json!({
+                        "ok": true,
+                        "campo": campo,
+                        "origen": "llavero",
+                        "huella": h,
+                        "largo": valor.len(),
+                    })),
+                )
+            }
+            Err(e) => (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "ok": false, "error": e })),
+            ),
+        }
     }
 }
 
