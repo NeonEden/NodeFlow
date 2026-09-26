@@ -38,7 +38,7 @@ tower-http = { version = "0.6", features = ["cors"] }
 # `stream` habilita `bytes_stream()`: la voz local se baja de a chunks con progreso, en vez de
 # sostener 390 MB en memoria.
 reqwest = { version = "0.12", features = ["json", "stream"] }
-notify = "6"
+notify = "8"
 tauri-plugin-updater = "2.11.0"
 tauri-plugin-process = "2.3.1"
 # El almacén de Windows tiene que estar EXPLÍCITO: con las features por defecto el crate compila sin
