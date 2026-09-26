@@ -1,3 +1,13 @@
+> **⚠️ Este repositorio está CONGELADO desde el 26/09/2026.**
+> El desarrollo activo vive en **[NeonEden/nodeflow-ibm-bob](https://github.com/NeonEden/nodeflow-ibm-bob)**,
+> el repo oficial del hackathon IBM Bob 2.0. **Acá no se agregan features**: queda como laboratorio
+> (historial, worktrees, experimentos) y como origen de las releases publicadas hasta la v0.3.7.
+> Si vas a tocar código de NodeFlow, hacelo en el repo nuevo — el reparto, qué se migró y qué no está
+> en `docs/hackathon/MIGRACION.md` de ese repo. Un cambio acá **no** llega a la app del hackathon.
+>
+> Por qué se congeló en vez de sincronizar los dos: dos fuentes de verdad se desincronizan en la
+> primera semana, y cada PR habría que hacerlo dos veces. Una sola, y es la nueva.
+
 # NodeFlow
 
 **A hybrid Edge/Cloud inference orchestrator for knowledge graphs.**
