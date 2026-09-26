@@ -330,4 +330,21 @@
   color: color-mix(in srgb, var(--nf-acento) 46%, var(--nf-chrome-text));
 }
 
+/* Nodo FANTASMA del turno de voz (plan `docs/PLAN-LIENZO-EN-VIVO.md`, Fase C): lo que el lienzo está
+   entendiendo mientras se habla. Tiene que leerse como «todavía no es un nodo»: atenuado, punteado y
+   sin interacción. No se persiste: los guardados filtran por id. */
+.react-flow__node.nf-fantasma {
+  opacity: 0.62;
+  pointer-events: none;
+}
+.react-flow__node.nf-fantasma > div {
+  outline: 2px dashed #38bdf8;
+  outline-offset: 4px;
+  border-radius: 14px;
+}
+/* Sobre papel el celeste claro se lava: el trazo se oscurece lo justo para verse. */
+.nf-claro .react-flow__node.nf-fantasma > div {
+  outline-color: color-mix(in srgb, #38bdf8 58%, #0f172a);
+}
+
 

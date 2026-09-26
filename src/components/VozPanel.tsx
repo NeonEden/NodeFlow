@@ -44,6 +44,14 @@ interface VozPanelProps {
    * Se reacciona al contador `n`, no al objeto: dos pulsaciones seguidas se ejecutan las dos.
    */
   pedidoExterno?: { accion: 'empezar' | 'cortar'; n: number } | null;
+  /**
+   * Parcial del turno en curso, en vivo: es lo que permite dibujar un borrador en el lienzo MIENTRAS se
+   * habla (Fase C del plan `docs/PLAN-LIENZO-EN-VIVO.md`). Llega varias veces por turno y el texto
+   * crece, así que el consumidor tiene que ser barato.
+   */
+  onParcialVivo?: (texto: string) => void;
+  /** El turno se cerró: el borrador vivo deja de tener sentido y se retira del lienzo. */
+  onTurnoCerrado?: () => void;
 }
 
 /** Id corto de sesión de STT: sólo sirve para correlacionar y contar las trazas del log. */
@@ -80,7 +88,7 @@ const EJEMPLOS = [
  * Panel de Voz (Speechmatics). Hablás, la transcripción aparece en vivo y al cortar el motor
  * propone un PLAN de operaciones sobre el lienzo — que se aprueba antes de aplicarse.
  */
-export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, onPrevisualizar, onAplicarComandos, tituloNodo, preguntaAbierta, onResponder, onInicioConversacion, onTurnoConversacion, pedidoExterno }) => {
+export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, onPrevisualizar, onAplicarComandos, tituloNodo, preguntaAbierta, onResponder, onInicioConversacion, onTurnoConversacion, pedidoExterno, onParcialVivo, onTurnoCerrado }) => {
   // Textos del panel en el idioma activo. La voz (entrada y salida) sigue el mismo idioma desde el
   // backend, así que acá sólo se traduce la interfaz.
   const { t } = useIdioma();
@@ -522,6 +530,10 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
         onParcial: (t) => {
           fragRef.current = t;
           setParcial(t);
+          // El borrador del lienzo: el parcial sale del panel en vivo para que el grafo se dibuje
+          // mientras se habla (Fase C). Va antes del barge-in: dibujar no depende de que la app
+          // esté o no hablando.
+          onParcialVivo?.(t);
           // Primera marca de que el audio ENTRA: si el turno empieza a llegar tarde, se ve acá y no en la
           // transcripción final (que es donde el síntoma aparecía como «no me toma las palabras»).
           if (!primerParcialRef.current && t.trim()) {
@@ -612,6 +624,7 @@ export const VozPanel: React.FC<VozPanelProps> = ({ isOpen, onClose, onAplicar, 
     // el cambio de modo (fin de conversación, panel cerrado) cierra en el acto.
     if (!reusa) cerrarSesion('sin_reuso');
     setParcial('');
+    onTurnoCerrado?.(); // el turno cerró: el borrador del lienzo se retira
     setTexto(dictado);
     if (!dictado) {
       setError('No se escuchó nada. Probá de nuevo hablando más cerca del micrófono.');

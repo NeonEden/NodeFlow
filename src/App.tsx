@@ -66,6 +66,7 @@ import { useTema } from './state/canvasPrefs';
 import { AparienciaHud } from './components/AparienciaHud';
 import { calcularNiveles, acentoDeNivel } from './utils/zonas';
 import { firmaLienzo, nombreDeSesion } from './utils/sesiones';
+import { CLASE_FANTASMA, esIdeaEnVivo, ID_FANTASMA, nodoFantasma } from './utils/draftVoz';
 import {
   listarSesiones,
   leerSesion,
@@ -240,6 +241,12 @@ export default function App() {
   const [edgeAppearance, setEdgeAppearance] = useState<EdgeAppearance>(initialCanvas.appearance);
   const [currentTemplateId, setCurrentTemplateId] = useState<string>(initialCanvas.templateId);
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'unsaved'>('saved');
+  /**
+   * Parcial del turno de voz en curso. Alimenta el NODO FANTASMA: lo que el lienzo muestra mientras se
+   * habla (Fase C del plan). Vive aparte del grafo: se agrega a `nodes` sólo para dibujarlo y se filtra
+   * en los dos guardados, así que nunca llega al backend ni a la cola de propuestas.
+   */
+  const [draftVoz, setDraftVoz] = useState('');
 
   // 2. Selection & Modal States
   const [selectedNodes, setSelectedNodes] = useState<CustomNode[]>([]);
@@ -589,13 +596,37 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // NODO FANTASMA del turno de voz (plan `docs/PLAN-LIENZO-EN-VIVO.md`, Fase C): mientras se habla, el
+  // lienzo dibuja lo que se está entendiendo, en vez de esperar a que la frase termine. El debounce de
+  // 120 ms no es decorativo: el parcial llega muchas veces por turno y el texto crece, así que sin él
+  // cada carácter repinta todo el lienzo (cientos de nodos) mientras la persona habla.
+  // NO es un nodo del grafo: se filtra en los dos guardados y nunca llega al backend ni a la cola.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setNodes((nds) => {
+        const sinFantasma = nds.filter((n) => n.id !== ID_FANTASMA);
+        if (!esIdeaEnVivo(draftVoz)) {
+          // Sin idea todavía no hay nada que dibujar (y si había fantasma, se retira).
+          return sinFantasma.length === nds.length ? nds : sinFantasma;
+        }
+        // Nace pegado al ancla del árbol (o al primer nodo): se ve DÓNDE va a caer, no en el vacío.
+        const ancla =
+          nds.find((n) => n.id !== ID_FANTASMA && n.data.isRoot) ?? nds.find((n) => n.id !== ID_FANTASMA);
+        const fantasma = nodoFantasma(draftVoz, ancla) as CustomNode;
+        return [...sinFantasma, fantasma];
+      });
+    }, 120);
+    return () => clearTimeout(timer);
+  }, [draftVoz]);
+
   // Autoguardado continuo del lienzo activo (localStorage como caché + vault en disco)
   useEffect(() => {
     setSaveStatus('saving');
     const timer = setTimeout(() => {
       try {
         const payload = {
-          nodes,
+          // El fantasma del turno de voz no se persiste: es un borrador de lo que se está diciendo.
+          nodes: nodes.filter((n) => n.id !== ID_FANTASMA),
           edges,
           appearance: edgeAppearance,
           templateId: currentTemplateId,
@@ -616,7 +647,8 @@ export default function App() {
       const rootTitle = nodes.find((n) => n.data.isRoot)?.data.title;
       const res = await saveVault({
         name: rootTitle || 'nodeflow',
-        nodes,
+        // La bóveda es la fuente de verdad: el fantasma del turno de voz no entra nunca acá.
+        nodes: nodes.filter((n) => n.id !== ID_FANTASMA),
         edges,
         appearance: edgeAppearance,
         templateId: currentTemplateId,
@@ -2961,7 +2993,7 @@ export default function App() {
     try {
       const res = await postAiAction({
         type: 'synthesize',
-        nodes: nodes,
+        nodes: nodes.filter((n) => n.id !== ID_FANTASMA),
       });
       const data = await res.json();
       if (data.success && data.synthesis) {
@@ -2982,7 +3014,7 @@ export default function App() {
     try {
       const res = await postAiAction({
         type: 'synthesize',
-        nodes: nodes,
+        nodes: nodes.filter((n) => n.id !== ID_FANTASMA),
       });
       const data = await res.json();
       if (data.success && data.synthesis) {
@@ -3642,7 +3674,8 @@ export default function App() {
   const handleManualSave = useCallback(async () => {
     try {
       const payload = {
-        nodes,
+        // El fantasma del turno de voz no se persiste: es un borrador de lo que se está diciendo.
+        nodes: nodes.filter((n) => n.id !== ID_FANTASMA),
         edges,
         appearance: edgeAppearance,
         templateId: currentTemplateId,
@@ -3653,7 +3686,7 @@ export default function App() {
       const raiz = nodes.find((n) => n.data.isRoot)?.data.title;
       const res = await saveVault({
         name: raiz || 'nodeflow',
-        nodes,
+        nodes: nodes.filter((n) => n.id !== ID_FANTASMA),
         edges,
         appearance: edgeAppearance,
         templateId: currentTemplateId,
@@ -4704,6 +4737,9 @@ export default function App() {
         }}
         onInicioConversacion={inicioConversacion}
         onTurnoConversacion={turnoConversacion}
+        // El parcial del turno alimenta el nodo fantasma del lienzo (Fase C); al cerrar, se retira.
+        onParcialVivo={setDraftVoz}
+        onTurnoCerrado={() => setDraftVoz('')}
       />
 
       <LinajeModal
