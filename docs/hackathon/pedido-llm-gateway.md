@@ -39,6 +39,32 @@ Tomas Pieruz
 
 ---
 
+## Reintento del 26/09/2026 — sigue bloqueado, con evidencia fresca
+
+Volví a sondear con la misma clave. **Lo que cambió respecto del 16/09 es el mensaje, y eso orienta el
+pedido a soporte: el bloqueo pasó de ser de la cuenta entera a ser por modelo.** Los `request_id` de hoy
+son los que hay que citar (`GET /v1/models` sigue dando 200, así que el problema no es la autenticación):
+
+| Llamada | Resultado | `request_id` |
+|---|---|---|
+| `POST /v1/chat/completions` · `gemini-2.5-flash-lite` · **con tools** | 400 | `d3bd2f93-fab7-4ded-9729-899f96ff6e36` |
+| `POST /v1/chat/completions` · `gemini-3.5-flash-lite` · con tools | 400 | `17e67e93-7b3e-4900-9fe4-4851e10bcd20` |
+| `POST /v1/chat/completions` · `gemini-3.6-flash` · con tools | 400 | `8ee51340-0524-4409-95d4-abf8b83f4d32` |
+| `POST /v1/chat/completions` · `gpt-5-mini` · con tools | 400 | `3d2f6e4a-9af3-4bcd-a3bd-f501ac283754` |
+| `POST /v1/chat/completions` · `gemini-2.5-flash-lite` · **cuerpo mínimo, sin tools** | 400 | `c372636a-accd-49d7-901a-e355ae517e01` |
+| `POST /v1/chat/completions` · `claude-sonnet-4-5-20250929` · cuerpo mínimo | 400 | `221b7278-b553-4fae-b9f5-f1f3f53d6f04` |
+
+Cuerpo del error (idéntico en los seis): `{"metadata":{"errors":["Your account does not have access to
+this LLM Gateway model"]},"message":"invalid request body","code":400}`.
+
+Dos comprobaciones que descartan causas nuestras: el **cuerpo mínimo sin `tools` da lo mismo** (no es el
+schema) y **dos proveedores distintos dan lo mismo** (no es un modelo sin soporte). `GET /v1/models`
+devuelve **47 modelos** con `supported_parameters` que incluyen `tools` y `tool_choice`, así que el
+tool calling existe del lado del Gateway: lo que falta es la habilitación de la cuenta.
+
+**Qué pedir, entonces:** que habiliten el acceso al LLM Gateway (o digan qué desbloquea, si es
+verificación de facturación) y que confirmen con estos `request_id`, que son de hoy.
+
 ## Notas para Tomás (no van en el mail)
 
 - Los dos `request_id` están comprobados: los generé yo con tu clave. Son la evidencia que soporte pide.
