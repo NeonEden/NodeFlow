@@ -161,6 +161,36 @@ decir que no.
 - **Bob 2.0** (cierra **27/09 — mañana**): el envío pide explicar **en ≤500 palabras cómo y dónde se usó
   IBM Bob**, así que el uso tiene que ser real y registrado (§5).
 
+## 4b · Contrato del segmentador (fijado antes de implementar, para que no haya dos versiones)
+
+El front ya tiene su regla mínima (3 palabras → fantasma, en `src/utils/draftVoz.ts`, PR #26). El
+segmentador completo vive en el backend y **todavía no existe**: este es el contrato que tiene que
+cumplir, y es el que consume el cliente.
+
+```
+POST /api/voz/parcial
+  cuerpo: { turno_id: string, texto: string, anterior?: string, ms_desde_cambio?: number, es_final: boolean }
+  resp:   { clase: "nada" | "semilla" | "correccion",
+            motivo: string,          // por qué decidió: va al log y al panel, se audita
+            titulo: string | null,   // título corto del fantasma; null = que lo arme el cliente
+            texto: string }          // el texto limpio que se dibuja
+```
+
+Reglas (deterministas, sin modelo — ADR 0005):
+
+| Señal | Decisión |
+|---|---|
+| Parcial inestable (cambió respecto del anterior y no es final) | `nada` |
+| Menos de 3 palabras y no es final | `nada` |
+| Corrección explícita en los primeros 5 tokens (`no,` · `mejor dicho` · `en realidad` · `quise decir` · `olvidate`) | `correccion` |
+| `es_final: true` o parcial estable con ≥3 palabras | `semilla` |
+| Cualquier duda | `nada` — el ruido no dibuja, y lo descartado **se cuenta** para poder medirlo |
+
+Invariantes que el endpoint tiene que respetar: nada de esto toca el grafo (no valida contra el lienzo ni
+crea propuestas; sólo clasifica texto); sin estado global que sobreviva al turno (una bandera «en curso»
+necesita vencimiento — lección ya pagada dos veces en este proyecto); y la respuesta tiene que llegar en
+menos de ~50 ms, porque está en el camino de la voz.
+
 ## 5 · Bob: cómo entra y cómo se prueba
 
 Bob 2.0 está instalado (`%LOCALAPPDATA%\Programs\IBM Bob\IBM Bob.exe`, `bobide` 1.126.0+bob2.2.0, con
