@@ -8,7 +8,8 @@
 #
 # Regla: un worktree se poda SÓLO si se cumplen las tres:
 #   1. no es este repo (nunca se poda a sí mismo),
-#   2. su rama YA está mergeada en la rama principal, y
+#   2. su rama YA está mergeada en la rama principal — por historia (merge/rebase) o por PR mergeado
+#      con squash (que no deja ancestro: sin el chequeo contra GitHub, estos nunca se podaban), y
 #   3. no tiene cambios sin commitear ni commits sin mergear.
 #
 # Si tiene trabajo sucio NO se toca y se avisa: ahí puede haber algo que vale la pena mirar antes de
@@ -21,8 +22,17 @@ set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO" || exit 1
-LOG="$REPO/.git/checkpoint.log"
+# El log vive en el .git COMÚN, no en el del worktree: cuando el script corre desde un worktree, .git
+# es un archivo de texto y `>> .git/checkpoint.log` fallaba con "Not a directory" (medido 26/09/2026),
+# o sea que la poda corría sin dejar registro.
+GIT_COMUN="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"
+[ -n "${GIT_COMUN:-}" ] || GIT_COMUN="$REPO/.git"
+LOG="$GIT_COMUN/checkpoint.log"
 REPO_REAL="$(cd "$REPO" && pwd -W 2>/dev/null || echo "$REPO")"
+# El worktree PRINCIPAL nunca se poda, ni siquiera cuando este script corre desde otro worktree (ahí
+# REPO_REAL apunta al worktree, no al principal, y el principal aparecía como "PODABLE (2015 MB): main":
+# falso positivo medido 26/09/2026).
+PRINCIPAL_WT="$(git worktree list --porcelain 2>/dev/null | awk 'NR==1{sub(/^worktree /,"");print;exit}')"
 
 SOLO_VER=0
 [ "${1:-}" = "--ver" ] && SOLO_VER=1
@@ -46,6 +56,23 @@ else
   BASE="refs/heads/$PRINCIPAL"
 fi
 
+# Merge por SQUASH: un PR integrado con squash NO deja ancestro en la principal, así que el chequeo
+# por historia da falso negativo y el worktree nunca se poda. Medido el 26/09/2026: los SEIS worktrees
+# de ramas ya mergeadas (#13, #18, #19, #20, #21, #23) se saltaban con "rama sin mergear" en cada
+# pasada, y sus target/ quedaban ahí para siempre. La verdad sobre un squash sólo la tiene GitHub, así
+# que se consulta UNA vez por corrida y se arma el mapa rama → nº de PR.
+# Sin `gh` (o sin red) esto queda vacío y se vuelve al criterio conservador: no se poda. Un falso
+# negativo cuesta una pasada de más; un falso positivo borra trabajo.
+PRS_MERGEADOS=""
+if command -v gh >/dev/null 2>&1; then
+  PRS_MERGEADOS="$(gh pr list --state merged --limit 200 --json number,headRefName \
+    --jq '.[] | "\(.headRefName)|#\(.number)"' 2>/dev/null)"
+fi
+pr_mergeado() { # $1 = rama → "#N" si su PR figura mergeado, vacío si no
+  [ -n "$PRS_MERGEADOS" ] || return 0
+  printf '%s\n' "$PRS_MERGEADOS" | awk -F'|' -v r="$1" '$1==r{print $2; exit}'
+}
+
 tam_mb() { du -sm "$1" 2>/dev/null | cut -f1; }
 
 podados=0
@@ -55,9 +82,10 @@ saltados=0
 while IFS=$'\t' read -r ruta rama; do
   [ -n "${ruta:-}" ] || continue
 
-  # 1. Nunca a sí mismo.
+  # 1. Nunca a sí mismo, ni al worktree principal.
   ruta_real="$(cd "$ruta" 2>/dev/null && pwd -W 2>/dev/null || echo "$ruta")"
   [ "$ruta_real" = "$REPO_REAL" ] && continue
+  [ -n "${PRINCIPAL_WT:-}" ] && [ "$ruta_real" = "$PRINCIPAL_WT" ] && continue
 
   # Worktree sin rama (detached): no se toca, no hay merge que probar.
   if [ "${rama:-}" = "(DETACHED)" ] || [ -z "${rama:-}" ]; then
@@ -66,8 +94,16 @@ while IFS=$'\t' read -r ruta rama; do
     continue
   fi
 
-  # 2. ¿La rama ya está adentro de la principal?
-  if ! git merge-base --is-ancestor "refs/heads/$rama" "$BASE" 2>/dev/null; then
+  # 2. ¿La rama ya está adentro de la principal? Hay dos caminos y hay que probar los dos: por
+  #    historia (merge o rebase) o por PR mergeado con squash (que no deja rastro en la historia).
+  via=""
+  if git merge-base --is-ancestor "refs/heads/$rama" "$BASE" 2>/dev/null; then
+    via="en la historia"
+  else
+    pr="$(pr_mergeado "$rama")"
+    [ -n "$pr" ] && via="PR $pr mergeado (squash)"
+  fi
+  if [ -z "$via" ]; then
     anotar "SALTADO (rama sin mergear): $rama"
     saltados=$((saltados + 1))
     continue
@@ -83,7 +119,7 @@ while IFS=$'\t' read -r ruta rama; do
 
   mb="$(tam_mb "$ruta")"
   if [ "$SOLO_VER" = "1" ]; then
-    anotar "PODABLE (${mb:-?} MB): $rama → $ruta"
+    anotar "PODABLE (${mb:-?} MB · $via): $rama → $ruta"
     podados=$((podados + 1))
     continue
   fi
@@ -91,7 +127,7 @@ while IFS=$'\t' read -r ruta rama; do
   if git worktree remove --force "$ruta" 2>/dev/null; then
     # El directorio puede quedar como stub si algo tenía un archivo tomado: se remata a mano.
     [ -d "$ruta" ] && rm -rf "$ruta" 2>/dev/null
-    anotar "podado ${mb:-?} MB: $rama"
+    anotar "podado ${mb:-?} MB · $via: $rama"
     podados=$((podados + 1))
   else
     anotar "FALLÓ la poda de $rama (¿archivo tomado por otro proceso?)"
