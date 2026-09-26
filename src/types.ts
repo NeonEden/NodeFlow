@@ -91,6 +91,8 @@ export interface IdeaNodeData {
   degree?: number;
   /** true si la lente de categoría lo está marcando como miembro. Sólo render. */
   lente?: boolean;
+  /** Nodo fantasma del turno de voz: se dibuja mientras se habla y NO se persiste (plan Fase C). */
+  ghost?: boolean;
   /** Macro-nodo condensado: guarda el LINaje (poda sin pérdida). */
   /** Pregunta catalizadora (socratic): se abre, se responde y se cierra. */
   pregunta?: {
